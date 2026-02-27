@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neurai Sign</title>
+  <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <img class="logo-icon" src="../icons/icon48.png" alt="Neurai icon" width="28" height="28">
+        <h1>Neurai Sign</h1>
+      </div>
+      <div class="network-badge" id="networkBadge">
+        <span class="network-dot"></span>
+        <span>Mainnet</span>
+      </div>
+      <button class="btn-icon-only header-action-btn header-expand-btn" id="openExpandedBtn" title="Open full view" type="button" aria-label="Open full view tab">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9 2h5v5h-1.5V4.56L7.53 9.53 6.47 8.47l4.97-4.97H9V2zM3 3h4v1.5H4.5v7h7V9H13v4H3V3z"/></svg>
+      </button>
+      <button class="btn-icon-only header-action-btn header-settings-btn" id="openSettingsBtn" title="Settings" type="button" aria-label="Open settings">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.6.8l.4 1.7c.3.1.7.3 1 .4L12.6 2l1.6 1.6-.9 1.6c.2.3.3.6.4 1l1.7.4v2.2l-1.7.4c-.1.3-.3.7-.4 1l.9 1.6-1.6 1.6-1.6-.9c-.3.2-.6.3-1 .4l-.4 1.7H7.4L7 13.5c-.3-.1-.7-.3-1-.4l-1.6.9-1.6-1.6.9-1.6c-.2-.3-.3-.6-.4-1L1.6 8.8V6.6l1.7-.4c.1-.3.3-.7.4-1l-.9-1.6L4.4 2l1.6.9c.3-.2.6-.3 1-.4L7.4.8h2.2zM8 5.4A2.6 2.6 0 1 0 8 10.6 2.6 2.6 0 0 0 8 5.4z"/></svg>
+      </button>
+    </header>
+
+    <!-- Setup Section -->
+    <section class="setup-section" id="setupSection">
+      <div class="setup-card">
+        <h2>Welcome to Neurai</h2>
+        <p class="setup-account" id="setupAccountLabel">Account: Neurai_1</p>
+
+        <div class="form-group">
+          <label for="privateKey">Private Key (WIF)</label>
+          <div class="input-wrapper">
+            <input type="password" id="privateKey" placeholder="Enter your WIF private key" autocomplete="off">
+            <button class="input-toggle" id="toggleKeyVisibility" type="button">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="network">Network</label>
+          <select id="network">
+            <option value="xna">Neurai Mainnet (XNA)</option>
+            <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary btn-glow" id="saveKeyBtn">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a5 5 0 0 0-5 5v2H2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-1V6a5 5 0 0 0-5-5zm0 1.5A3.5 3.5 0 0 1 11.5 6v2h-7V6A3.5 3.5 0 0 1 8 2.5zM8 10a1.5 1.5 0 0 1 .5 2.91V14h-1v-1.09A1.5 1.5 0 0 1 8 10z"/></svg>
+          Import Wallet
+        </button>
+
+        <div class="divider"><span>or</span></div>
+
+        <button class="btn btn-secondary" id="generateNewBtn">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.2A5.8 5.8 0 1 1 8 13.8 5.8 5.8 0 0 1 8 2.2zM7.4 4v3.4L4.6 9l.8 1L8.6 8V4h-1.2z"/></svg>
+          Generate New Wallet
+        </button>
+
+        <p class="warning-text">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="vertical-align:-2px"><path d="M7 0L0 12.5h14L7 0zm0 4l4.5 7.5h-9L7 4zm-.5 2.5v3h1v-3h-1zm0 3.5v1h1v-1h-1z"/></svg>
+          Never share your private key. Keep it safe and backed up.
+        </p>
+      </div>
+    </section>
+
+    <!-- Wallet Section -->
+    <section class="wallet-section hidden" id="walletSection">
+      <!-- Status Bar -->
+      <div class="status-bar glass">
+        <div class="status-indicator" id="statusIndicator">
+          <span class="status-dot"></span>
+          <span class="status-text">Connected</span>
+        </div>
+        <div class="account-chip" id="currentAccountDisplay">Neurai_1</div>
+        <div class="last-update" id="lastUpdate">
+          Updated: --
+        </div>
+      </div>
+
+      <!-- Address Card -->
+      <div class="card glass">
+        <div class="card-header">
+          <h3>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="vertical-align: -1px; opacity: 0.6;"><path d="M7 0a7 7 0 1 0 0 14A7 7 0 0 0 7 0zm0 2a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zm0 10.5c-1.8 0-3.4-.9-4.4-2.2.02-1.5 2.9-2.3 4.4-2.3 1.5 0 4.38.8 4.4 2.3-1 1.3-2.6 2.2-4.4 2.2z"/></svg>
+            Your Address
+          </h3>
+          <button class="btn-icon-only" id="copyAddressBtn" title="Copy address">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M10 0H2a1 1 0 0 0-1 1v9h1V1h8V0zm2 3H5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm0 10H5V4h7v9z"/></svg>
+          </button>
+        </div>
+        <div class="address-display" id="addressDisplay">
+          --
+        </div>
+      </div>
+
+      <!-- Balance Card -->
+      <div class="card glass balance-card-main">
+        <div class="card-header">
+          <h3>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="vertical-align: -1px; opacity: 0.6;"><path d="M7 0C3.1 0 0 3.1 0 7s3.1 7 7 7 7-3.1 7-7-3.1-7-7-7zm.5 11H6V6h1.5v5zm0-6H6V3.5h1.5V5z"/></svg>
+            Balance
+          </h3>
+          <button class="btn-refresh" id="refreshBtn" title="Refresh balance">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M14 8a6 6 0 1 1-1.2-3.6L11 6h5V1l-1.7 1.7A8 8 0 1 0 16 8h-2z"/></svg>
+          </button>
+        </div>
+
+        <div class="balance-row main-balance">
+          <span class="balance-label">XNA</span>
+          <span class="balance-value" id="xnaBalance">--</span>
+        </div>
+
+        <div class="balance-divider"></div>
+
+        <div class="balance-row">
+          <span class="balance-label">Pending</span>
+          <span class="balance-value pending" id="pendingBalance">--</span>
+        </div>
+
+        <!-- Tokens Section -->
+        <div class="tokens-section hidden" id="tokensSection">
+          <div class="tokens-divider"></div>
+          <h4>Tokens</h4>
+          <div class="tokens-list" id="tokensList"></div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions-row">
+        <button class="btn btn-secondary btn-small" id="changeWalletBtn">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 0L2 4h3v5h2V4h3L6 0zM0 10v2h12v-2H0z"/></svg>
+          Change Account
+        </button>
+      </div>
+    </section>
+
+    <footer class="addon-footer">Neurai Sign v0.5.0</footer>
+
+    <!-- Toast -->
+    <div class="toast hidden" id="toast">
+      <span class="toast-icon" id="toastIcon"></span>
+      <span class="toast-message" id="toastMessage"></span>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="spinner"></div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="settingsModal">
+    <div class="modal-panel glass" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-header">
+        <h2 id="settingsTitle">Settings</h2>
+        <button class="btn-icon-only" id="closeSettingsBtn" type="button" aria-label="Close settings">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.3 2.3L8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9 3.3 13.7l-1-1L7 8 2.3 3.3l1-1z"/></svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="settings-grid">
+          <div class="form-group">
+            <label for="themeMode">Theme</label>
+            <select id="themeMode">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="rpcMainnet">RPC Mainnet URL</label>
+            <input type="url" id="rpcMainnet" placeholder="https://rpc-main.neurai.org/rpc" spellcheck="false">
+          </div>
+
+          <div class="form-group">
+            <label for="rpcTestnet">RPC Testnet URL</label>
+            <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet.neurai.org/rpc" spellcheck="false">
+          </div>
+
+          <div class="form-group">
+            <label for="lockTimeoutMinutes">Auto-lock (minutes)</label>
+            <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
+          </div>
+        </div>
+
+        <div class="settings-section-title">Security</div>
+        <div class="settings-grid">
+          <div class="form-group">
+            <label>Access PIN</label>
+            <span class="pin-status-text" id="pinStatusText">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label for="settingsPinOld">Current PIN <span class="label-hint">(required to change PIN)</span></label>
+            <input type="password" id="settingsPinOld" placeholder="Current PIN" autocomplete="current-password">
+          </div>
+          <div class="form-group">
+            <label for="settingsPinNew">Set / Change PIN <span class="label-hint">(4–20 chars)</span></label>
+            <input type="password" id="settingsPinNew" placeholder="New PIN" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="settingsPinConfirm">Confirm new PIN</label>
+            <input type="password" id="settingsPinConfirm" placeholder="Repeat PIN" autocomplete="new-password">
+          </div>
+        </div>
+
+        <div class="settings-danger">
+          <h3>Danger Zone</h3>
+          <button class="btn btn-danger btn-small" id="removePinBtn" type="button" style="display:none">
+            Remove PIN
+          </button>
+          <button class="btn btn-danger btn-small" id="removeWalletBtn" type="button">
+            Remove Current Account
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn btn-secondary btn-small" id="resetSettingsBtn" type="button">Use Defaults</button>
+        <button class="btn btn-primary btn-small" id="saveSettingsBtn" type="button">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="accountModal">
+    <div class="modal-panel glass" role="dialog" aria-modal="true" aria-labelledby="accountModalTitle">
+      <div class="modal-header">
+        <h2 id="accountModalTitle">Accounts</h2>
+        <button class="btn-icon-only" id="closeAccountModalBtn" type="button" aria-label="Close account modal">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.3 2.3L8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9 3.3 13.7l-1-1L7 8 2.3 3.3l1-1z"/></svg>
+        </button>
+      </div>
+      <div class="settings-grid">
+        <div class="form-group">
+          <label>Current</label>
+          <div class="account-current" id="accountCurrentLabel">Neurai_1</div>
+        </div>
+        <div class="form-group">
+          <label for="accountSelect">Configured Accounts</label>
+          <select id="accountSelect"></select>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-secondary btn-small" id="switchAccountBtn" type="button">Use Selected</button>
+        <button class="btn btn-primary btn-small" id="newAccountBtn" type="button">New Account</button>
+      </div>
+      <p class="account-hint" id="accountHint"></p>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="removeConfirmModal">
+    <div class="modal-panel glass warning-modal" role="dialog" aria-modal="true" aria-labelledby="removeConfirmTitle">
+      <div class="warning-icon">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="currentColor"><path d="M11 1L1 19h20L11 1zm0 4.1L17.4 17H4.6L11 5.1zm-1 4.4v4h2v-4h-2zm0 5.5v2h2v-2h-2z"/></svg>
+      </div>
+      <h2 id="removeConfirmTitle">Remove account data?</h2>
+      <p id="removeConfirmText">This will delete private key data for the selected account.</p>
+      <div class="settings-actions">
+        <button class="btn btn-secondary btn-small" id="cancelRemoveBtn" type="button">Cancel</button>
+        <button class="btn btn-danger btn-small" id="confirmRemoveBtn" type="button">Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="unlockModal">
+    <div class="modal-panel glass warning-modal" role="dialog" aria-modal="true" aria-labelledby="unlockTitle">
+      <h2 id="unlockTitle">Wallet Locked</h2>
+      <p>Enter your PIN to unlock the addon.</p>
+      <div class="form-group">
+        <label for="unlockPinInput">Access PIN</label>
+        <input id="unlockPinInput" type="password" placeholder="Enter PIN" autocomplete="off">
+      </div>
+      <p class="account-hint" id="unlockError"></p>
+      <div class="settings-actions">
+        <button class="btn btn-secondary btn-small" id="unlockCancelBtn" type="button">Close</button>
+        <button class="btn btn-primary btn-small" id="unlockConfirmBtn" type="button">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop hidden" id="initialPinModal">
+    <div class="modal-panel glass warning-modal" role="dialog" aria-modal="true" aria-labelledby="initialPinTitle">
+      <h2 id="initialPinTitle">Create Access PIN</h2>
+      <p>Before saving your first wallet, set a PIN. Your private key will be encrypted with this PIN.</p>
+      <div class="form-group">
+        <label for="initialPinInput">New PIN</label>
+        <input id="initialPinInput" type="password" placeholder="4 to 20 characters" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label for="initialPinConfirmInput">Confirm PIN</label>
+        <input id="initialPinConfirmInput" type="password" placeholder="Repeat PIN" autocomplete="new-password">
+      </div>
+      <p class="account-hint" id="initialPinError"></p>
+      <div class="settings-actions">
+        <button class="btn btn-secondary btn-small" id="initialPinCancelBtn" type="button">Cancel</button>
+        <button class="btn btn-primary btn-small" id="initialPinSaveBtn" type="button">Set PIN</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mnemonic Backup Modal -->
+  <div class="modal-backdrop hidden" id="mnemonicModal">
+    <div class="modal-panel glass" role="dialog" aria-modal="true" aria-labelledby="mnemonicTitle">
+      <div class="modal-header">
+        <h2 id="mnemonicTitle">Backup Recovery Phrase</h2>
+      </div>
+      <p class="mnemonic-warning">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0;margin-top:1px"><path d="M8 0L0 14h16L8 0zm0 4.3L13.1 13H2.9L8 4.3zm-.6 3v4h1.2V7.3H7.4zm0 4.7v1.2h1.2V12H7.4z"/></svg>
+        Write down these 12 words in order and store them safely. This is the <strong>only way to recover your wallet</strong> if you lose access.
+      </p>
+      <div class="mnemonic-grid" id="mnemonicWords"></div>
+      <div class="mnemonic-confirm-row">
+        <label class="mnemonic-confirm-label">
+          <input type="checkbox" id="mnemonicBackedUp">
+          I have written down my recovery phrase
+        </label>
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-primary btn-small" id="mnemonicConfirmBtn" disabled type="button">Continue to Wallet</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../lib/NeuraiKey.js"></script>
+  <script src="../lib/NeuraiMessage.js"></script>
+  <script src="../lib/NeuraiReader.js"></script>
+  <script src="../shared/constants.js"></script>
+  <script src="../shared/utils.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

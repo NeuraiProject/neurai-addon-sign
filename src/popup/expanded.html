@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neurai Sign - Full View</title>
+  <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
+  <link rel="stylesheet" href="expanded.css">
+</head>
+<body>
+  <main class="layout">
+    <header class="page-header card">
+      <div>
+        <h1>Neurai Sign</h1>
+        <p id="headerSubtitle">Full tab view</p>
+      </div>
+      <div class="header-actions">
+        <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <!-- ── Setup section (shown when not configured) ─────────────────────── -->
+    <section id="setupSection" class="card setup-card hidden">
+      <h2>Set Up Your Wallet</h2>
+      <p class="setup-subtitle">Import an existing wallet or generate a new one.</p>
+
+      <div class="form-group">
+        <label for="network">Network</label>
+        <select id="network">
+          <option value="xna">Neurai Mainnet (XNA)</option>
+          <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="privateKey">Private Key (WIF)</label>
+        <div class="input-row">
+          <input type="password" id="privateKey" placeholder="Enter WIF private key…">
+          <button id="saveKeyBtn" class="btn btn-primary" type="button">Import</button>
+        </div>
+      </div>
+
+      <div class="setup-divider">— or —</div>
+
+      <button id="generateNewBtn" class="btn btn-secondary btn-block" type="button">
+        Generate New Wallet
+      </button>
+    </section>
+
+    <!-- ── Mnemonic backup section ────────────────────────────────────────── -->
+    <section id="mnemonicSection" class="card mnemonic-card hidden">
+      <h2>Back Up Your Recovery Phrase</h2>
+      <p class="setup-subtitle">Write these 12 words in order and store them somewhere safe.
+         They are the only way to recover your wallet if you lose access.</p>
+      <div id="mnemonicWords" class="mnemonic-grid"></div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="mnemonicBackedUp">
+        I have safely backed up my 12-word recovery phrase
+      </label>
+      <button id="mnemonicConfirmBtn" class="btn btn-primary" type="button" disabled>
+        Continue to Wallet
+      </button>
+    </section>
+
+    <!-- ── Wallet section (shown when configured) ────────────────────────── -->
+    <div id="walletSection" class="hidden">
+      <section class="card">
+        <h2>Wallet</h2>
+        <div class="grid">
+          <div class="row">
+            <span>Network</span>
+            <strong id="networkValue">--</strong>
+          </div>
+          <div class="row">
+            <span>Account</span>
+            <strong id="accountValue">--</strong>
+          </div>
+          <div class="row">
+            <span>Status</span>
+            <strong id="statusValue">--</strong>
+          </div>
+          <div class="row">
+            <span>Last update</span>
+            <strong id="updatedValue">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Your Address</h2>
+          <button id="copyAddressBtn" class="btn btn-secondary" type="button">Copy</button>
+        </div>
+        <p class="address" id="addressValue">--</p>
+      </section>
+
+      <section class="card balance-card">
+        <h2>Balance</h2>
+        <div class="row">
+          <span>XNA</span>
+          <strong class="value-main" id="balanceValue">--</strong>
+        </div>
+        <div class="row">
+          <span>Pending</span>
+          <strong id="pendingValue">--</strong>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="unlockModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="unlockTitle">
+    <div class="unlock-panel">
+      <h2 id="unlockTitle">Wallet Locked</h2>
+      <p>Enter your PIN to unlock the extension.</p>
+      <label for="unlockPinInput">Access PIN</label>
+      <input id="unlockPinInput" type="password" placeholder="Enter PIN" autocomplete="off">
+      <p id="unlockError" class="unlock-error"></p>
+      <button id="unlockConfirmBtn" class="btn btn-primary" type="button">Unlock</button>
+    </div>
+  </div>
+
+  <script src="../lib/NeuraiKey.js"></script>
+  <script src="../lib/NeuraiReader.js"></script>
+  <script src="../shared/constants.js"></script>
+  <script src="../shared/utils.js"></script>
+  <script src="expanded.js"></script>
+</body>
+</html>

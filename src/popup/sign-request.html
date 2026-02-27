@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neurai Sign - Signature Request</title>
+  <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
+  <link rel="stylesheet" href="sign-request.css">
+</head>
+<body>
+  <main class="panel">
+    <header class="head">
+      <h1>Signature Request</h1>
+      <p>Approve or reject this signing operation.</p>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <span>Site</span>
+        <strong id="originValue">--</strong>
+      </div>
+      <div class="row">
+        <span>Address</span>
+        <strong id="addressValue">--</strong>
+      </div>
+      <div class="row">
+        <span>Network</span>
+        <strong id="networkValue">--</strong>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Message</h2>
+      <pre id="messageValue">--</pre>
+    </section>
+
+    <section class="card hidden" id="pinBlock">
+      <label for="pinInput">Access PIN</label>
+      <input id="pinInput" type="password" placeholder="Enter PIN to approve" autocomplete="off">
+      <p class="error" id="errorText"></p>
+    </section>
+
+    <div class="actions">
+      <button id="rejectBtn" class="btn btn-secondary" type="button">Reject</button>
+      <button id="acceptBtn" class="btn btn-primary" type="button">Accept</button>
+    </div>
+  </main>
+
+  <script src="sign-request.js"></script>
+</body>
+</html>

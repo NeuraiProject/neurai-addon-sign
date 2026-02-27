@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Neurai Sign",
+  "version": "0.5.0",
+  "description": "Use Neurai's blockchain (XNA) to authenticate yourself using coins or tokens through digital signatures.",
+  "short_name": "Neurai Sign",
+  "permissions": [
+    "storage",
+    "windows"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "host_permissions": [
+    "https://rpc-main.neurai.org/*",
+    "https://rpc-testnet.neurai.org/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content/content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content/inject.js"],
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
