@@ -647,36 +647,53 @@ body {
   margin: 4px 0;
 }
 
-/* === Tokens === */
-.tokens-section {
-  margin-top: 8px;
+/* === Balance Tabs === */
+.balance-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
-.tokens-section.hidden {
+.balance-tab {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+
+.balance-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.balance-tab.is-active {
+  border-color: var(--primary);
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+}
+
+.balance-panel.hidden {
   display: none;
 }
 
-.tokens-divider {
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border), transparent);
-  margin: 12px 0;
-}
-
-.tokens-section h4 {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  margin-bottom: 8px;
-}
-
-.tokens-list {
+/* === Assets === */
+.assets-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 2px;
 }
 
-.token-item {
+.asset-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -686,17 +703,29 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.token-name {
+.asset-name {
   font-size: 12px;
   color: var(--text-secondary);
   font-weight: 500;
+  max-width: 65%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.token-balance {
+.asset-balance {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
   font-family: var(--font-mono);
+  text-align: right;
+}
+
+.assets-empty {
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 /* === Actions === */

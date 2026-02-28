@@ -38,8 +38,13 @@
     updatedValue:       document.getElementById('updatedValue'),
     addressValue:       document.getElementById('addressValue'),
     balanceValue:       document.getElementById('balanceValue'),
-    pendingValue:       document.getElementById('pendingValue')
-    ,
+    pendingValue:       document.getElementById('pendingValue'),
+    balanceTabGeneral:  document.getElementById('balanceTabGeneral'),
+    balanceTabAssets:   document.getElementById('balanceTabAssets'),
+    balancePanelGeneral:document.getElementById('balancePanelGeneral'),
+    balancePanelAssets: document.getElementById('balancePanelAssets'),
+    assetsList:         document.getElementById('assetsList'),
+    assetsEmpty:        document.getElementById('assetsEmpty'),
     unlockModal:        document.getElementById('unlockModal'),
     unlockPinInput:     document.getElementById('unlockPinInput'),
     unlockError:        document.getElementById('unlockError'),
@@ -51,6 +56,7 @@
     accounts:        null,
     activeAccountId: '1',
     settings:        { ...C.DEFAULT_SETTINGS },
+    assets:          [],
     unlockUntil:     0,
     lockWatchInterval: null,
     lastUnlockTouchAt: 0
@@ -80,6 +86,8 @@
 
   function bindEvents() {
     elements.refreshBtn.addEventListener('click', handleRefresh);
+    elements.balanceTabGeneral.addEventListener('click', () => switchBalanceTab('general'));
+    elements.balanceTabAssets.addEventListener('click', () => switchBalanceTab('assets'));
     elements.copyAddressBtn.addEventListener('click', copyAddress);
     elements.saveKeyBtn.addEventListener('click', handleSaveKey);
     elements.generateNewBtn.addEventListener('click', handleGenerateNew);
@@ -230,13 +238,27 @@
       const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address);
       const balance     = NeuraiReader.formatBalance(balanceData.balance);
       const pending     = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
+      const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address);
+      state.assets = (assetBalance && Array.isArray(assetBalance.assets))
+        ? assetBalance.assets.map((asset) => {
+            const decimals = asset.divisible ? 8 : 0;
+            const amount = Number(asset.balance || 0) / Math.pow(10, decimals);
+            return {
+              name: String(asset.name || '').trim() || '(Unnamed asset)',
+              amountText: formatAssetAmount(amount, decimals)
+            };
+          }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        : [];
       renderAmount(elements.balanceValue, balance, '0');
       renderAmount(elements.pendingValue, pending, '0');
+      renderAssetsList();
       elements.statusValue.textContent   = 'Connected';
       elements.updatedValue.textContent  = new Date().toLocaleString();
     } catch (error) {
       elements.statusValue.textContent  = 'RPC error';
       elements.updatedValue.textContent = 'Failed to fetch balance';
+      state.assets = [];
+      renderAssetsList();
       renderAmount(elements.balanceValue, '--', '0');
       renderAmount(elements.pendingValue, '--', '0');
     }
@@ -266,6 +288,43 @@
       decNode.textContent = '.' + decimals;
       element.appendChild(decNode);
     }
+  }
+
+  function formatAssetAmount(amount, decimals) {
+    const fixed = Number(amount || 0).toFixed(decimals);
+    const trimmed = fixed.replace(/\.?0+$/, '');
+    return trimmed || '0';
+  }
+
+  function renderAssetsList() {
+    if (!state.assets.length) {
+      elements.assetsList.innerHTML = '';
+      elements.assetsEmpty.classList.remove('hidden');
+      return;
+    }
+    elements.assetsEmpty.classList.add('hidden');
+    elements.assetsList.innerHTML = state.assets.map((asset) =>
+      `<div class="asset-item"><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span><span class="asset-balance">${escapeHtml(asset.amountText)}</span></div>`
+    ).join('');
+  }
+
+  function switchBalanceTab(tab) {
+    const showAssets = tab === 'assets';
+    elements.balanceTabGeneral.classList.toggle('is-active', !showAssets);
+    elements.balanceTabGeneral.setAttribute('aria-selected', showAssets ? 'false' : 'true');
+    elements.balanceTabAssets.classList.toggle('is-active', showAssets);
+    elements.balanceTabAssets.setAttribute('aria-selected', showAssets ? 'true' : 'false');
+    elements.balancePanelGeneral.classList.toggle('hidden', showAssets);
+    elements.balancePanelAssets.classList.toggle('hidden', !showAssets);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function applyReaderConfig(network) {

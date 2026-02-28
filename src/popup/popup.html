@@ -112,23 +112,32 @@
           </button>
         </div>
 
-        <div class="balance-row main-balance">
-          <span class="balance-label">XNA</span>
-          <span class="balance-value" id="xnaBalance">--</span>
+        <div class="balance-tabs" role="tablist" aria-label="Balance views">
+          <button class="balance-tab is-active" id="balanceTabGeneral" type="button" role="tab" aria-selected="true" aria-controls="balancePanelGeneral">
+            General
+          </button>
+          <button class="balance-tab" id="balanceTabAssets" type="button" role="tab" aria-selected="false" aria-controls="balancePanelAssets">
+            Assets
+          </button>
         </div>
 
-        <div class="balance-divider"></div>
+        <div class="balance-panel" id="balancePanelGeneral" role="tabpanel">
+          <div class="balance-row main-balance">
+            <span class="balance-label">XNA</span>
+            <span class="balance-value" id="xnaBalance">--</span>
+          </div>
 
-        <div class="balance-row">
-          <span class="balance-label">Pending</span>
-          <span class="balance-value pending" id="pendingBalance">--</span>
+          <div class="balance-divider"></div>
+
+          <div class="balance-row">
+            <span class="balance-label">Pending</span>
+            <span class="balance-value pending" id="pendingBalance">--</span>
+          </div>
         </div>
 
-        <!-- Tokens Section -->
-        <div class="tokens-section hidden" id="tokensSection">
-          <div class="tokens-divider"></div>
-          <h4>Tokens</h4>
-          <div class="tokens-list" id="tokensList"></div>
+        <div class="balance-panel hidden" id="balancePanelAssets" role="tabpanel">
+          <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
+          <div class="assets-list" id="assetsList"></div>
         </div>
       </div>
 

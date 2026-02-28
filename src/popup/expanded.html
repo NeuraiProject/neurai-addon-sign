@@ -96,13 +96,29 @@
 
       <section class="card balance-card">
         <h2>Balance</h2>
-        <div class="row">
-          <span>XNA</span>
-          <strong class="value-main" id="balanceValue">--</strong>
+        <div class="balance-tabs" role="tablist" aria-label="Balance views">
+          <button class="balance-tab is-active" id="balanceTabGeneral" type="button" role="tab" aria-selected="true" aria-controls="balancePanelGeneral">
+            General
+          </button>
+          <button class="balance-tab" id="balanceTabAssets" type="button" role="tab" aria-selected="false" aria-controls="balancePanelAssets">
+            Assets
+          </button>
         </div>
-        <div class="row">
-          <span>Pending</span>
-          <strong id="pendingValue">--</strong>
+
+        <div class="balance-panel" id="balancePanelGeneral" role="tabpanel">
+          <div class="row">
+            <span>XNA</span>
+            <strong class="value-main" id="balanceValue">--</strong>
+          </div>
+          <div class="row">
+            <span>Pending</span>
+            <strong id="pendingValue">--</strong>
+          </div>
+        </div>
+
+        <div class="balance-panel hidden" id="balancePanelAssets" role="tabpanel">
+          <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
+          <div class="assets-list" id="assetsList"></div>
         </div>
       </section>
     </div>

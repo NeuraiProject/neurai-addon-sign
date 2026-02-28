@@ -63,8 +63,12 @@
     copyAddressBtn:       document.getElementById('copyAddressBtn'),
     xnaBalance:           document.getElementById('xnaBalance'),
     pendingBalance:       document.getElementById('pendingBalance'),
-    tokensSection:        document.getElementById('tokensSection'),
-    tokensList:           document.getElementById('tokensList'),
+    balanceTabGeneral:    document.getElementById('balanceTabGeneral'),
+    balanceTabAssets:     document.getElementById('balanceTabAssets'),
+    balancePanelGeneral:  document.getElementById('balancePanelGeneral'),
+    balancePanelAssets:   document.getElementById('balancePanelAssets'),
+    assetsList:           document.getElementById('assetsList'),
+    assetsEmpty:          document.getElementById('assetsEmpty'),
     refreshBtn:           document.getElementById('refreshBtn'),
     statusIndicator:      document.getElementById('statusIndicator'),
     lastUpdate:           document.getElementById('lastUpdate'),
@@ -87,7 +91,7 @@
     network:         'xna',
     balance:         null,
     pendingBalance:  null,
-    tokens:          [],
+    assets:          [],
     pollingInterval: null,
     isConnected:     false,
     settings:        null,
@@ -147,6 +151,8 @@
     elements.generateNewBtn.addEventListener('click', handleGenerateNew);
     elements.copyAddressBtn.addEventListener('click', handleCopyAddress);
     elements.refreshBtn.addEventListener('click', handleRefresh);
+    elements.balanceTabGeneral.addEventListener('click', () => switchBalanceTab('general'));
+    elements.balanceTabAssets.addEventListener('click', () => switchBalanceTab('assets'));
     elements.changeWalletBtn.addEventListener('click', handleChangeWallet);
     elements.lockNowBtn.addEventListener('click', handleLockNow);
     elements.removeWalletBtn.addEventListener('click', handleRemoveWallet);
@@ -353,24 +359,20 @@
         state.pendingBalance = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
 
         const assetBalance = await NeuraiReader.getAssetBalance(state.address);
-        state.tokens = (assetBalance && assetBalance.assets)
-          ? assetBalance.assets.map((a) => ({
-              name:    a.name,
-              balance: a.balance / Math.pow(10, a.divisible ? 8 : 0)
-            }))
+        state.assets = (assetBalance && Array.isArray(assetBalance.assets))
+          ? assetBalance.assets.map((asset) => {
+              const decimals = asset.divisible ? 8 : 0;
+              const amount = Number(asset.balance || 0) / Math.pow(10, decimals);
+              return {
+                name: String(asset.name || '').trim() || '(Unnamed asset)',
+                amountText: formatAssetAmount(amount, decimals)
+              };
+            }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
           : [];
 
         renderAmount(elements.xnaBalance, state.balance, '0');
         renderAmount(elements.pendingBalance, state.pendingBalance, '0');
-
-        if (state.tokens.length > 0) {
-          elements.tokensSection.classList.remove('hidden');
-          elements.tokensList.innerHTML = state.tokens.map((t) =>
-            `<div class="token-item"><span class="token-name">${t.name}</span><span class="token-balance">${t.balance}</span></div>`
-          ).join('');
-        } else {
-          elements.tokensSection.classList.add('hidden');
-        }
+        renderAssetsList();
 
         elements.lastUpdate.textContent = 'Updated: ' + new Date().toLocaleTimeString();
         state.isConnected = true;
@@ -378,6 +380,8 @@
       }
     } catch (error) {
       console.error('Error fetching balance:', error);
+      state.assets = [];
+      renderAssetsList();
       setConnectionStatus(false);
       showToast('Error fetching balance: ' + error.message, 'error');
     } finally {
@@ -473,6 +477,43 @@
       decNode.textContent = '.' + decimals;
       element.appendChild(decNode);
     }
+  }
+
+  function formatAssetAmount(amount, decimals) {
+    const fixed = Number(amount || 0).toFixed(decimals);
+    const trimmed = fixed.replace(/\.?0+$/, '');
+    return trimmed || '0';
+  }
+
+  function renderAssetsList() {
+    if (!state.assets.length) {
+      elements.assetsList.innerHTML = '';
+      elements.assetsEmpty.classList.remove('hidden');
+      return;
+    }
+    elements.assetsEmpty.classList.add('hidden');
+    elements.assetsList.innerHTML = state.assets.map((asset) =>
+      `<div class="asset-item"><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span><span class="asset-balance">${escapeHtml(asset.amountText)}</span></div>`
+    ).join('');
+  }
+
+  function switchBalanceTab(tab) {
+    const showAssets = tab === 'assets';
+    elements.balanceTabGeneral.classList.toggle('is-active', !showAssets);
+    elements.balanceTabGeneral.setAttribute('aria-selected', showAssets ? 'false' : 'true');
+    elements.balanceTabAssets.classList.toggle('is-active', showAssets);
+    elements.balanceTabAssets.setAttribute('aria-selected', showAssets ? 'true' : 'false');
+    elements.balancePanelGeneral.classList.toggle('hidden', showAssets);
+    elements.balancePanelAssets.classList.toggle('hidden', !showAssets);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // ── Storage ───────────────────────────────────────────────────────────────
@@ -706,7 +747,9 @@
   function clearActiveWalletData() {
     stopPolling();
     state.privateKey = state.address = state.publicKey = state.balance = state.pendingBalance = null;
-    state.tokens = [];
+    state.assets = [];
+    renderAssetsList();
+    switchBalanceTab('general');
     state.unlockUntil = 0;
     elements.privateKey.value    = '';
     elements.addressDisplay.title = '';
