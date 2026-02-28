@@ -30,7 +30,7 @@ A browser extension for managing Neurai (XNA) keys and securely signing messages
 *   `npm run dev`: Starts the Vite development server for the test page.
 *   `npm run build`: Builds both the extension and the test application.
 *   `npm run build:ext`: Builds only the extension source files into `dist/extension/`.
-*   `npm run pack`: Builds the extension and packages it into a `.zip` file for distribution.
+*   `npm run pack`: Builds the extension and packages it into `dist/neurai-sign-extension.<manifest-version>.zip` for distribution.
 *   `npm run sync-libs`: Synchronizes required libraries into the extension source.
 
 ### Loading the Extension in Chrome

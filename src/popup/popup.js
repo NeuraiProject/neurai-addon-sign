@@ -69,6 +69,7 @@
     statusIndicator:      document.getElementById('statusIndicator'),
     lastUpdate:           document.getElementById('lastUpdate'),
     changeWalletBtn:      document.getElementById('changeWalletBtn'),
+    lockNowBtn:           document.getElementById('lockNowBtn'),
     removeWalletBtn:      document.getElementById('removeWalletBtn'),
     toast:                document.getElementById('toast'),
     toastMessage:         document.getElementById('toastMessage'),
@@ -147,6 +148,7 @@
     elements.copyAddressBtn.addEventListener('click', handleCopyAddress);
     elements.refreshBtn.addEventListener('click', handleRefresh);
     elements.changeWalletBtn.addEventListener('click', handleChangeWallet);
+    elements.lockNowBtn.addEventListener('click', handleLockNow);
     elements.removeWalletBtn.addEventListener('click', handleRemoveWallet);
     elements.switchAccountBtn.addEventListener('click', handleSwitchAccount);
     elements.newAccountBtn.addEventListener('click', handleCreateNewAccount);
@@ -295,6 +297,23 @@
   function handleChangeWallet() {
     if (isAddonLocked()) { openUnlockModal(); return; }
     openAccountModal();
+  }
+
+  async function handleLockNow() {
+    if (!hasActiveWallet()) return;
+    if (!state.settings?.pinHash) {
+      showToast('Set a PIN in Settings to use lock', 'error');
+      return;
+    }
+    state.unlockUntil = 0;
+    state.sessionPin = '';
+    state.privateKey = null;
+    const active = state.accounts[state.activeAccountId];
+    if (active) active.privateKey = null;
+    await new Promise((resolve) => chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 }, resolve));
+    stopPolling();
+    openUnlockModal(true);
+    showToast('Addon locked', 'success');
   }
 
   async function handleRemoveWallet() {

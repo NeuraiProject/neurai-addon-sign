@@ -408,6 +408,17 @@ body {
   border-color: var(--danger);
 }
 
+.btn-lock-now {
+  background: var(--danger);
+  color: #fff;
+  border: 1px solid var(--danger);
+}
+
+.btn-lock-now:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
 .btn-small {
   padding: 9px 16px;
   font-size: 12px;
