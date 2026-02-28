@@ -239,16 +239,7 @@
       const balance     = NeuraiReader.formatBalance(balanceData.balance);
       const pending     = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
       const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address);
-      state.assets = (assetBalance && Array.isArray(assetBalance.assets))
-        ? assetBalance.assets.map((asset) => {
-            const decimals = asset.divisible ? 8 : 0;
-            const amount = Number(asset.balance || 0) / Math.pow(10, decimals);
-            return {
-              name: String(asset.name || '').trim() || '(Unnamed asset)',
-              amountText: formatAssetAmount(amount, decimals)
-            };
-          }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-        : [];
+      state.assets = normalizeAssetsFromRpc(assetBalance);
       renderAmount(elements.balanceValue, balance, '0');
       renderAmount(elements.pendingValue, pending, '0');
       renderAssetsList();
@@ -294,6 +285,33 @@
     const fixed = Number(amount || 0).toFixed(decimals);
     const trimmed = fixed.replace(/\.?0+$/, '');
     return trimmed || '0';
+  }
+
+  function normalizeAssetsFromRpc(assetBalance) {
+    let rows = [];
+    if (Array.isArray(assetBalance)) {
+      rows = assetBalance;
+    } else if (assetBalance && Array.isArray(assetBalance.assets)) {
+      rows = assetBalance.assets;
+    } else if (assetBalance && typeof assetBalance === 'object') {
+      rows = Object.keys(assetBalance).map((assetName) => ({
+        assetName,
+        balance: assetBalance[assetName]
+      }));
+    }
+
+    return rows
+      .map((asset) => {
+        const name = String(asset.assetName || asset.name || '').trim();
+        if (!name || name.toUpperCase() === 'XNA') return null;
+        const decimals = (typeof asset.divisible === 'boolean')
+          ? (asset.divisible ? 8 : 0)
+          : 8;
+        const amount = Number(asset.balance || 0) / Math.pow(10, decimals);
+        return { name, amountText: formatAssetAmount(amount, decimals) };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }
 
   function renderAssetsList() {
