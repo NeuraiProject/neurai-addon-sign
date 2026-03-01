@@ -11,53 +11,73 @@
 
   const elements = {
     // Header
-    refreshBtn:         document.getElementById('refreshBtn'),
-    headerSubtitle:     document.getElementById('headerSubtitle'),
+    refreshBtn: document.getElementById('refreshBtn'),
+    headerSubtitle: document.getElementById('headerSubtitle'),
 
     // Sections
-    setupSection:       document.getElementById('setupSection'),
-    mnemonicSection:    document.getElementById('mnemonicSection'),
-    walletSection:      document.getElementById('walletSection'),
+    setupSection: document.getElementById('setupSection'),
+    mnemonicSection: document.getElementById('mnemonicSection'),
+    walletSection: document.getElementById('walletSection'),
 
     // Setup form
-    network:            document.getElementById('network'),
-    privateKey:         document.getElementById('privateKey'),
-    saveKeyBtn:         document.getElementById('saveKeyBtn'),
-    generateNewBtn:     document.getElementById('generateNewBtn'),
+    setupTabImport: document.getElementById('setupTabImport'),
+    setupTabGenerate: document.getElementById('setupTabGenerate'),
+    setupPanelImport: document.getElementById('setupPanelImport'),
+    setupPanelGenerate: document.getElementById('setupPanelGenerate'),
+    network: document.getElementById('network'),
+    importKey: document.getElementById('importKey'),
+    importPassphrase: document.getElementById('importPassphrase'),
+    toggleImportPassphraseVisibility: document.getElementById('toggleImportPassphraseVisibility'),
+    saveKeyBtn: document.getElementById('saveKeyBtn'),
+
+    generateWordCount: document.getElementById('generateWordCount'),
+    generatePassphrase: document.getElementById('generatePassphrase'),
+    toggleGeneratePassphraseVisibility: document.getElementById('toggleGeneratePassphraseVisibility'),
+    generateNewBtn: document.getElementById('generateNewBtn'),
 
     // Mnemonic
-    mnemonicWords:      document.getElementById('mnemonicWords'),
-    mnemonicBackedUp:   document.getElementById('mnemonicBackedUp'),
+    mnemonicWords: document.getElementById('mnemonicWords'),
+    mnemonicPassphraseDisplay: document.getElementById('mnemonicPassphraseDisplay'),
+    mnemonicPassphraseText: document.getElementById('mnemonicPassphraseText'),
+    mnemonicCopyBtn: document.getElementById('mnemonicCopyBtn'),
+    mnemonicBackedUp: document.getElementById('mnemonicBackedUp'),
     mnemonicConfirmBtn: document.getElementById('mnemonicConfirmBtn'),
 
     // Wallet display
-    copyAddressBtn:     document.getElementById('copyAddressBtn'),
-    networkValue:       document.getElementById('networkValue'),
-    accountValue:       document.getElementById('accountValue'),
-    statusValue:        document.getElementById('statusValue'),
-    updatedValue:       document.getElementById('updatedValue'),
-    addressValue:       document.getElementById('addressValue'),
-    balanceValue:       document.getElementById('balanceValue'),
-    pendingValue:       document.getElementById('pendingValue'),
-    balanceTabGeneral:  document.getElementById('balanceTabGeneral'),
-    balanceTabAssets:   document.getElementById('balanceTabAssets'),
-    balancePanelGeneral:document.getElementById('balancePanelGeneral'),
+    copyAddressBtn: document.getElementById('copyAddressBtn'),
+    networkValue: document.getElementById('networkValue'),
+    accountValue: document.getElementById('accountValue'),
+    statusValue: document.getElementById('statusValue'),
+    updatedValue: document.getElementById('updatedValue'),
+    addressValue: document.getElementById('addressValue'),
+    balanceValue: document.getElementById('balanceValue'),
+    pendingValue: document.getElementById('pendingValue'),
+    balanceTabGeneral: document.getElementById('balanceTabGeneral'),
+    balanceTabAssets: document.getElementById('balanceTabAssets'),
+    balancePanelGeneral: document.getElementById('balancePanelGeneral'),
     balancePanelAssets: document.getElementById('balancePanelAssets'),
-    assetsList:         document.getElementById('assetsList'),
-    assetsEmpty:        document.getElementById('assetsEmpty'),
-    unlockModal:        document.getElementById('unlockModal'),
-    unlockPinInput:     document.getElementById('unlockPinInput'),
-    unlockError:        document.getElementById('unlockError'),
-    unlockConfirmBtn:   document.getElementById('unlockConfirmBtn')
+    assetsList: document.getElementById('assetsList'),
+    assetsEmpty: document.getElementById('assetsEmpty'),
+    unlockModal: document.getElementById('unlockModal'),
+    unlockPinInput: document.getElementById('unlockPinInput'),
+    unlockError: document.getElementById('unlockError'),
+    unlockConfirmBtn: document.getElementById('unlockConfirmBtn'),
+
+    initialPinModal: document.getElementById('initialPinModal'),
+    initialPinInput: document.getElementById('initialPinInput'),
+    initialPinConfirmInput: document.getElementById('initialPinConfirmInput'),
+    initialPinError: document.getElementById('initialPinError'),
+    initialPinCancelBtn: document.getElementById('initialPinCancelBtn'),
+    initialPinSaveBtn: document.getElementById('initialPinSaveBtn')
   };
 
   let state = {
-    wallet:          null,
-    accounts:        null,
+    wallet: null,
+    accounts: null,
     activeAccountId: '1',
-    settings:        { ...C.DEFAULT_SETTINGS },
-    assets:          [],
-    unlockUntil:     0,
+    settings: { ...C.DEFAULT_SETTINGS },
+    assets: [],
+    unlockUntil: 0,
     lockWatchInterval: null,
     lastUnlockTouchAt: 0
   };
@@ -89,16 +109,43 @@
     elements.balanceTabGeneral.addEventListener('click', () => switchBalanceTab('general'));
     elements.balanceTabAssets.addEventListener('click', () => switchBalanceTab('assets'));
     elements.copyAddressBtn.addEventListener('click', copyAddress);
+
+    // Setup tab switching
+    elements.setupTabImport.addEventListener('click', () => switchSetupTab('import'));
+    elements.setupTabGenerate.addEventListener('click', () => switchSetupTab('generate'));
+
+    // Visibility togglers
+    elements.toggleImportPassphraseVisibility.addEventListener('click', () => toggleKeyVisibility(elements.importPassphrase, elements.toggleImportPassphraseVisibility));
+    elements.toggleGeneratePassphraseVisibility.addEventListener('click', () => toggleKeyVisibility(elements.generatePassphrase, elements.toggleGeneratePassphraseVisibility));
+
     elements.saveKeyBtn.addEventListener('click', handleSaveKey);
     elements.generateNewBtn.addEventListener('click', handleGenerateNew);
-    elements.privateKey.addEventListener('keypress', (e) => {
+
+    elements.importKey.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') handleSaveKey();
     });
+    elements.importPassphrase.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleSaveKey();
+    });
+    elements.generatePassphrase.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleGenerateNew();
+    });
+
     elements.mnemonicBackedUp.addEventListener('change', () => {
       elements.mnemonicConfirmBtn.disabled = !elements.mnemonicBackedUp.checked;
     });
+    elements.mnemonicCopyBtn.addEventListener('click', copyMnemonic);
     elements.mnemonicConfirmBtn.addEventListener('click', closeMnemonicSection);
     elements.unlockConfirmBtn.addEventListener('click', handleUnlock);
+
+    elements.initialPinCancelBtn.addEventListener('click', cancelInitialPinSetup);
+    elements.initialPinSaveBtn.addEventListener('click', handleInitialPinSetup);
+    elements.initialPinInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleInitialPinSetup();
+    });
+    elements.initialPinConfirmInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') handleInitialPinSetup();
+    });
 
     const sessionActivityEvents = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
     sessionActivityEvents.forEach((eventName) => {
@@ -108,43 +155,116 @@
 
   // ── Setup handlers ─────────────────────────────────────────────────────────
 
+  function switchSetupTab(tab) {
+    const isImport = tab === 'import';
+    elements.setupTabImport.classList.toggle('is-active', isImport);
+    elements.setupTabImport.setAttribute('aria-selected', isImport ? 'true' : 'false');
+    elements.setupTabGenerate.classList.toggle('is-active', !isImport);
+    elements.setupTabGenerate.setAttribute('aria-selected', !isImport ? 'true' : 'false');
+
+    elements.setupPanelImport.classList.toggle('hidden', !isImport);
+    elements.setupPanelGenerate.classList.toggle('hidden', isImport);
+  }
+
+  function toggleKeyVisibility(inputEl, btnEl) {
+    let currentType = 'password';
+    if (inputEl.tagName === 'TEXTAREA') {
+      currentType = inputEl.classList.contains('text-visible') ? 'text' : 'password';
+      if (currentType === 'password') {
+        inputEl.classList.add('text-visible');
+        btnEl.classList.add('visible');
+      } else {
+        inputEl.classList.remove('text-visible');
+        btnEl.classList.remove('visible');
+      }
+    } else {
+      currentType = inputEl.type;
+      if (currentType === 'password') {
+        inputEl.type = 'text';
+        btnEl.classList.add('visible');
+      } else {
+        inputEl.type = 'password';
+        btnEl.classList.remove('visible');
+      }
+    }
+  }
+
   async function handleSaveKey() {
-    const wif     = elements.privateKey.value.trim();
+    let inputValStr = elements.importKey.value.trim();
+    const passphrase = elements.importPassphrase.value;
     const network = elements.network.value;
 
-    if (!wif) {
-      alert('Please enter a private key (WIF)');
+    if (!inputValStr) {
+      alert('Please enter a 12 or 24-word seed phrase');
       return;
     }
 
+    if (!(await ensurePinReadyForWalletSetup(handleSaveKey))) return;
+
     elements.saveKeyBtn.disabled = true;
     try {
+      let wif = '';
+      let activeMnemonic = null;
+
+      const words = inputValStr.split(/\s+/).filter(Boolean);
+      if (words.length !== 12 && words.length !== 24) {
+        throw new Error('Please enter exactly 12 or 24 words.');
+      }
+
+      activeMnemonic = words.join(' ');
+      if (!NeuraiKey.validateMnemonic(activeMnemonic)) {
+        throw new Error('Invalid mnemonic recovery phrase');
+      }
+
+      const addressPair = NeuraiKey.getAddressPair(network, activeMnemonic, 0, 0, passphrase);
+      wif = addressPair.external.WIF;
+
       const addressData = NeuraiKey.getAddressByWIF(network, wif);
-      await persistWallet({ privateKey: wif, address: addressData.address, publicKey: addressData.publicKey, network });
+
+      await persistWallet({
+        privateKey: wif,
+        mnemonic: activeMnemonic,
+        passphrase: passphrase || null,
+        address: addressData.address,
+        publicKey: addressData.publicKey,
+        network
+      });
+
+      elements.importKey.value = '';
+      elements.importPassphrase.value = '';
       showWalletSection();
       await refreshBalance();
     } catch (err) {
-      alert('Cannot import key: ' + err.message);
+      alert('Cannot import: ' + err.message);
     } finally {
       elements.saveKeyBtn.disabled = false;
     }
   }
 
   async function handleGenerateNew() {
+    if (!(await ensurePinReadyForWalletSetup(handleGenerateNew))) return;
+
     elements.generateNewBtn.disabled = true;
     try {
-      const mnemonic    = NeuraiKey.generateMnemonic();
-      const network     = elements.network.value;
-      const addressPair = NeuraiKey.getAddressPair(network, mnemonic, 0, 0, '');
+      const wordCount = parseInt(elements.generateWordCount.value, 10) || 12;
+      const passphrase = elements.generatePassphrase.value;
+      const network = elements.network.value;
+
+      const mnemonic = NeuraiKey.generateMnemonic(wordCount === 24 ? 256 : 128);
+      const addressPair = NeuraiKey.getAddressPair(network, mnemonic, 0, 0, passphrase);
       const addressData = addressPair.external;
 
       await persistWallet({
         privateKey: addressData.WIF,
-        address:    addressData.address,
-        publicKey:  addressData.publicKey,
+        mnemonic: mnemonic,
+        passphrase: passphrase,
+        address: addressData.address,
+        publicKey: addressData.publicKey,
         network
       });
-      showMnemonicSection(mnemonic);
+
+      elements.generatePassphrase.value = '';
+      showMnemonicSection(mnemonic, passphrase);
     } catch (err) {
       alert('Error generating wallet: ' + err.message);
     } finally {
@@ -154,17 +274,36 @@
 
   // ── Mnemonic display ───────────────────────────────────────────────────────
 
-  function showMnemonicSection(mnemonic) {
+  function showMnemonicSection(mnemonic, passphrase) {
+    state.activeGeneratedMnemonic = mnemonic;
+
     const words = mnemonic.trim().split(/\s+/);
     elements.mnemonicWords.innerHTML = words.map((word, i) =>
       `<span class="mnemonic-word"><span class="mnemonic-word-num">${i + 1}</span>${word}</span>`
     ).join('');
-    elements.mnemonicBackedUp.checked    = false;
+
+    if (passphrase) {
+      elements.mnemonicPassphraseDisplay.classList.remove('hidden');
+      elements.mnemonicPassphraseText.textContent = passphrase;
+    } else {
+      elements.mnemonicPassphraseDisplay.classList.add('hidden');
+    }
+
+    elements.mnemonicBackedUp.checked = false;
     elements.mnemonicConfirmBtn.disabled = true;
 
     elements.setupSection.classList.add('hidden');
     elements.mnemonicSection.classList.remove('hidden');
     elements.walletSection.classList.add('hidden');
+  }
+
+  function copyMnemonic() {
+    if (!state.activeGeneratedMnemonic) return;
+    navigator.clipboard.writeText(state.activeGeneratedMnemonic).then(() => {
+      const originalText = elements.mnemonicCopyBtn.textContent;
+      elements.mnemonicCopyBtn.textContent = 'Copied!';
+      setTimeout(() => { elements.mnemonicCopyBtn.textContent = originalText; }, 2000);
+    }).catch(() => { });
   }
 
   function closeMnemonicSection() {
@@ -181,7 +320,7 @@
       return;
     }
     elements.headerSubtitle.textContent = 'Set up your wallet to get started';
-    elements.refreshBtn.style.display   = 'none';
+    elements.refreshBtn.style.display = 'none';
     elements.setupSection.classList.remove('hidden');
     elements.mnemonicSection.classList.add('hidden');
     elements.walletSection.classList.add('hidden');
@@ -193,7 +332,7 @@
       return;
     }
     elements.headerSubtitle.textContent = 'Full tab view';
-    elements.refreshBtn.style.display   = '';
+    elements.refreshBtn.style.display = '';
     elements.setupSection.classList.add('hidden');
     elements.mnemonicSection.classList.add('hidden');
     elements.walletSection.classList.remove('hidden');
@@ -229,24 +368,24 @@
     }
     if (!state.wallet || !state.wallet.address) return;
 
-    elements.statusValue.textContent  = 'Loading…';
+    elements.statusValue.textContent = 'Loading…';
     elements.updatedValue.textContent = '--';
 
     applyReaderConfig(state.wallet.network || 'xna');
 
     try {
       const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address);
-      const balance     = NeuraiReader.formatBalance(balanceData.balance);
-      const pending     = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
+      const balance = NeuraiReader.formatBalance(balanceData.balance);
+      const pending = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
       const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address);
       state.assets = normalizeAssetsFromRpc(assetBalance);
       renderAmount(elements.balanceValue, balance, '0');
       renderAmount(elements.pendingValue, pending, '0');
       renderAssetsList();
-      elements.statusValue.textContent   = 'Connected';
-      elements.updatedValue.textContent  = new Date().toLocaleString();
+      elements.statusValue.textContent = 'Connected';
+      elements.updatedValue.textContent = new Date().toLocaleString();
     } catch (error) {
-      elements.statusValue.textContent  = 'RPC error';
+      elements.statusValue.textContent = 'RPC error';
       elements.updatedValue.textContent = 'Failed to fetch balance';
       state.assets = [];
       renderAssetsList();
@@ -354,7 +493,7 @@
   function copyAddress() {
     const address = elements.addressValue.textContent;
     if (!address || address === '--') return;
-    navigator.clipboard.writeText(address).catch(() => {});
+    navigator.clipboard.writeText(address).catch(() => { });
   }
 
   // ── Storage ────────────────────────────────────────────────────────────────
@@ -364,9 +503,9 @@
       chrome.storage.local.get(
         [C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY],
         (result) => {
-          state.accounts        = result[C.ACCOUNTS_KEY] || null;
+          state.accounts = result[C.ACCOUNTS_KEY] || null;
           state.activeAccountId = String(result[C.ACTIVE_ACCOUNT_KEY] || '1');
-          const activeWallet    = state.accounts && state.accounts[state.activeAccountId]
+          const activeWallet = state.accounts && state.accounts[state.activeAccountId]
             ? state.accounts[state.activeAccountId]
             : null;
           state.wallet = activeWallet || result[C.STORAGE_KEY] || null;
@@ -419,7 +558,7 @@
     const now = Date.now();
     if (!force && now - state.lastUnlockTouchAt < 5000) return;
     state.lastUnlockTouchAt = now;
-    unlockForConfiguredTimeout().catch(() => {});
+    unlockForConfiguredTimeout().catch(() => { });
   }
 
   function startLockWatch() {
@@ -467,9 +606,9 @@
 
     return new Promise((resolve) => {
       chrome.storage.local.set({
-        [C.ACCOUNTS_KEY]:       state.accounts,
+        [C.ACCOUNTS_KEY]: state.accounts,
         [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
-        [C.STORAGE_KEY]:        walletData
+        [C.STORAGE_KEY]: walletData
       }, resolve);
     });
   }
@@ -480,6 +619,59 @@
       state.unlockUntil = Number(changes[C.UNLOCK_UNTIL_KEY].newValue || 0);
     }
   });
+
+  // ── Initial PIN Setup ────────────────────────────────────────────────────────
+
+  function openInitialPinModal(resumeAction) {
+    state.pendingWalletAction = resumeAction || null;
+    elements.initialPinError.textContent = '';
+    elements.initialPinInput.value = '';
+    elements.initialPinConfirmInput.value = '';
+    elements.initialPinModal.classList.remove('hidden');
+    elements.initialPinInput.focus();
+  }
+
+  function closeInitialPinModal() {
+    elements.initialPinModal.classList.add('hidden');
+  }
+
+  function cancelInitialPinSetup() {
+    state.pendingWalletAction = null;
+    closeInitialPinModal();
+  }
+
+  async function ensurePinReadyForWalletSetup(resumeAction) {
+    if (state.settings?.pinHash) return true;
+    openInitialPinModal(resumeAction);
+    return false;
+  }
+
+  async function handleInitialPinSetup() {
+    try {
+      const pin = (elements.initialPinInput.value || '').trim();
+      const confirm = (elements.initialPinConfirmInput.value || '').trim();
+      if (pin.length < 4 || pin.length > 20) throw new Error('PIN must be 4 to 20 characters');
+      if (pin !== confirm) throw new Error('PIN confirmation does not match');
+
+      state.settings = {
+        ...state.settings,
+        pinHash: await NEURAI_UTILS.hashText(pin)
+      };
+      state.sessionPin = pin;
+      await unlockForConfiguredTimeout();
+      await new Promise((resolve) => chrome.storage.local.set({ [C.SETTINGS_KEY]: state.settings }, resolve));
+
+      closeInitialPinModal();
+
+      const action = state.pendingWalletAction;
+      state.pendingWalletAction = null;
+      if (typeof action === 'function') {
+        await action();
+      }
+    } catch (error) {
+      elements.initialPinError.textContent = error.message;
+    }
+  }
 
   // ── Boot ───────────────────────────────────────────────────────────────────
 

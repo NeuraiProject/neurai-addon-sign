@@ -19,9 +19,9 @@ try {
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let pollingInterval  = null;
-let walletData       = null;
-let walletSettings   = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
+let pollingInterval = null;
+let walletData = null;
+let walletSettings = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
 const pendingSignRequests = new Map();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -60,9 +60,9 @@ async function loadWalletData() {
       NEURAI_CONSTANTS.ACCOUNTS_KEY,
       NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY
     ], (result) => {
-      const accounts       = result[NEURAI_CONSTANTS.ACCOUNTS_KEY];
-      const activeId       = String(result[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] || '1');
-      const activeWallet   = accounts && accounts[activeId] ? accounts[activeId] : null;
+      const accounts = result[NEURAI_CONSTANTS.ACCOUNTS_KEY];
+      const activeId = String(result[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] || '1');
+      const activeWallet = accounts && accounts[activeId] ? accounts[activeId] : null;
       walletData = activeWallet || result[NEURAI_CONSTANTS.STORAGE_KEY] || null;
       resolve();
     });
@@ -90,7 +90,7 @@ async function getUnlockUntil() {
 }
 
 async function setUnlockForConfiguredTimeout() {
-  const minutes    = NEURAI_UTILS.normalizeLockTimeoutMinutes(walletSettings.lockTimeoutMinutes);
+  const minutes = NEURAI_UTILS.normalizeLockTimeoutMinutes(walletSettings.lockTimeoutMinutes);
   const unlockUntil = Date.now() + minutes * 60 * 1000;
   return new Promise((resolve) => {
     chrome.storage.local.set({ [NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY]: unlockUntil }, resolve);
@@ -112,7 +112,7 @@ function startPolling() {
     if (walletData && walletData.address) {
       try {
         const balance = await fetchBalance(walletData.address, walletData.network);
-        chrome.runtime.sendMessage({ type: NEURAI_CONSTANTS.MSG.BALANCE_UPDATE, balance }).catch(() => {});
+        chrome.runtime.sendMessage({ type: NEURAI_CONSTANTS.MSG.BALANCE_UPDATE, balance }).catch(() => { });
       } catch (error) {
         console.error('Background polling error:', error);
       }
@@ -128,15 +128,15 @@ function stopPolling() {
 }
 
 async function fetchBalance(address, network = 'xna') {
-  const rpcUrl   = getRpcUrl(network);
+  const rpcUrl = getRpcUrl(network);
   const response = await fetch(rpcUrl, {
-    method:  'POST',
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
+    body: JSON.stringify({
       jsonrpc: '1.0',
-      id:      'neurai-wallet-bg',
-      method:  'getaddressbalance',
-      params:  [{ addresses: [address] }, false]
+      id: 'neurai-wallet-bg',
+      method: 'getaddressbalance',
+      params: [{ addresses: [address] }, false]
     })
   });
   const data = await response.json();
@@ -160,9 +160,9 @@ async function handleMessage(message, sender) {
       await loadWalletData();
       return {
         hasWallet: !!walletData,
-        address:   walletData?.address   || null,
+        address: walletData?.address || null,
         publicKey: walletData?.publicKey || null,
-        network:   walletData?.network   || 'xna'
+        network: walletData?.network || 'xna'
       };
 
     case MSG.SIGN_MESSAGE:
@@ -201,11 +201,11 @@ async function signMessageForPage(messageText, sender) {
   await loadWalletSettings();
 
   if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
-  if (!walletData.address)     return { error: 'No address available' };
+  if (!walletData.address) return { error: 'No address available' };
 
   try {
     const approval = await requestSignatureApproval({
-      origin:  sender?.url ? new URL(sender.url).origin : 'Unknown site',
+      origin: sender?.url ? new URL(sender.url).origin : 'Unknown site',
       message: messageText,
       address: walletData.address,
       network: walletData.network || 'xna'
@@ -223,9 +223,39 @@ async function signMessageForPage(messageText, sender) {
     }
     if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
 
-    const addrData        = NeuraiKey.getAddressByWIF(walletData.network || 'xna', privateKeyWif);
+    const addrData = NeuraiKey.getAddressByWIF(walletData.network || 'xna', privateKeyWif);
     const privateKeyBuffer = hexToBufferLike(addrData.privateKey);
-    const signature        = NeuraiMessage.sign(messageText, privateKeyBuffer, true);
+    const signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true);
+
+    // Save to history
+    try {
+      const accountsObj = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY, r)))[NEURAI_CONSTANTS.ACCOUNTS_KEY] || {};
+      const activeId = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY, r)))[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY];
+
+      if (activeId && accountsObj[activeId]) {
+        if (!Array.isArray(accountsObj[activeId].history)) {
+          accountsObj[activeId].history = [];
+        }
+
+        const reqOrigin = sender?.url ? new URL(sender.url).origin : (sender?.origin || 'Unknown site');
+
+        accountsObj[activeId].history.unshift({
+          timestamp: Date.now(),
+          origin: reqOrigin,
+          message: messageText,
+          signature: signature
+        });
+
+        // Keep max 50 items
+        if (accountsObj[activeId].history.length > 50) {
+          accountsObj[activeId].history = accountsObj[activeId].history.slice(0, 50);
+        }
+
+        await new Promise(r => chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj }, r));
+      }
+    } catch (err) {
+      console.error('Failed to save signature history:', err);
+    }
 
     return { success: true, signature, address: walletData.address };
   } catch (error) {
@@ -234,9 +264,9 @@ async function signMessageForPage(messageText, sender) {
 }
 
 async function requestSignatureApproval(payload) {
-  const requestId  = 'sign_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const requestId = 'sign_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const approvalUrl = chrome.runtime.getURL('popup/sign-request.html') +
-                      '?requestId=' + encodeURIComponent(requestId);
+    '?requestId=' + encodeURIComponent(requestId);
 
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
@@ -282,7 +312,7 @@ function finalizeSignRequest(requestId, result) {
   if (!pending) return;
   clearTimeout(pending.timeout);
   pendingSignRequests.delete(requestId);
-  if (pending.windowId) chrome.windows.remove(pending.windowId).catch(() => {});
+  if (pending.windowId) chrome.windows.remove(pending.windowId).catch(() => { });
   pending.resolve(result);
 }
 
@@ -302,13 +332,13 @@ async function verifyOwnership(address, message, signature) {
 
   try {
     const response = await fetch(getRpcUrl(walletData?.network || 'xna'), {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
+      body: JSON.stringify({
         jsonrpc: '1.0',
-        id:      'neurai-wallet-verify',
-        method:  'verifymessage',
-        params:  [address, signature, message]
+        id: 'neurai-wallet-verify',
+        method: 'verifymessage',
+        params: [address, signature, message]
       })
     });
     const data = await response.json();

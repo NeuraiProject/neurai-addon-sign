@@ -233,7 +233,8 @@ p {
 
 input[type="text"],
 input[type="password"],
-select {
+select,
+.form-textarea {
   width: 100%;
   padding: 10px 12px;
   background: var(--card-soft);
@@ -246,9 +247,39 @@ select {
   transition: border-color 0.15s;
 }
 
+.form-textarea {
+  resize: vertical;
+}
+
+.input-wrapper {
+  position: relative;
+}
+
+.input-wrapper input {
+  padding-right: 40px;
+}
+
+.input-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.15s;
+}
+
+.input-toggle:hover {
+  color: var(--text);
+}
+
 input[type="text"]:focus,
 input[type="password"]:focus,
-select:focus {
+select:focus,
+.form-textarea:focus {
   border-color: var(--primary);
 }
 

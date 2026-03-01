@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
   <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
   <link rel="stylesheet" href="expanded.css">
 </head>
+
 <body>
   <main class="layout">
     <header class="page-header card">
@@ -24,6 +26,13 @@
       <h2>Set Up Your Wallet</h2>
       <p class="setup-subtitle">Import an existing wallet or generate a new one.</p>
 
+      <div class="setup-tabs">
+        <button class="balance-tab is-active" id="setupTabImport" type="button" role="tab" aria-selected="true"
+          aria-controls="setupPanelImport">Import</button>
+        <button class="balance-tab" id="setupTabGenerate" type="button" role="tab" aria-selected="false"
+          aria-controls="setupPanelGenerate">Generate</button>
+      </div>
+
       <div class="form-group">
         <label for="network">Network</label>
         <select id="network">
@@ -32,34 +41,79 @@
         </select>
       </div>
 
-      <div class="form-group">
-        <label for="privateKey">Private Key (WIF)</label>
-        <div class="input-row">
-          <input type="password" id="privateKey" placeholder="Enter WIF private key…">
-          <button id="saveKeyBtn" class="btn btn-primary" type="button">Import</button>
+      <div id="setupPanelImport" role="tabpanel">
+        <div class="form-group">
+          <label for="importKey">Seed Phrase</label>
+          <div class="input-wrapper">
+            <textarea id="importKey" rows="2" placeholder="Enter 12 or 24 words" class="form-textarea"
+              autocomplete="off"></textarea>
+          </div>
         </div>
+        <div class="form-group">
+          <label for="importPassphrase">Passphrase <span class="label-hint">(Optional)</span></label>
+          <div class="input-wrapper">
+            <input type="password" id="importPassphrase" placeholder="Extra security word" autocomplete="off">
+            <button class="input-toggle" id="toggleImportPassphraseVisibility" type="button">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path
+                  d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button id="saveKeyBtn" class="btn btn-primary btn-glow" type="button">
+          Import Wallet
+        </button>
       </div>
 
-      <div class="setup-divider">— or —</div>
-
-      <button id="generateNewBtn" class="btn btn-secondary btn-block" type="button">
-        Generate New Wallet
-      </button>
+      <div id="setupPanelGenerate" class="hidden" role="tabpanel">
+        <div class="form-group">
+          <label for="generateWordCount">Seed Phrase Length</label>
+          <select id="generateWordCount">
+            <option value="12">12 Words</option>
+            <option value="24">24 Words</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="generatePassphrase">Passphrase <span class="label-hint">(Optional)</span></label>
+          <div class="input-wrapper">
+            <input type="password" id="generatePassphrase" placeholder="Extra security word" autocomplete="off">
+            <button class="input-toggle" id="toggleGeneratePassphraseVisibility" type="button">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path
+                  d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button id="generateNewBtn" class="btn btn-secondary btn-block" type="button">
+          Generate New Wallet
+        </button>
+      </div>
     </section>
 
     <!-- ── Mnemonic backup section ────────────────────────────────────────── -->
     <section id="mnemonicSection" class="card mnemonic-card hidden">
       <h2>Back Up Your Recovery Phrase</h2>
-      <p class="setup-subtitle">Write these 12 words in order and store them somewhere safe.
-         They are the only way to recover your wallet if you lose access.</p>
+      <p class="setup-subtitle">Write these words in order and store them somewhere safe.
+        They are the only way to recover your wallet if you lose access.</p>
       <div id="mnemonicWords" class="mnemonic-grid"></div>
-      <label class="checkbox-label">
+
+      <div class="form-group hidden" id="mnemonicPassphraseDisplay" style="margin-top: 12px; margin-bottom: 0;">
+        <label>Passphrase</label>
+        <div class="account-current" id="mnemonicPassphraseText" style="word-break: break-all;"></div>
+      </div>
+
+      <label class="checkbox-label" style="margin-top: 16px;">
         <input type="checkbox" id="mnemonicBackedUp">
-        I have safely backed up my 12-word recovery phrase
+        I have safely backed up my recovery phrase
       </label>
-      <button id="mnemonicConfirmBtn" class="btn btn-primary" type="button" disabled>
-        Continue to Wallet
-      </button>
+      <div class="settings-actions">
+        <button class="btn btn-secondary btn-small" id="mnemonicCopyBtn" type="button">Copy All</button>
+        <button id="mnemonicConfirmBtn" class="btn btn-primary btn-small" type="button" disabled>
+          Continue to Wallet
+        </button>
+      </div>
     </section>
 
     <!-- ── Wallet section (shown when configured) ────────────────────────── -->
@@ -97,10 +151,12 @@
       <section class="card balance-card">
         <h2>Balance</h2>
         <div class="balance-tabs" role="tablist" aria-label="Balance views">
-          <button class="balance-tab is-active" id="balanceTabGeneral" type="button" role="tab" aria-selected="true" aria-controls="balancePanelGeneral">
+          <button class="balance-tab is-active" id="balanceTabGeneral" type="button" role="tab" aria-selected="true"
+            aria-controls="balancePanelGeneral">
             General
           </button>
-          <button class="balance-tab" id="balanceTabAssets" type="button" role="tab" aria-selected="false" aria-controls="balancePanelAssets">
+          <button class="balance-tab" id="balanceTabAssets" type="button" role="tab" aria-selected="false"
+            aria-controls="balancePanelAssets">
             Assets
           </button>
         </div>
@@ -135,10 +191,28 @@
     </div>
   </div>
 
+  <div id="initialPinModal" class="unlock-modal hidden" role="dialog" aria-modal="true"
+    aria-labelledby="initialPinTitle">
+    <div class="unlock-panel">
+      <h2 id="initialPinTitle">Create Access PIN</h2>
+      <p>Before saving your first wallet, set a PIN. Your private key will be encrypted with this PIN.</p>
+      <label for="initialPinInput">New PIN</label>
+      <input id="initialPinInput" type="password" placeholder="4 to 20 characters" autocomplete="new-password">
+      <label for="initialPinConfirmInput">Confirm PIN</label>
+      <input id="initialPinConfirmInput" type="password" placeholder="Repeat PIN" autocomplete="new-password">
+      <p id="initialPinError" class="unlock-error"></p>
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button id="initialPinCancelBtn" class="btn btn-secondary" style="flex: 1;" type="button">Cancel</button>
+        <button id="initialPinSaveBtn" class="btn btn-primary" style="flex: 1;" type="button">Set PIN</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../lib/NeuraiKey.js"></script>
   <script src="../lib/NeuraiReader.js"></script>
   <script src="../shared/constants.js"></script>
   <script src="../shared/utils.js"></script>
   <script src="expanded.js"></script>
 </body>
+
 </html>
