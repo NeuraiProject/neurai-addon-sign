@@ -397,3 +397,62 @@ select:focus,
   color: #ef4444 !important;
   font-size: 13px;
 }
+/* === History === */
+#historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.history-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.history-item {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-item-origin {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.history-item-msg {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg);
+  padding: 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px dashed var(--border);
+}
+
+.history-item-sig {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--success);
+  word-break: break-all;
+  opacity: 0.9;
+}

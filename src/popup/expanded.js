@@ -58,6 +58,8 @@
     balancePanelAssets: document.getElementById('balancePanelAssets'),
     assetsList: document.getElementById('assetsList'),
     assetsEmpty: document.getElementById('assetsEmpty'),
+    historyList: document.getElementById('historyList'),
+    historyEmpty: document.getElementById('historyEmpty'),
     unlockModal: document.getElementById('unlockModal'),
     unlockPinInput: document.getElementById('unlockPinInput'),
     unlockError: document.getElementById('unlockError'),
@@ -337,7 +339,48 @@
     elements.mnemonicSection.classList.add('hidden');
     elements.walletSection.classList.remove('hidden');
     renderWalletInfo();
+    renderHistory();
     touchUnlockSession(true);
+  }
+
+  // ── History ────────────────────────────────────────────────────────────────
+
+  function renderHistory() {
+    elements.historyList.innerHTML = '';
+    const activeAccount = state.accounts && state.accounts[state.activeAccountId];
+    const history = activeAccount?.history || [];
+
+    if (history.length === 0) {
+      elements.historyEmpty.classList.remove('hidden');
+      elements.historyList.appendChild(elements.historyEmpty);
+      return;
+    }
+
+    elements.historyEmpty.classList.add('hidden');
+
+    history.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'history-item';
+
+      const header = document.createElement('div');
+      header.className = 'history-item-header';
+      const dateStr = new Date(item.timestamp).toLocaleString();
+      header.innerHTML = `<span class="history-item-origin">${escapeHtml(item.origin)}</span><span>${escapeHtml(dateStr)}</span>`;
+
+      const msg = document.createElement('div');
+      msg.className = 'history-item-msg';
+      msg.title = item.message;
+      msg.textContent = item.message;
+
+      const sig = document.createElement('div');
+      sig.className = 'history-item-sig';
+      sig.textContent = item.signature;
+
+      el.appendChild(header);
+      el.appendChild(msg);
+      el.appendChild(sig);
+      elements.historyList.appendChild(el);
+    });
   }
 
   // ── Balance & display ──────────────────────────────────────────────────────
@@ -384,6 +427,7 @@
       renderAssetsList();
       elements.statusValue.textContent = 'Connected';
       elements.updatedValue.textContent = new Date().toLocaleString();
+      renderHistory();
     } catch (error) {
       elements.statusValue.textContent = 'RPC error';
       elements.updatedValue.textContent = 'Failed to fetch balance';
