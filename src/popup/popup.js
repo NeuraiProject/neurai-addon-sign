@@ -120,6 +120,7 @@
   function handleToggleHistory() {
     const isShowing = !elements.historyCard.classList.contains('hidden');
     const balanceCardMain = document.querySelector('.balance-card-main');
+    const addressCard = document.getElementById('addressCard');
     const iconClock = document.getElementById('historyBtnIconClock');
     const iconBalance = document.getElementById('historyBtnIconBalance');
 
@@ -127,12 +128,14 @@
       // Switch back to Balance
       elements.historyCard.classList.add('hidden');
       balanceCardMain.classList.remove('hidden');
+      addressCard.classList.remove('hidden');
       elements.toggleHistoryBtnText.textContent = 'History';
       iconClock.style.display = '';
       iconBalance.style.display = 'none';
     } else {
       // Show History
       balanceCardMain.classList.add('hidden');
+      addressCard.classList.add('hidden');
       elements.historyCard.classList.remove('hidden');
       elements.toggleHistoryBtnText.textContent = 'Balance';
       iconClock.style.display = 'none';

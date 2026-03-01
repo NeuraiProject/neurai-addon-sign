@@ -99,7 +99,7 @@ body {
   color: var(--text-primary);
   min-width: 380px;
   max-width: 460px;
-  overflow-x: hidden;
+  overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
