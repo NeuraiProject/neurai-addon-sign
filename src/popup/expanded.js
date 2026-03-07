@@ -418,8 +418,9 @@
 
     try {
       const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address);
+      const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.wallet.address, 'XNA');
       const balance = NeuraiReader.formatBalance(balanceData.balance);
-      const pending = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
+      const pending = NeuraiReader.formatBalance(pendingDelta);
       const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address);
       state.assets = normalizeAssetsFromRpc(assetBalance);
       renderAmount(elements.balanceValue, balance, '0');

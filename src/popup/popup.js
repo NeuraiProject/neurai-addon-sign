@@ -564,8 +564,9 @@
 
       const balanceData = await NeuraiReader.getNeuraiBalance(state.address);
       if (balanceData) {
+        const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.address, 'XNA');
         state.balance = NeuraiReader.formatBalance(balanceData.balance);
-        state.pendingBalance = NeuraiReader.formatBalance(balanceData.balance + balanceData.unconfirmed_balance);
+        state.pendingBalance = NeuraiReader.formatBalance(pendingDelta);
 
         const assetBalance = await NeuraiReader.getAssetBalance(state.address);
         state.assets = normalizeAssetsFromRpc(assetBalance);

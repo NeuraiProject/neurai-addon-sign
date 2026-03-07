@@ -125,6 +125,24 @@ const NeuraiReader = (function() {
         return result;
     }
 
+    function getAssetBalanceFromMempool(assetName, mempool) {
+        if (!Array.isArray(mempool) || mempool.length === 0) {
+            return 0;
+        }
+
+        return mempool.reduce((pending, item) => {
+            if (item && item.assetName === assetName) {
+                return pending + Number(item.satoshis || 0);
+            }
+            return pending;
+        }, 0);
+    }
+
+    async function getPendingBalanceFromAddressMempool(address, assetName = 'XNA') {
+        const mempool = await getAddressMempool(address);
+        return getAssetBalanceFromMempool(assetName, mempool);
+    }
+
     // Get all assets
     async function getAllAssets(prefix = '*', includeAllMetaData = false) {
         const result = await rpc('listassets', [prefix, includeAllMetaData]);
@@ -152,6 +170,8 @@ const NeuraiReader = (function() {
         getBlock,
         getBlockByHeight,
         getMempool,
+        getAssetBalanceFromMempool,
+        getPendingBalanceFromAddressMempool,
         getAllAssets,
         formatBalance,
         URL_MAINNET,
