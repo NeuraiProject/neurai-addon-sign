@@ -430,6 +430,10 @@ body {
   background: var(--danger);
   color: #fff;
   border: 1px solid var(--danger);
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
+  gap: 0;
 }
 
 .btn-lock-now:hover {
@@ -838,6 +842,11 @@ body {
 
 .actions-row .btn {
   flex: 1;
+}
+
+.actions-row .btn-lock-now {
+  flex: 0 0 34px;
+  aspect-ratio: 1;
 }
 
 /* === Footer === */

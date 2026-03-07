@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Neurai Sign",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Use Neurai's blockchain (XNA) to authenticate yourself using coins or tokens through digital signatures.",
   "short_name": "Neurai Sign",
   "permissions": [
