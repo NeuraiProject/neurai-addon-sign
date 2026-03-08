@@ -1,6 +1,8 @@
 (function() {
   'use strict';
 
+  const C = (typeof NEURAI_CONSTANTS !== 'undefined' && NEURAI_CONSTANTS) ? NEURAI_CONSTANTS : { SETTINGS_KEY: 'neurai_wallet_settings' };
+
   const params = new URLSearchParams(window.location.search);
   const requestId = params.get('requestId');
 
@@ -18,7 +20,37 @@
 
   let pinRequired = false;
 
+  function applyThemeFromSettings(settings = {}) {
+    if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
+      NEURAI_UTILS.applyTheme(settings);
+      return;
+    }
+
+    const selected = settings.theme || 'dark';
+    const theme = selected === 'system'
+      ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : selected;
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
+  async function loadTheme() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(C.SETTINGS_KEY, (result) => {
+        applyThemeFromSettings((result && result[C.SETTINGS_KEY]) || {});
+        resolve();
+      });
+    });
+  }
+
   async function init() {
+    await loadTheme();
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== 'local') return;
+      if (!changes || !changes[C.SETTINGS_KEY]) return;
+      applyThemeFromSettings(changes[C.SETTINGS_KEY].newValue || {});
+    });
+
     if (!requestId) {
       elements.errorText.textContent = 'Missing request id.';
       elements.acceptBtn.disabled = true;
