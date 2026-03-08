@@ -54,8 +54,14 @@
     unlockModal: document.getElementById('unlockModal'),
     unlockPinInput: document.getElementById('unlockPinInput'),
     unlockError: document.getElementById('unlockError'),
-    unlockCancelBtn: document.getElementById('unlockCancelBtn'),
     unlockConfirmBtn: document.getElementById('unlockConfirmBtn'),
+    unlockPrimaryView: document.getElementById('unlockPrimaryView'),
+    unlockForgotPinLink: document.getElementById('unlockForgotPinLink'),
+    unlockResetView: document.getElementById('unlockResetView'),
+    unlockResetInput: document.getElementById('unlockResetInput'),
+    unlockResetMessage: document.getElementById('unlockResetMessage'),
+    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn'),
+    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn'),
     initialPinModal: document.getElementById('initialPinModal'),
     initialPinInput: document.getElementById('initialPinInput'),
     initialPinConfirmInput: document.getElementById('initialPinConfirmInput'),
@@ -286,11 +292,24 @@
     elements.newAccountBtn.addEventListener('click', handleCreateNewAccount);
     elements.cancelRemoveBtn.addEventListener('click', closeRemoveConfirmModal);
     elements.confirmRemoveBtn.addEventListener('click', handleConfirmRemoveAccount);
-    elements.unlockCancelBtn.addEventListener('click', () => {
-      if (isAddonLocked()) return;
-      closeUnlockModal();
+    elements.unlockForgotPinLink.addEventListener('click', openUnlockResetView);
+    elements.unlockForgotPinLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openUnlockResetView();
+      }
     });
     elements.unlockConfirmBtn.addEventListener('click', handleUnlock);
+    elements.unlockResetInput.addEventListener('input', () => {
+      elements.unlockResetMessage.textContent = '';
+    });
+    elements.unlockResetInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        handleResetAddonDataAndClose();
+      }
+    });
+    elements.unlockResetCancelBtn.addEventListener('click', showUnlockMainView);
+    elements.unlockResetConfirmBtn.addEventListener('click', handleResetAddonDataAndClose);
     elements.initialPinCancelBtn.addEventListener('click', cancelInitialPinSetup);
     elements.initialPinSaveBtn.addEventListener('click', handleInitialPinSetup);
 
@@ -534,7 +553,7 @@
     elements.removeConfirmModal.classList.add('hidden');
   }
 
-  async function handleConfirmRemoveAccount() {
+  async function resetAddonData() {
     state.accounts = createDefaultAccounts();
     state.activeAccountId = '1';
     state.settings = { ...C.DEFAULT_SETTINGS, pinHash: '' };
@@ -545,7 +564,10 @@
     await saveAccountsData();
     await saveSettings();
     await new Promise((r) => chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 }, r));
+  }
 
+  async function handleConfirmRemoveAccount() {
+    await resetAddonData();
     closeRemoveConfirmModal();
     closeSettingsModal();
     syncPinSettingsUI();
@@ -1266,13 +1288,49 @@
     if (active) active.privateKey = null;
     elements.unlockError.textContent = '';
     elements.unlockPinInput.value = '';
+    elements.unlockResetInput.value = '';
+    elements.unlockResetMessage.textContent = '';
+    showUnlockMainView();
     elements.unlockModal.classList.remove('hidden');
     elements.unlockPinInput.focus();
   }
 
   function closeUnlockModal() {
     if (isAddonLocked()) return;
+    showUnlockMainView();
     elements.unlockModal.classList.add('hidden');
+  }
+
+  function showUnlockMainView() {
+    elements.unlockPrimaryView.classList.remove('hidden');
+    elements.unlockResetView.classList.add('hidden');
+    elements.unlockError.textContent = '';
+    elements.unlockPinInput.value = '';
+    elements.unlockResetInput.value = '';
+    elements.unlockResetMessage.textContent = '';
+  }
+
+  function openUnlockResetView() {
+    elements.unlockPrimaryView.classList.add('hidden');
+    elements.unlockResetView.classList.remove('hidden');
+    elements.unlockResetInput.value = '';
+    elements.unlockResetMessage.textContent = '';
+    elements.unlockResetInput.focus();
+  }
+
+  async function handleResetAddonDataAndClose() {
+    if ((elements.unlockResetInput.value || '').trim() !== 'RESET') {
+      elements.unlockResetMessage.textContent = 'Incorrect word. Please type RESET to confirm account restore.';
+      return;
+    }
+    try {
+      await resetAddonData();
+      closeUnlockModal();
+      showSetupSection();
+      showToast('All data has been reset', 'success');
+    } catch (error) {
+      elements.unlockResetMessage.textContent = error.message || 'Unable to reset addon data.';
+    }
   }
 
   function startLockWatch() {

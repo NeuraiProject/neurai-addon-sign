@@ -387,16 +387,42 @@
 
   <div class="modal-backdrop hidden" id="unlockModal">
     <div class="modal-panel glass warning-modal" role="dialog" aria-modal="true" aria-labelledby="unlockTitle">
-      <h2 id="unlockTitle">Wallet Locked</h2>
-      <p>Enter your PIN to unlock the addon.</p>
-      <div class="form-group">
-        <label for="unlockPinInput">Access PIN</label>
-        <input id="unlockPinInput" type="password" placeholder="Enter PIN" autocomplete="off">
+      <div id="unlockPrimaryView">
+        <h2 id="unlockTitle">Wallet Locked</h2>
+        <p>Enter your PIN to unlock the addon.</p>
+        <div class="form-group">
+          <label for="unlockPinInput">Access PIN</label>
+          <input id="unlockPinInput" type="password" placeholder="Enter PIN" autocomplete="off">
+        </div>
+        <p class="account-hint" id="unlockError"></p>
+        <div class="settings-actions">
+          <button id="unlockConfirmBtn" class="btn btn-primary btn-small unlock-main-action" type="button">Unlock</button>
+        </div>
+        <p class="unlock-forgot-pin-link" id="unlockForgotPinLink" role="button" tabindex="0">Forgot your PIN?</p>
       </div>
-      <p class="account-hint" id="unlockError"></p>
-      <div class="settings-actions">
-        <button class="btn btn-secondary btn-small" id="unlockCancelBtn" type="button">Close</button>
-        <button class="btn btn-primary btn-small" id="unlockConfirmBtn" type="button">Unlock</button>
+      <div id="unlockResetView" class="hidden">
+        <div class="unlock-reset-header">
+          <div class="unlock-reset-warning-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="currentColor">
+              <path d="M11 1L1 19h20L11 1zm0 4.1L17.4 17H4.6L11 5.1zm-1 4.4v4h2v-4h-2zm0 5.5v2h2v-2h-2z" />
+            </svg>
+          </div>
+          <div class="unlock-reset-copy">
+            <h2 class="unlock-reset-title">Restore account</h2>
+            <p class="unlock-reset-description">
+              This process will remove all Neurai Sign data to allow restoring with your seed words.
+              To continue, write <strong>RESET</strong> in the textbox below.
+            </p>
+          </div>
+        </div>
+        <div class="form-group">
+          <input class="unlock-reset-input" id="unlockResetInput" type="text" placeholder="RESET" autocomplete="off">
+        </div>
+        <p class="account-hint" id="unlockResetMessage"></p>
+        <div class="settings-actions">
+          <button class="btn btn-secondary btn-small unlock-reset-back-btn" id="unlockResetCancelBtn" type="button">Back</button>
+          <button class="btn btn-primary btn-small unlock-reset-confirm-btn" id="unlockResetConfirmBtn" type="button">Confirm</button>
+        </div>
       </div>
     </div>
   </div>
