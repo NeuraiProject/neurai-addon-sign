@@ -64,6 +64,13 @@
     unlockPinInput: document.getElementById('unlockPinInput'),
     unlockError: document.getElementById('unlockError'),
     unlockConfirmBtn: document.getElementById('unlockConfirmBtn'),
+    unlockPrimaryView: document.getElementById('unlockPrimaryView'),
+    unlockForgotPinLink: document.getElementById('unlockForgotPinLink'),
+    unlockResetView: document.getElementById('unlockResetView'),
+    unlockResetInput: document.getElementById('unlockResetInput'),
+    unlockResetMessage: document.getElementById('unlockResetMessage'),
+    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn'),
+    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn'),
 
     initialPinModal: document.getElementById('initialPinModal'),
     initialPinInput: document.getElementById('initialPinInput'),
@@ -138,6 +145,23 @@
     });
     elements.mnemonicCopyBtn.addEventListener('click', copyMnemonic);
     elements.mnemonicConfirmBtn.addEventListener('click', closeMnemonicSection);
+    elements.unlockForgotPinLink.addEventListener('click', openUnlockResetView);
+    elements.unlockForgotPinLink.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        openUnlockResetView();
+      }
+    });
+    elements.unlockResetInput.addEventListener('input', () => {
+      elements.unlockResetMessage.textContent = '';
+    });
+    elements.unlockResetInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        handleResetAddonDataAndClose();
+      }
+    });
+    elements.unlockResetCancelBtn.addEventListener('click', showUnlockMainView);
+    elements.unlockResetConfirmBtn.addEventListener('click', handleResetAddonDataAndClose);
     elements.unlockConfirmBtn.addEventListener('click', handleUnlock);
 
     elements.initialPinCancelBtn.addEventListener('click', cancelInitialPinSetup);
@@ -578,6 +602,7 @@
     elements.setupSection.classList.add('hidden');
     elements.mnemonicSection.classList.add('hidden');
     elements.walletSection.classList.add('hidden');
+    showUnlockMainView();
     elements.unlockError.textContent = '';
     elements.unlockPinInput.value = '';
     elements.unlockModal.classList.remove('hidden');
@@ -587,6 +612,63 @@
   function closeUnlockModal() {
     if (isAddonLocked()) return;
     elements.unlockModal.classList.add('hidden');
+  }
+
+  function showUnlockMainView() {
+    elements.unlockPrimaryView.classList.remove('hidden');
+    elements.unlockResetView.classList.add('hidden');
+    elements.unlockError.textContent = '';
+    elements.unlockPinInput.value = '';
+    elements.unlockResetInput.value = '';
+    elements.unlockResetMessage.textContent = '';
+  }
+
+  function openUnlockResetView() {
+    elements.unlockPrimaryView.classList.add('hidden');
+    elements.unlockResetView.classList.remove('hidden');
+    elements.unlockResetInput.value = '';
+    elements.unlockResetMessage.textContent = '';
+    elements.unlockResetInput.focus();
+  }
+
+  async function handleResetAddonDataAndClose() {
+    if ((elements.unlockResetInput.value || '').trim() !== 'RESET') {
+      elements.unlockResetMessage.textContent = 'Incorrect word. Please type RESET to confirm account restore.';
+      return;
+    }
+
+    try {
+      await resetAddonData();
+      closeUnlockModal();
+      showSetupSection();
+    } catch (error) {
+      elements.unlockResetMessage.textContent = error.message || 'Unable to reset addon data.';
+    }
+  }
+
+  async function resetAddonData() {
+    state.accounts = createDefaultAccounts();
+    state.activeAccountId = '1';
+    state.wallet = null;
+    state.settings = { ...C.DEFAULT_SETTINGS, pinHash: '' };
+    state.unlockUntil = 0;
+    state.sessionPin = '';
+
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        [C.ACCOUNTS_KEY]: state.accounts,
+        [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
+        [C.STORAGE_KEY]: null,
+        [C.SETTINGS_KEY]: state.settings,
+        [C.UNLOCK_UNTIL_KEY]: 0
+      }, resolve);
+    });
+  }
+
+  function createDefaultAccounts() {
+    const accounts = {};
+    for (let i = 1; i <= C.MAX_ACCOUNTS; i++) accounts[String(i)] = null;
+    return accounts;
   }
 
   async function unlockForConfiguredTimeout() {

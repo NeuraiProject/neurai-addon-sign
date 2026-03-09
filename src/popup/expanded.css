@@ -387,8 +387,52 @@ select:focus,
 }
 
 .unlock-panel p {
-  margin: 0;
+  margin: 0 0 8px 0;
   color: var(--muted);
+  line-height: 1.45;
+}
+
+.unlock-panel.warning-modal {
+  text-align: center;
+}
+
+.unlock-panel.warning-modal p {
+  color: var(--text-muted, var(--muted));
+  font-size: 12px;
+}
+
+.unlock-panel h2 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+
+.unlock-panel.warning-modal .form-group {
+  margin-bottom: 10px;
+}
+
+.unlock-panel.warning-modal .form-group label {
+  text-align: left;
+  width: 100%;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.unlock-panel .form-group {
+  margin-bottom: 10px;
+}
+
+.unlock-panel .form-group label {
+  margin-bottom: 8px;
+}
+
+.unlock-panel .form-group input {
+  padding: 12px 14px;
+  background: var(--bg-input, var(--card-soft));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
 }
 
 .unlock-panel label {
@@ -402,6 +446,124 @@ select:focus,
   color: #ef4444 !important;
   font-size: 13px;
 }
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.settings-actions .btn {
+  flex: 1;
+}
+
+.unlock-panel.warning-modal .settings-actions {
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.unlock-forgot-pin-link {
+  color: var(--text);
+  margin-top: 0;
+  margin-bottom: 0;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  font-weight: 700;
+  width: 100%;
+}
+
+.unlock-forgot-pin-link:hover,
+.unlock-forgot-pin-link:focus {
+  text-decoration: underline;
+}
+
+#unlockResetInput::placeholder {
+  color: #9ca3af;
+}
+
+.unlock-reset-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  margin-bottom: 6px;
+}
+
+.unlock-reset-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.unlock-reset-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 19px;
+}
+
+.unlock-reset-description {
+  color: var(--text);
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+#unlockResetMessage {
+  font-size: 13px;
+  color: var(--text);
+  min-height: 16px;
+}
+
+#unlockResetView {
+  background: rgba(153, 27, 27, 0.12);
+  border: 2px solid #7f1d1d;
+  border-radius: 12px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.unlock-reset-warning-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-top: 2px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #dc2626;
+}
+
+.unlock-reset-confirm-btn {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.unlock-reset-confirm-btn:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+#unlockResetInput,
+.unlock-reset-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+#unlockResetMessage {
+  min-height: 16px;
+}
+
 /* === History === */
 #historyList {
   display: flex;
