@@ -71,6 +71,21 @@
           break;
         }
 
+        case 'signRawTransaction': {
+          const resp = await chrome.runtime.sendMessage({
+            type: 'SIGN_RAW_TX',
+            txHex: data.txHex,
+            utxos: data.utxos,
+            sighashType: data.sighashType
+          });
+          if (resp && resp.success) {
+            result = { signedTxHex: resp.signedTxHex, complete: resp.complete };
+          } else {
+            throw new Error(resp?.error || 'Failed to sign raw transaction');
+          }
+          break;
+        }
+
         case 'getInfo': {
           const resp = await chrome.runtime.sendMessage({ type: 'GET_WALLET_INFO' });
           result = {

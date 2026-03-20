@@ -168,6 +168,9 @@ async function handleMessage(message, sender) {
     case MSG.SIGN_MESSAGE:
       return signMessageForPage(message.message, sender);
 
+    case MSG.SIGN_RAW_TX:
+      return signRawTxForPage(message.txHex, message.utxos, message.sighashType, sender);
+
     case MSG.GET_SIGN_REQUEST: {
       const pending = pendingSignRequests.get(message.requestId);
       if (!pending) return { error: 'Sign request not found or expired' };
@@ -258,6 +261,90 @@ async function signMessageForPage(messageText, sender) {
     }
 
     return { success: true, signature, address: walletData.address };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+// ── Raw Transaction Signing ───────────────────────────────────────────────────
+
+/**
+ * Sign a raw transaction on behalf of the page.
+ * Security note: The private key (WIF) is sent to the Neurai RPC endpoint over HTTPS.
+ * The call goes to the configured RPC URL (Neurai's own infrastructure by default).
+ * This is an acceptable trade-off for a self-hosted deployment; native signing
+ * (without sending the key) should be implemented in a future improvement.
+ *
+ * @param {string} txHex - The raw transaction hex to sign
+ * @param {Array} utxos - [{txid, vout, scriptPubKey, amount}] for inputs being signed
+ * @param {string} sighashType - 'ALL', 'SINGLE|ANYONECANPAY', etc.
+ */
+async function signRawTxForPage(txHex, utxos, sighashType, sender) {
+  await loadWalletData();
+  await loadWalletSettings();
+
+  if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
+  if (!walletData.address) return { error: 'No address available' };
+
+  const origin = sender?.url ? new URL(sender.url).origin : 'Unknown site';
+  const sighash = sighashType || 'ALL';
+
+  // Build a human-readable description for the approval popup
+  const displayMessage = [
+    'Raw Transaction Signing',
+    '',
+    `Sighash type: ${sighash}`,
+    `Inputs to sign: ${(utxos || []).length}`,
+    '',
+    'WARNING: This operation signs a raw transaction with your private key.',
+    'Only approve if you initiated this action from the Neurai Swap marketplace.',
+  ].join('\n');
+
+  const approval = await requestSignatureApproval({
+    origin,
+    message: displayMessage,
+    address: walletData.address,
+    network: walletData.network || 'xna',
+  });
+
+  if (!approval?.approved) {
+    return { error: approval?.error || 'User rejected raw transaction signing' };
+  }
+
+  let privateKeyWif = walletData.privateKey || null;
+  if (!privateKeyWif && walletData.privateKeyEnc) {
+    if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
+    if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
+    privateKeyWif = await NEURAI_UTILS.decryptTextWithPin(walletData.privateKeyEnc, approval.pin);
+  }
+  if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
+
+  try {
+    const rpcUrl = getRpcUrl(walletData.network || 'xna');
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '1.0',
+        id: 'neurai-wallet-sign-tx',
+        method: 'signrawtransaction',
+        params: [
+          txHex,
+          utxos || [],            // prevtxs: [{txid, vout, scriptPubKey, amount}]
+          [privateKeyWif],        // privkeys: explicit key for signing
+          sighash,                // sighashtype
+        ]
+      })
+    });
+
+    const data = await response.json();
+    if (data.error) return { error: data.error.message || JSON.stringify(data.error) };
+
+    return {
+      success: true,
+      signedTxHex: data.result.hex,
+      complete: data.result.complete,
+    };
   } catch (error) {
     return { error: error.message };
   }

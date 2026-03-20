@@ -45,7 +45,7 @@
   // Expose API to the page
   window.neuraiWallet = {
     isInstalled: true,
-    version: '0.7.2',
+    version: '0.7.3',
 
     getAddress: function() {
       return _request('getAddress');
@@ -70,6 +70,20 @@
       return _request('verifyMessage', { address: address, message: message, signature: signature });
     },
 
+    /**
+     * Sign a raw transaction hex using the wallet's private key via the Neurai RPC.
+     * @param {string} txHex - Unsigned (or partially signed) raw transaction hex
+     * @param {Array} utxos - Array of {txid, vout, scriptPubKey, amount} for inputs being signed
+     * @param {string} sighashType - e.g. 'ALL', 'SINGLE|ANYONECANPAY'
+     * @returns {Promise<{signedTxHex: string, complete: boolean}>}
+     */
+    signRawTransaction: function(txHex, utxos, sighashType) {
+      if (!txHex || typeof txHex !== 'string') {
+        return Promise.reject(new Error('txHex must be a non-empty string'));
+      }
+      return _request('signRawTransaction', { txHex: txHex, utxos: utxos || [], sighashType: sighashType || 'ALL' });
+    },
+
     getInfo: function() {
       return _request('getInfo');
     }
@@ -77,6 +91,6 @@
 
   // Notify the page that the API is ready
   document.dispatchEvent(new CustomEvent('neuraiWalletReady', {
-    detail: { isInstalled: true, version: '0.7.2' }
+    detail: { isInstalled: true, version: '0.7.3' }
   }));
 })();
