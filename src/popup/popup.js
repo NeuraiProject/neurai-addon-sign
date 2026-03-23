@@ -167,27 +167,74 @@
       const el = document.createElement('div');
       el.className = 'history-item';
 
+      const isRawTx = item.type === 'raw_tx';
+
+      // Header: origin + date
       const header = document.createElement('div');
       header.className = 'history-item-header';
-
       const dateStr = new Date(item.timestamp).toLocaleString();
       header.innerHTML = `
         <span class="history-item-origin">${item.origin}</span>
         <span>${dateStr}</span>
       `;
 
-      const msg = document.createElement('div');
-      msg.className = 'history-item-msg';
-      msg.title = item.message;
-      msg.textContent = item.message;
-
-      const sig = document.createElement('div');
-      sig.className = 'history-item-sig';
-      sig.textContent = item.signature;
+      // Type badge row
+      const meta = document.createElement('div');
+      meta.className = 'history-item-meta';
+      if (isRawTx) {
+        meta.innerHTML = `<span class="history-item-badge history-item-badge--rawtx">RAW TX</span>
+          <span class="history-item-meta-detail">Sighash: <strong>${item.sighashType || 'ALL'}</strong></span>
+          <span class="history-item-meta-detail">Inputs: <strong>${item.inputCount ?? '?'}</strong></span>`;
+      } else {
+        meta.innerHTML = `<span class="history-item-badge history-item-badge--msg">MSG</span>`;
+      }
 
       el.appendChild(header);
-      el.appendChild(msg);
-      el.appendChild(sig);
+      el.appendChild(meta);
+
+      if (isRawTx) {
+        // Expandable raw TX hex block
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'history-item-expand-btn';
+        expandBtn.type = 'button';
+        expandBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 7L1 3h8L5 7z"/></svg> Show raw TX`;
+
+        const details = document.createElement('div');
+        details.className = 'history-item-details hidden';
+
+        const txLabel = document.createElement('div');
+        txLabel.className = 'history-item-details-label';
+        txLabel.textContent = 'Signed transaction hex:';
+
+        const txHex = document.createElement('div');
+        txHex.className = 'history-item-sig history-item-txhex';
+        txHex.textContent = item.signedTxHex || item.txHex || '';
+
+        details.appendChild(txLabel);
+        details.appendChild(txHex);
+
+        expandBtn.addEventListener('click', () => {
+          const hidden = details.classList.toggle('hidden');
+          expandBtn.innerHTML = hidden
+            ? `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 7L1 3h8L5 7z"/></svg> Show raw TX`
+            : `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 3l4 4H1L5 3z"/></svg> Hide raw TX`;
+        });
+
+        el.appendChild(expandBtn);
+        el.appendChild(details);
+      } else {
+        const msg = document.createElement('div');
+        msg.className = 'history-item-msg';
+        msg.title = item.message;
+        msg.textContent = item.message;
+
+        const sig = document.createElement('div');
+        sig.className = 'history-item-sig';
+        sig.textContent = item.signature;
+
+        el.appendChild(msg);
+        el.appendChild(sig);
+      }
 
       elements.historyList.appendChild(el);
     });

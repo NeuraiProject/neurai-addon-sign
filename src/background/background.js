@@ -208,6 +208,7 @@ async function signMessageForPage(messageText, sender) {
 
   try {
     const approval = await requestSignatureApproval({
+      signType: 'message',
       origin: sender?.url ? new URL(sender.url).origin : 'Unknown site',
       message: messageText,
       address: walletData.address,
@@ -243,6 +244,7 @@ async function signMessageForPage(messageText, sender) {
         const reqOrigin = sender?.url ? new URL(sender.url).origin : (sender?.origin || 'Unknown site');
 
         accountsObj[activeId].history.unshift({
+          type: 'message',
           timestamp: Date.now(),
           origin: reqOrigin,
           message: messageText,
@@ -289,22 +291,16 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
   const origin = sender?.url ? new URL(sender.url).origin : 'Unknown site';
   const sighash = sighashType || 'ALL';
 
-  // Build a human-readable description for the approval popup
-  const displayMessage = [
-    'Raw Transaction Signing',
-    '',
-    `Sighash type: ${sighash}`,
-    `Inputs to sign: ${(utxos || []).length}`,
-    '',
-    'WARNING: This operation signs a raw transaction with your private key.',
-    'Only approve if you initiated this action from the Neurai Swap marketplace.',
-  ].join('\n');
-
   const approval = await requestSignatureApproval({
+    signType: 'raw_tx',
     origin,
-    message: displayMessage,
+    message: 'WARNING: This operation signs a raw transaction with your private key.\nOnly approve if you initiated this action from the Neurai Swap marketplace.',
     address: walletData.address,
     network: walletData.network || 'xna',
+    sighashType: sighash,
+    inputCount: (utxos || []).length,
+    txHex,
+    utxos: utxos || [],
   });
 
   if (!approval?.approved) {
@@ -339,6 +335,33 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
 
     const data = await response.json();
     if (data.error) return { error: data.error.message || JSON.stringify(data.error) };
+
+    // Save to history
+    try {
+      const accountsObj = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY, r)))[NEURAI_CONSTANTS.ACCOUNTS_KEY] || {};
+      const activeId = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY, r)))[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY];
+      if (activeId && accountsObj[activeId]) {
+        if (!Array.isArray(accountsObj[activeId].history)) {
+          accountsObj[activeId].history = [];
+        }
+        accountsObj[activeId].history.unshift({
+          type: 'raw_tx',
+          timestamp: Date.now(),
+          origin,
+          sighashType: sighash,
+          inputCount: (utxos || []).length,
+          txHex,
+          signedTxHex: data.result.hex,
+          complete: data.result.complete,
+        });
+        if (accountsObj[activeId].history.length > 50) {
+          accountsObj[activeId].history = accountsObj[activeId].history.slice(0, 50);
+        }
+        await new Promise(r => chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj }, r));
+      }
+    } catch (err) {
+      console.error('Failed to save raw tx history:', err);
+    }
 
     return {
       success: true,

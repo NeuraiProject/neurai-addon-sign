@@ -26,6 +26,14 @@
     const { requestId, action, data } = event.detail;
 
     try {
+      // Detect stale content scripts (extension reloaded without page refresh)
+      if (!chrome.runtime?.id) {
+        document.dispatchEvent(new CustomEvent('neuraiWallet_response', {
+          detail: { requestId, error: 'Extension was reloaded — please refresh this page.' }
+        }));
+        return;
+      }
+
       let result;
 
       switch (action) {
@@ -107,8 +115,11 @@
       }));
 
     } catch (error) {
+      const msg = (error.message || '').includes('Extension context invalidated')
+        ? 'Extension was reloaded — please refresh this page.'
+        : error.message;
       document.dispatchEvent(new CustomEvent('neuraiWallet_response', {
-        detail: { requestId, error: error.message }
+        detail: { requestId, error: msg }
       }));
     }
   });

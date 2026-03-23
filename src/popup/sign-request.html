@@ -10,11 +10,19 @@
 <body>
   <main class="panel">
     <header class="head">
-      <h1>Signature Request</h1>
+      <div class="head-title">
+        <span id="signTypeIcon" class="sign-type-icon"></span>
+        <h1 id="pageTitle">Signature Request</h1>
+      </div>
+      <span id="signTypeBadge" class="sign-badge hidden"></span>
       <p>Approve or reject this signing operation.</p>
     </header>
 
     <section class="card">
+      <div class="row">
+        <span>Type</span>
+        <strong id="signTypeValue">--</strong>
+      </div>
       <div class="row">
         <span>Site</span>
         <strong id="originValue">--</strong>
@@ -27,11 +35,36 @@
         <span>Network</span>
         <strong id="networkValue">--</strong>
       </div>
+      <div class="row hidden" id="sighashRow">
+        <span>Sighash type</span>
+        <strong id="sighashValue">--</strong>
+      </div>
+      <div class="row hidden" id="inputsRow">
+        <span>Inputs to sign</span>
+        <strong id="inputsValue">--</strong>
+      </div>
     </section>
 
     <section class="card">
-      <h2>Message</h2>
+      <h2 id="messageCardTitle">Message</h2>
       <pre id="messageValue">--</pre>
+    </section>
+
+    <section class="card hidden" id="txDetailsBlock">
+      <button class="tx-expand-btn" id="txExpandBtn" type="button">
+        <svg id="txExpandChevron" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 8.5L1.5 4h9L6 8.5z"/></svg>
+        Show transaction details
+      </button>
+      <div class="tx-details hidden" id="txDetails">
+        <div class="tx-details-section">
+          <div class="tx-details-label">Raw transaction hex</div>
+          <pre class="tx-hex" id="txHexValue"></pre>
+        </div>
+        <div class="tx-details-section hidden" id="utxosSection">
+          <div class="tx-details-label">Inputs (UTXOs)</div>
+          <div id="utxosList"></div>
+        </div>
+      </div>
     </section>
 
     <section class="card hidden" id="pinBlock">
