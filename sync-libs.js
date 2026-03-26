@@ -61,7 +61,36 @@ try {
   console.warn('  The existing src/lib/NeuraiMessage.js will be kept.');
 }
 
-// 3. NeuraiReader - local file, just verify it exists
+// 3. NeuraiSignESP32 - no browser bundle in npm, build with browserify
+const signEsp32Dest = path.join(DEST, 'NeuraiSignESP32.js');
+try {
+  // ESM package with ESM deps — use esbuild (available via vite) to bundle as IIFE
+  const entryFile = path.join(__dirname, '.tmp-sign-esp32-entry.mjs');
+  fs.writeFileSync(entryFile, `
+    export { NeuraiESP32, buildPSBT, buildPSBTFromRawTransaction, finalizePSBT,
+      finalizeSignedPSBT, validatePSBT, buildAssetTransferDisplayMetadata,
+      SerialConnection, getNetwork, neuraiMainnet, neuraiTestnet,
+      neuraiLegacyMainnet, neuraiLegacyTestnet
+    } from '@neuraiproject/neurai-sign-esp32';
+  `);
+
+  execSync(
+    `npx esbuild "${entryFile}" --bundle --format=iife --global-name=NeuraiSignESP32` +
+    ` --platform=browser --target=es2020 --outfile="${signEsp32Dest}"`,
+    { cwd: __dirname, stdio: 'pipe' }
+  );
+
+  fs.unlinkSync(entryFile);
+
+  const size = (fs.statSync(signEsp32Dest).size / 1024).toFixed(1);
+  console.log(`  NeuraiSignESP32.js (${size} KB) - built with esbuild`);
+} catch (err) {
+  console.warn('  WARNING: Failed to build NeuraiSignESP32.js browser bundle');
+  console.warn('  Error:', err.message);
+  console.warn('  The existing src/lib/NeuraiSignESP32.js will be kept (if any).');
+}
+
+// 4. NeuraiReader - local file, just verify it exists
 const readerPath = path.join(DEST, 'NeuraiReader.js');
 if (fs.existsSync(readerPath)) {
   const size = (fs.statSync(readerPath).size / 1024).toFixed(1);

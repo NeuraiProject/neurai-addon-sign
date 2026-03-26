@@ -21,77 +21,6 @@
       </div>
     </header>
 
-    <!-- ── Setup section (shown when not configured) ─────────────────────── -->
-    <section id="setupSection" class="card setup-card hidden">
-      <h2>Set Up Your Wallet</h2>
-      <p class="setup-subtitle">Import an existing wallet or generate a new one.</p>
-
-      <div class="setup-tabs">
-        <button class="balance-tab is-active" id="setupTabImport" type="button" role="tab" aria-selected="true"
-          aria-controls="setupPanelImport">Import</button>
-        <button class="balance-tab" id="setupTabGenerate" type="button" role="tab" aria-selected="false"
-          aria-controls="setupPanelGenerate">Generate</button>
-      </div>
-
-      <div class="form-group">
-        <label for="network">Network</label>
-        <select id="network">
-          <option value="xna">Neurai Mainnet (XNA)</option>
-          <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
-        </select>
-      </div>
-
-      <div id="setupPanelImport" role="tabpanel">
-        <div class="form-group">
-          <label for="importKey">Seed Phrase</label>
-          <div class="input-wrapper">
-            <textarea id="importKey" rows="2" placeholder="Enter 12 or 24 words" class="form-textarea"
-              autocomplete="off"></textarea>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="importPassphrase">Passphrase <span class="label-hint">(Optional)</span></label>
-          <div class="input-wrapper">
-            <input type="password" id="importPassphrase" placeholder="Extra security word" autocomplete="off">
-            <button class="input-toggle" id="toggleImportPassphraseVisibility" type="button">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path
-                  d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        <button id="saveKeyBtn" class="btn btn-primary btn-glow" type="button">
-          Import Wallet
-        </button>
-      </div>
-
-      <div id="setupPanelGenerate" class="hidden" role="tabpanel">
-        <div class="form-group">
-          <label for="generateWordCount">Seed Phrase Length</label>
-          <select id="generateWordCount">
-            <option value="12">12 Words</option>
-            <option value="24">24 Words</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="generatePassphrase">Passphrase <span class="label-hint">(Optional)</span></label>
-          <div class="input-wrapper">
-            <input type="password" id="generatePassphrase" placeholder="Extra security word" autocomplete="off">
-            <button class="input-toggle" id="toggleGeneratePassphraseVisibility" type="button">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path
-                  d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-              </svg>
-            </button>
-          </div>
-        </div>
-        <button id="generateNewBtn" class="btn btn-secondary btn-block" type="button">
-          Generate New Wallet
-        </button>
-      </div>
-    </section>
-
     <!-- ── Mnemonic backup section ────────────────────────────────────────── -->
     <section id="mnemonicSection" class="card mnemonic-card hidden">
       <h2>Back Up Your Recovery Phrase</h2>
@@ -133,9 +62,14 @@
             <span>Status</span>
             <strong id="statusValue">--</strong>
           </div>
-          <div class="row">
-            <span>Last update</span>
-            <strong id="updatedValue">--</strong>
+          <div class="row hidden" id="hwStatusRow">
+            <span>Device</span>
+            <strong id="hwStatusValue" style="display: flex; align-items: center; gap: 6px;">
+              <span class="status-dot-expanded" id="hwStatusDot" title="Disconnected"></span>
+              <span id="hwStatusText">--</span>
+              <button class="btn btn-secondary hidden" id="hwReconnectBtn" type="button"
+                style="padding: 2px 8px; font-size: 10px; border-radius: 6px;">Reconnect</button>
+            </strong>
           </div>
         </div>
       </section>
@@ -254,6 +188,7 @@
 
   <script src="../lib/NeuraiKey.js"></script>
   <script src="../lib/NeuraiReader.js"></script>
+  <script src="../lib/NeuraiSignESP32.js"></script>
   <script src="../shared/constants.js"></script>
   <script src="../shared/utils.js"></script>
   <script src="expanded.js"></script>

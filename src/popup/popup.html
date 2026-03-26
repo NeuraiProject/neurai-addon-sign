@@ -36,106 +36,24 @@
       </button>
     </header>
 
-    <!-- Setup Section -->
-    <section class="setup-section" id="setupSection">
-      <div class="setup-card">
-        <h2>Welcome to Neurai</h2>
-        <p class="setup-account" id="setupAccountLabel">Account: Neurai_1</p>
-
-        <div class="setup-tabs">
-          <button class="balance-tab is-active" id="setupTabImport" type="button" role="tab" aria-selected="true"
-            aria-controls="setupPanelImport">Import</button>
-          <button class="balance-tab" id="setupTabGenerate" type="button" role="tab" aria-selected="false"
-            aria-controls="setupPanelGenerate">Generate</button>
-        </div>
-
-        <div class="form-group">
-          <label for="network">Network</label>
-          <select id="network">
-            <option value="xna">Neurai Mainnet (XNA)</option>
-            <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
-          </select>
-        </div>
-
-        <div id="setupPanelImport" role="tabpanel">
-          <div class="form-group">
-            <label for="importKey">Seed Phrase</label>
-            <div class="input-wrapper">
-              <textarea id="importKey" rows="2" placeholder="Enter 12 or 24 words" class="form-textarea"
-                autocomplete="off"></textarea>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="importPassphrase">Passphrase <span class="label-hint">(Optional)</span></label>
-            <div class="input-wrapper">
-              <input type="password" id="importPassphrase" placeholder="Extra security word" autocomplete="off">
-              <button class="input-toggle" id="toggleImportPassphraseVisibility" type="button">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path
-                    d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-          <button class="btn btn-primary btn-glow" id="saveKeyBtn">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                d="M8 1a5 5 0 0 0-5 5v2H2a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-1V6a5 5 0 0 0-5-5zm0 1.5A3.5 3.5 0 0 1 11.5 6v2h-7V6A3.5 3.5 0 0 1 8 2.5zM8 10a1.5 1.5 0 0 1 .5 2.91V14h-1v-1.09A1.5 1.5 0 0 1 8 10z" />
-            </svg>
-            Import Wallet
-          </button>
-        </div>
-
-        <div id="setupPanelGenerate" class="hidden" role="tabpanel">
-          <div class="form-group">
-            <label for="generateWordCount">Seed Phrase Length</label>
-            <select id="generateWordCount">
-              <option value="12">12 Words</option>
-              <option value="24">24 Words</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="generatePassphrase">Passphrase <span class="label-hint">(Optional)</span></label>
-            <div class="input-wrapper">
-              <input type="password" id="generatePassphrase" placeholder="Extra security word" autocomplete="off">
-              <button class="input-toggle" id="toggleGeneratePassphraseVisibility" type="button">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path
-                    d="M8 3C4.5 3 1.7 5.1.5 8c1.2 2.9 4 5 7.5 5s6.3-2.1 7.5-5c-1.2-2.9-4-5-7.5-5zm0 8.3A3.3 3.3 0 1 1 8 4.7a3.3 3.3 0 0 1 0 6.6zm0-5.3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z" />
-                </svg>
-              </button>
-            </div>
-          </div>
-          <button class="btn btn-secondary" id="generateNewBtn">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path
-                d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 1.2A5.8 5.8 0 1 1 8 13.8 5.8 5.8 0 0 1 8 2.2zM7.4 4v3.4L4.6 9l.8 1L8.6 8V4h-1.2z" />
-            </svg>
-            Generate New Wallet
-          </button>
-        </div>
-
-        <p class="warning-text">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="vertical-align:-2px">
-            <path d="M7 0L0 12.5h14L7 0zm0 4l4.5 7.5h-9L7 4zm-.5 2.5v3h1v-3h-1zm0 3.5v1h1v-1h-1z" />
-          </svg>
-          Never share your private key. Keep it safe and backed up.
-        </p>
-      </div>
-    </section>
-
     <!-- Wallet Section -->
     <section class="wallet-section hidden" id="walletSection">
       <!-- Status Bar -->
       <div class="status-bar glass">
+        <span class="hw-icon hidden" id="hwIcon" title="Hardware wallet">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M14 3H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm-.5 8.5h-11v-7h11v7zM4 7h2v2H4V7z" />
+          </svg>
+        </span>
         <div class="status-indicator" id="statusIndicator">
           <span class="status-dot"></span>
-          <span class="status-text">Connected</span>
         </div>
+        <button class="btn-hw-reconnect hidden" id="hwReconnectBtn" title="Reconnect hardware wallet" type="button">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M14 8a6 6 0 1 1-1.2-3.6L11 6h5V1l-1.7 1.7A8 8 0 1 0 16 8h-2z" />
+          </svg>
+        </button>
         <div class="account-chip" id="currentAccountDisplay">Neurai_1</div>
-        <div class="last-update" id="lastUpdate">
-          Updated: --
-        </div>
       </div>
 
       <!-- Address Card -->
@@ -242,7 +160,7 @@
       </div>
     </section>
 
-    <footer class="addon-footer">Neurai Sign v0.7.5</footer>
+    <footer class="addon-footer">Neurai Sign v0.8.0</footer>
 
     <!-- Toast -->
     <div class="toast hidden" id="toast">
@@ -530,6 +448,7 @@
   <script src="../lib/NeuraiKey.js"></script>
   <script src="../lib/NeuraiMessage.js"></script>
   <script src="../lib/NeuraiReader.js"></script>
+  <script src="../lib/NeuraiSignESP32.js"></script>
   <script src="../shared/constants.js"></script>
   <script src="../shared/utils.js"></script>
   <script src="popup.js"></script>

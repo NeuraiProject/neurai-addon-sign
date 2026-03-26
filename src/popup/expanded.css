@@ -91,6 +91,15 @@ p {
   border-bottom: none;
 }
 
+.status-dot-expanded {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger, #ef4444);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+}
+
 .address {
   margin: 0;
   padding: 10px 12px;

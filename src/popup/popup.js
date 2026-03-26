@@ -10,31 +10,19 @@
   const C = NEURAI_CONSTANTS;
   const MSG = C.MSG;
 
+  // ── Persistent HW device connection ─────────────────────────────────────
+  let hwDevice = null; // NeuraiESP32 instance, kept alive while popup is open
+  let hwStatusInterval = null; // polling interval for connection status
+
   // ── DOM Elements ──────────────────────────────────────────────────────────
   const elements = {
-    setupSection: document.getElementById('setupSection'),
     walletSection: document.getElementById('walletSection'),
-    network: document.getElementById('network'),
-    setupTabImport: document.getElementById('setupTabImport'),
-    setupTabGenerate: document.getElementById('setupTabGenerate'),
-    setupPanelImport: document.getElementById('setupPanelImport'),
-    setupPanelGenerate: document.getElementById('setupPanelGenerate'),
-    importKey: document.getElementById('importKey'),
-    importPassphrase: document.getElementById('importPassphrase'),
-    toggleImportPassphraseVisibility: document.getElementById('toggleImportPassphraseVisibility'),
-    generateWordCount: document.getElementById('generateWordCount'),
-    generatePassphrase: document.getElementById('generatePassphrase'),
-    toggleGeneratePassphraseVisibility: document.getElementById('toggleGeneratePassphraseVisibility'),
     networkBadge: document.getElementById('networkBadge'),
     openExpandedBtn: document.getElementById('openExpandedBtn'),
     openSettingsBtn: document.getElementById('openSettingsBtn'),
     settingsModal: document.getElementById('settingsModal'),
     accountModal: document.getElementById('accountModal'),
     removeConfirmModal: document.getElementById('removeConfirmModal'),
-    mnemonicModal: document.getElementById('mnemonicModal'),
-    mnemonicPassphraseDisplay: document.getElementById('mnemonicPassphraseDisplay'),
-    mnemonicPassphraseText: document.getElementById('mnemonicPassphraseText'),
-    mnemonicCopyBtn: document.getElementById('mnemonicCopyBtn'),
     closeSettingsBtn: document.getElementById('closeSettingsBtn'),
     closeAccountModalBtn: document.getElementById('closeAccountModalBtn'),
     saveSettingsBtn: document.getElementById('saveSettingsBtn'),
@@ -62,21 +50,14 @@
     unlockResetMessage: document.getElementById('unlockResetMessage'),
     unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn'),
     unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn'),
-    initialPinModal: document.getElementById('initialPinModal'),
-    initialPinInput: document.getElementById('initialPinInput'),
-    initialPinConfirmInput: document.getElementById('initialPinConfirmInput'),
-    initialPinError: document.getElementById('initialPinError'),
-    initialPinCancelBtn: document.getElementById('initialPinCancelBtn'),
-    initialPinSaveBtn: document.getElementById('initialPinSaveBtn'),
     accountSelect: document.getElementById('accountSelect'),
     accountCurrentLabel: document.getElementById('accountCurrentLabel'),
     accountHint: document.getElementById('accountHint'),
     switchAccountBtn: document.getElementById('switchAccountBtn'),
     newAccountBtn: document.getElementById('newAccountBtn'),
-    setupAccountLabel: document.getElementById('setupAccountLabel'),
     currentAccountDisplay: document.getElementById('currentAccountDisplay'),
-    saveKeyBtn: document.getElementById('saveKeyBtn'),
-    generateNewBtn: document.getElementById('generateNewBtn'),
+    hwReconnectBtn: document.getElementById('hwReconnectBtn'),
+    hwIcon: document.getElementById('hwIcon'),
     addressDisplay: document.getElementById('addressDisplay'),
     copyAddressBtn: document.getElementById('copyAddressBtn'),
     xnaBalance: document.getElementById('xnaBalance'),
@@ -89,7 +70,6 @@
     assetsEmpty: document.getElementById('assetsEmpty'),
     refreshBtn: document.getElementById('refreshBtn'),
     statusIndicator: document.getElementById('statusIndicator'),
-    lastUpdate: document.getElementById('lastUpdate'),
     changeWalletBtn: document.getElementById('changeWalletBtn'),
     toggleHistoryBtn: document.getElementById('toggleHistoryBtn'),
     toggleHistoryBtnText: document.getElementById('toggleHistoryBtnText'),
@@ -101,9 +81,6 @@
     toast: document.getElementById('toast'),
     toastMessage: document.getElementById('toastMessage'),
     loadingOverlay: document.getElementById('loadingOverlay'),
-    mnemonicWords: document.getElementById('mnemonicWords'),
-    mnemonicBackedUp: document.getElementById('mnemonicBackedUp'),
-    mnemonicConfirmBtn: document.getElementById('mnemonicConfirmBtn'),
     backupModal: document.getElementById('backupModal'),
     closeBackupBtn: document.getElementById('closeBackupBtn'),
     backupAuthSection: document.getElementById('backupAuthSection'),
@@ -124,11 +101,14 @@
   // ── History ───────────────────────────────────────────────────────────────
 
   function handleToggleHistory() {
+    if (!elements.historyCard || !elements.toggleHistoryBtnText) return;
     const isShowing = !elements.historyCard.classList.contains('hidden');
     const balanceCardMain = document.querySelector('.balance-card-main');
     const addressCard = document.getElementById('addressCard');
     const iconClock = document.getElementById('historyBtnIconClock');
     const iconBalance = document.getElementById('historyBtnIconBalance');
+
+    if (!balanceCardMain || !addressCard || !iconClock || !iconBalance) return;
 
     if (isShowing) {
       // Switch back to Balance
@@ -247,6 +227,7 @@
     passphrase: null,
     address: null,
     publicKey: null,
+    walletType: 'software',
     network: 'xna',
     balance: null,
     pendingBalance: null,
@@ -258,7 +239,6 @@
     activeAccountId: '1',
     unlockUntil: 0,
     sessionPin: '',
-    pendingWalletAction: null,
     lockWatchInterval: null,
     lastUnlockTouchAt: 0
   };
@@ -269,6 +249,7 @@
     await loadSettings();
     await loadWalletData();
     await loadUnlockState();
+    await loadSessionPinState();
     NEURAI_UTILS.applyTheme(state.settings);
     setupEventListeners();
     syncSettingsForm();
@@ -283,7 +264,10 @@
         startPolling();
       }
     } else {
-      showSetupSection();
+      // No wallet configured — open onboarding in a full tab
+      chrome.tabs.create({ url: chrome.runtime.getURL('onboarding/welcome.html') });
+      window.close();
+      return;
     }
   }
 
@@ -300,9 +284,6 @@
     elements.closeAccountModalBtn.addEventListener('click', closeAccountModal);
     elements.saveSettingsBtn.addEventListener('click', handleSaveSettings);
     elements.resetSettingsBtn.addEventListener('click', handleResetSettings);
-
-    elements.setupTabImport.addEventListener('click', () => switchSetupTab('import'));
-    elements.setupTabGenerate.addEventListener('click', () => switchSetupTab('generate'));
 
     elements.openBackupBtn.addEventListener('click', openBackupModal);
     elements.closeBackupBtn.addEventListener('click', closeBackupModal);
@@ -322,11 +303,9 @@
     elements.unlockModal.addEventListener('click', (e) => {
       if (e.target === elements.unlockModal && !isAddonLocked()) closeUnlockModal();
     });
-    elements.initialPinModal.addEventListener('click', (e) => { if (e.target === elements.initialPinModal) cancelInitialPinSetup(); });
     elements.backupModal.addEventListener('click', (e) => { if (e.target === elements.backupModal) closeBackupModal(); });
 
-    elements.saveKeyBtn.addEventListener('click', handleSaveKey);
-    elements.generateNewBtn.addEventListener('click', handleGenerateNew);
+    elements.hwReconnectBtn.addEventListener('click', handleHwReconnect);
     elements.copyAddressBtn.addEventListener('click', handleCopyAddress);
     elements.refreshBtn.addEventListener('click', handleRefresh);
     elements.balanceTabGeneral.addEventListener('click', () => switchBalanceTab('general'));
@@ -357,16 +336,9 @@
     });
     elements.unlockResetCancelBtn.addEventListener('click', showUnlockMainView);
     elements.unlockResetConfirmBtn.addEventListener('click', handleResetAddonDataAndClose);
-    elements.initialPinCancelBtn.addEventListener('click', cancelInitialPinSetup);
-    elements.initialPinSaveBtn.addEventListener('click', handleInitialPinSetup);
-
-    // Add multiple enter key triggers
-    elements.importKey.addEventListener('keypress', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSaveKey(); } });
-    elements.importPassphrase.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSaveKey(); });
-    elements.generatePassphrase.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleGenerateNew(); });
     elements.backupPinInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleBackupUnlock(); });
 
-    elements.network.addEventListener('change', applyReaderRpcForCurrentContext);
+    if (elements.network) elements.network.addEventListener('change', applyReaderRpcForCurrentContext);
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -374,7 +346,6 @@
         closeAccountModal();
         closeRemoveConfirmModal();
         if (!isAddonLocked()) closeUnlockModal();
-        closeInitialPinModal();
         closeBackupModal();
       }
     });
@@ -385,8 +356,6 @@
     });
 
     const toggleBtns = [
-      { btn: elements.toggleImportPassphraseVisibility, input: elements.importPassphrase },
-      { btn: elements.toggleGeneratePassphraseVisibility, input: elements.generatePassphrase },
       { btn: elements.toggleBackupWifBtn, input: elements.backupWifText }
     ];
 
@@ -395,7 +364,6 @@
         btn.addEventListener('click', () => {
           if (input.type === 'password') {
             input.type = 'text';
-            // textarea doesn't use input.type='password', we just change class or type? Wait, textarea isn't a password input usually, but let's handle textarea specially if needed. But we made it a form-textarea. It may not obscure text. Actually, we should obscure textarea text via CSS for importKey.
             if (input.tagName === 'TEXTAREA') input.classList.add('visible');
           } else {
             input.type = 'password';
@@ -405,154 +373,9 @@
       }
     });
 
-    if (elements.importKey) elements.importKey.classList.add('obfuscated-text');
-
-    elements.mnemonicCopyBtn.addEventListener('click', () => {
-      const words = Array.from(elements.mnemonicWords.querySelectorAll('.mnemonic-word')).map(el => el.childNodes[1].nodeValue);
-      navigator.clipboard.writeText(words.join(' '));
-      showToast('Words copied!', 'success');
-    });
-
-    // Mnemonic modal: enable confirm button only after checkbox ticked
-    elements.mnemonicBackedUp.addEventListener('change', () => {
-      elements.mnemonicConfirmBtn.disabled = !elements.mnemonicBackedUp.checked;
-    });
-    elements.mnemonicConfirmBtn.addEventListener('click', closeMnemonicModal);
   }
 
   // ── Action handlers ───────────────────────────────────────────────────────
-
-  function switchSetupTab(tabName) {
-    const isImport = tabName === 'import';
-    elements.setupTabImport.classList.toggle('is-active', isImport);
-    elements.setupTabImport.setAttribute('aria-selected', isImport ? 'true' : 'false');
-    elements.setupTabGenerate.classList.toggle('is-active', !isImport);
-    elements.setupTabGenerate.setAttribute('aria-selected', !isImport ? 'true' : 'false');
-    elements.setupPanelImport.classList.toggle('hidden', !isImport);
-    elements.setupPanelGenerate.classList.toggle('hidden', isImport);
-  }
-
-  async function handleSaveKey() {
-    const inputVal = (elements.importKey.value || '').trim();
-    const network = elements.network.value;
-    const passphrase = (elements.importPassphrase.value || '');
-
-    if (!inputVal) {
-      showToast('Please enter a 12 or 24-word seed phrase', 'error');
-      return;
-    }
-
-    try {
-      if (!(await ensurePinReadyForWalletSetup(handleSaveKey))) return;
-      if (!ensureCanPersistPrivateKey()) return;
-      showLoading(true);
-
-      let wifKey = '';
-      let mnemonicStr = null;
-      let addressData;
-
-      const words = inputVal.split(/\s+/).filter(Boolean);
-      if (words.length !== 12 && words.length !== 24) {
-        throw new Error('Please enter exactly 12 or 24 words.');
-      }
-
-      mnemonicStr = words.join(' ');
-      if (!NeuraiKey.isMnemonicValid(mnemonicStr)) {
-        throw new Error('Invalid seed phrase');
-      }
-
-      const addressPair = NeuraiKey.getAddressPair(network, mnemonicStr, 0, 0, passphrase);
-      addressData = addressPair.external;
-      wifKey = addressData.WIF;
-
-      setActiveWalletData({
-        privateKey: wifKey,
-        address: addressData.address,
-        publicKey: addressData.publicKey,
-        network,
-        mnemonic: mnemonicStr,
-        passphrase: passphrase || null,
-        history: [] // Initialize history for new accounts
-      });
-
-      applyReaderRpcForCurrentContext();
-      await saveAccountsData();
-
-      showLoading(false);
-      showWalletSection();
-      await updateBalance();
-      startPolling();
-      showToast('Wallet saved successfully!', 'success');
-
-      elements.importKey.value = '';
-      elements.importPassphrase.value = '';
-      elements.saveKeyBtn.disabled = false;
-    } catch (error) {
-      showLoading(false);
-      elements.saveKeyBtn.disabled = false;
-      showToast('Cannot save wallet: ' + error.message, 'error');
-    }
-  }
-
-  async function handleGenerateNew() {
-    try {
-      if (!(await ensurePinReadyForWalletSetup(handleGenerateNew))) return;
-      if (!ensureCanPersistPrivateKey()) return;
-      showLoading(true);
-      const wordCount = parseInt(elements.generateWordCount.value, 10);
-      const strength = wordCount === 24 ? 256 : 128;
-      const mnemonic = NeuraiKey.generateMnemonic(strength);
-      const network = elements.network.value;
-      const passphrase = (elements.generatePassphrase.value || '');
-      const addressPair = NeuraiKey.getAddressPair(network, mnemonic, 0, 0, passphrase);
-      const addressData = addressPair.external;
-
-      setActiveWalletData({
-        privateKey: addressData.WIF,
-        address: addressData.address,
-        publicKey: addressData.publicKey,
-        network,
-        mnemonic,
-        passphrase: passphrase || null
-      });
-      applyReaderRpcForCurrentContext();
-      await saveAccountsData();
-
-      showLoading(false);
-      showWalletSection();
-      await updateBalance();
-      startPolling();
-
-      // Show the mnemonic backup modal — never truncate or show in a toast
-      showMnemonicModal(mnemonic, passphrase);
-      elements.generatePassphrase.value = '';
-    } catch (error) {
-      showLoading(false);
-      showToast('Error generating wallet: ' + error.message, 'error');
-    }
-  }
-
-  function showMnemonicModal(mnemonic, passphrase) {
-    const words = mnemonic.trim().split(/\s+/);
-    elements.mnemonicWords.innerHTML = words.map((word, i) =>
-      `<span class="mnemonic-word"><span class="mnemonic-word-num">${i + 1}</span>${word}</span>`
-    ).join('');
-
-    if (passphrase) {
-      elements.mnemonicPassphraseDisplay.classList.remove('hidden');
-      elements.mnemonicPassphraseText.textContent = passphrase;
-    } else {
-      elements.mnemonicPassphraseDisplay.classList.add('hidden');
-    }
-
-    elements.mnemonicBackedUp.checked = false;
-    elements.mnemonicConfirmBtn.disabled = true;
-    elements.mnemonicModal.classList.remove('hidden');
-  }
-
-  function closeMnemonicModal() {
-    elements.mnemonicModal.classList.add('hidden');
-  }
 
   function handleCopyAddress() {
     if (state.address) {
@@ -580,7 +403,7 @@
       return;
     }
     state.unlockUntil = 0;
-    state.sessionPin = '';
+    await persistSessionPin('');
     state.privateKey = null;
     const active = state.accounts[state.activeAccountId];
     if (active) active.privateKey = null;
@@ -605,7 +428,7 @@
     state.activeAccountId = '1';
     state.settings = { ...C.DEFAULT_SETTINGS, pinHash: '' };
     state.unlockUntil = 0;
-    state.sessionPin = '';
+    await persistSessionPin('');
 
     clearActiveWalletData();
     await saveAccountsData();
@@ -617,9 +440,9 @@
     await resetAddonData();
     closeRemoveConfirmModal();
     closeSettingsModal();
-    syncPinSettingsUI();
-    showSetupSection();
-    showToast('All data has been reset', 'success');
+    // Redirect to onboarding
+    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding/welcome.html') });
+    window.close();
   }
 
   // ── Balance ───────────────────────────────────────────────────────────────
@@ -644,7 +467,6 @@
         renderAmount(elements.pendingBalance, state.pendingBalance, '0');
         renderAssetsList();
 
-        elements.lastUpdate.textContent = 'Updated: ' + new Date().toLocaleTimeString();
         state.isConnected = true;
         setConnectionStatus(true);
       }
@@ -673,19 +495,15 @@
 
   // ── UI helpers ────────────────────────────────────────────────────────────
 
-  function showSetupSection() {
-    elements.setupSection.classList.remove('hidden');
-    elements.walletSection.classList.add('hidden');
-    updateAccountLabels();
-    elements.network.value = state.network || 'xna';
-    applyReaderRpcForCurrentContext();
-  }
-
   function showWalletSection() {
-    elements.setupSection.classList.add('hidden');
+    if (elements.setupSection) elements.setupSection.classList.add('hidden');
     elements.walletSection.classList.remove('hidden');
     elements.addressDisplay.textContent = state.address;
     elements.addressDisplay.title = state.address || '';
+    elements.openBackupBtn.disabled = state.walletType === 'hardware';
+    elements.openBackupBtn.title = state.walletType === 'hardware'
+      ? 'Hardware wallet secrets stay on the device'
+      : 'Back up wallet secrets';
     updateAccountLabels();
 
     const isTestnet = state.network === 'xna-test';
@@ -693,6 +511,16 @@
 
     if (isTestnet) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     applyReaderRpcForCurrentContext();
+
+    // Show HW icon and start monitoring if hardware wallet
+    const isHw = state.walletType === 'hardware';
+    elements.hwIcon.classList.toggle('hidden', !isHw);
+    if (isHw) {
+      startHwStatusMonitor();
+    } else {
+      stopHwStatusMonitor();
+      elements.hwReconnectBtn.classList.add('hidden');
+    }
 
     if (isAddonLocked()) {
       openUnlockModal();
@@ -713,9 +541,8 @@
 
   function setConnectionStatus(connected) {
     const dot = elements.statusIndicator.querySelector('.status-dot');
-    const text = elements.statusIndicator.querySelector('.status-text');
     dot.className = 'status-dot' + (connected ? '' : ' disconnected');
-    text.textContent = connected ? 'Connected' : 'Disconnected';
+    dot.title = connected ? 'Connected' : 'Disconnected';
   }
 
   function setLoadingStatus(loading) {
@@ -844,6 +671,7 @@
         if (activeWallet) {
           state.address = activeWallet.address || null;
           state.publicKey = activeWallet.publicKey || null;
+          state.walletType = activeWallet.walletType || 'software';
           state.network = activeWallet.network || 'xna';
           state.privateKey = (!state.settings?.pinHash && activeWallet.privateKey) ? activeWallet.privateKey : null;
           state.mnemonic = (!state.settings?.pinHash && activeWallet.mnemonic) ? activeWallet.mnemonic : null;
@@ -895,6 +723,37 @@
     });
   }
 
+  async function loadSessionPinState() {
+    if (!chrome.storage?.session) return;
+    return new Promise((resolve) => {
+      chrome.storage.session.get(C.SESSION_PIN_KEY, (result) => {
+        state.sessionPin = state.unlockUntil > Date.now()
+          ? String(result[C.SESSION_PIN_KEY] || '')
+          : '';
+        resolve();
+      });
+    });
+  }
+
+  async function persistSessionPin(pin) {
+    state.sessionPin = pin || '';
+    if (chrome.storage?.session) {
+      await new Promise((resolve) => {
+        if (state.sessionPin) {
+          chrome.storage.session.set({ [C.SESSION_PIN_KEY]: state.sessionPin }, resolve);
+        } else {
+          chrome.storage.session.remove(C.SESSION_PIN_KEY, resolve);
+        }
+      });
+    }
+    try {
+      await chrome.runtime.sendMessage({
+        type: state.sessionPin ? MSG.SET_SESSION_PIN : MSG.CLEAR_SESSION_PIN,
+        pin: state.sessionPin
+      });
+    } catch (_) { }
+  }
+
   async function saveSettings() {
     return new Promise((resolve) => {
       chrome.storage.local.set({ [C.SETTINGS_KEY]: state.settings }, resolve);
@@ -915,7 +774,7 @@
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
       const entry = state.accounts[id];
-      if (!hasAccountSecret(entry)) continue;
+      if (!isConfiguredAccount(entry)) continue;
       stored[id] = {
         privateKey: (!state.settings?.pinHash && entry.privateKey) ? entry.privateKey : null,
         privateKeyEnc: entry.privateKeyEnc || null,
@@ -925,6 +784,11 @@
         passphraseEnc: entry.passphraseEnc || null,
         address: entry.address || null,
         publicKey: entry.publicKey || null,
+        walletType: entry.walletType || 'software',
+        hardwareDeviceName: entry.hardwareDeviceName || null,
+        hardwareDeviceNetwork: entry.hardwareDeviceNetwork || null,
+        hardwareFirmwareVersion: entry.hardwareFirmwareVersion || null,
+        hardwareDerivationPath: entry.hardwareDerivationPath || null,
         network: entry.network || 'xna',
         history: Array.isArray(entry.history) ? entry.history : []
       };
@@ -936,7 +800,7 @@
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
       const entry = state.accounts[id];
-      if (!hasAccountSecret(entry)) continue;
+      if (!isConfiguredAccount(entry)) continue;
       if (!entry.privateKey && !entry.privateKeyEnc) continue;
 
       let plain = entry.privateKey || null;
@@ -1065,7 +929,7 @@
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
       const entry = rawAccounts[id];
-      if (entry && typeof entry === 'object' && (entry.privateKey || NEURAI_UTILS.isEncryptedSecret(entry.privateKeyEnc))) {
+      if (entry && typeof entry === 'object' && isStoredAccountConfigured(entry)) {
         normalized[id] = {
           privateKey: entry.privateKey || null,
           privateKeyEnc: NEURAI_UTILS.isEncryptedSecret(entry.privateKeyEnc) ? entry.privateKeyEnc : null,
@@ -1075,6 +939,11 @@
           passphraseEnc: NEURAI_UTILS.isEncryptedSecret(entry.passphraseEnc) ? entry.passphraseEnc : null,
           address: entry.address || null,
           publicKey: entry.publicKey || null,
+          walletType: entry.walletType || 'software',
+          hardwareDeviceName: entry.hardwareDeviceName || null,
+          hardwareDeviceNetwork: entry.hardwareDeviceNetwork || null,
+          hardwareFirmwareVersion: entry.hardwareFirmwareVersion || null,
+          hardwareDerivationPath: entry.hardwareDerivationPath || null,
           network: entry.network || 'xna',
           history: Array.isArray(entry.history) ? entry.history : []
         };
@@ -1086,10 +955,24 @@
   function getAccountLabel(accountId) { return 'Neurai_' + accountId; }
   function getActiveWalletData() { return state.accounts[state.activeAccountId] || null; }
   function hasAccountSecret(entry) { return !!(entry && (entry.privateKey || entry.privateKeyEnc)); }
-  function hasActiveWallet() { return hasAccountSecret(getActiveWalletData()); }
+  function isConfiguredAccount(entry) {
+    return !!(entry && (
+      entry.privateKey ||
+      entry.privateKeyEnc ||
+      (entry.walletType === 'hardware' && entry.address && entry.publicKey)
+    ));
+  }
+  function isStoredAccountConfigured(entry) {
+    return !!(entry && (
+      entry.privateKey ||
+      NEURAI_UTILS.isEncryptedSecret(entry.privateKeyEnc) ||
+      (entry.walletType === 'hardware' && entry.address && entry.publicKey)
+    ));
+  }
+  function hasActiveWallet() { return isConfiguredAccount(getActiveWalletData()); }
 
   function getConfiguredAccountIds(accountsData = state.accounts) {
-    return Object.keys(accountsData).filter((id) => hasAccountSecret(accountsData[id]));
+    return Object.keys(accountsData).filter((id) => isConfiguredAccount(accountsData[id]));
   }
 
   function setActiveWalletData(walletData) {
@@ -1099,6 +982,7 @@
     state.passphrase = walletData.passphrase || null;
     state.address = walletData.address || null;
     state.publicKey = walletData.publicKey || null;
+    state.walletType = walletData.walletType || 'software';
     state.network = walletData.network || 'xna';
     state.accounts[state.activeAccountId] = {
       privateKey: state.privateKey,
@@ -1109,32 +993,38 @@
       passphraseEnc: walletData.passphraseEnc || previous.passphraseEnc || null,
       address: state.address,
       publicKey: state.publicKey,
-      network: state.network
+      walletType: state.walletType,
+      hardwareDeviceName: walletData.hardwareDeviceName || previous.hardwareDeviceName || null,
+      hardwareDeviceNetwork: walletData.hardwareDeviceNetwork || previous.hardwareDeviceNetwork || null,
+      hardwareFirmwareVersion: walletData.hardwareFirmwareVersion || previous.hardwareFirmwareVersion || null,
+      hardwareDerivationPath: walletData.hardwareDerivationPath || previous.hardwareDerivationPath || null,
+      network: state.network,
+      history: Array.isArray(walletData.history) ? walletData.history : (Array.isArray(previous.history) ? previous.history : [])
     };
   }
 
   function clearActiveWalletData() {
     stopPolling();
     state.privateKey = state.mnemonic = state.passphrase = state.address = state.publicKey = state.balance = state.pendingBalance = null;
+    state.walletType = 'software';
     state.assets = [];
     renderAssetsList();
     switchBalanceTab('general');
     state.unlockUntil = 0;
-    if (elements.importKey) elements.importKey.value = '';
     elements.addressDisplay.title = '';
   }
 
   function findNextEmptyAccountId() {
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
-      if (!hasAccountSecret(state.accounts[id])) return id;
+      if (!isConfiguredAccount(state.accounts[id])) return id;
     }
     return null;
   }
 
   function updateAccountLabels() {
     const label = getAccountLabel(state.activeAccountId);
-    elements.setupAccountLabel.textContent = 'Account: ' + label;
+    if (elements.setupAccountLabel) elements.setupAccountLabel.textContent = 'Account: ' + label;
     elements.currentAccountDisplay.textContent = label;
   }
 
@@ -1180,20 +1070,17 @@
   async function handleCreateNewAccount() {
     const nextId = findNextEmptyAccountId();
     if (!nextId) { showToast('No free slots. Maximum is 10 accounts.', 'error'); return; }
-    state.activeAccountId = nextId;
-    clearActiveWalletData();
-    state.network = 'xna';
-    await saveAccountsData();
-    updateAccountLabels();
     closeAccountModal();
-    showSetupSection();
-    showToast('Switched to ' + getAccountLabel(nextId), 'success');
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('onboarding/welcome.html?mode=new-account&id=' + nextId)
+    });
+    window.close();
   }
 
   async function handleSwitchAccount() {
     const targetId = normalizeAccountId(elements.accountSelect.value, state.activeAccountId);
     const targetWallet = state.accounts[targetId];
-    if (!hasAccountSecret(targetWallet)) {
+    if (!isConfiguredAccount(targetWallet)) {
       showToast('Selected account is not configured', 'error');
       return;
     }
@@ -1262,7 +1149,7 @@
           if (currentHash !== state.settings.pinHash) throw new Error('Current PIN is invalid');
         }
         await reencryptAllWalletKeys(hasExistingPin ? currentPin : null, newPin);
-        state.sessionPin = newPin;
+        await persistSessionPin(newPin);
         pinHash = await NEURAI_UTILS.hashText(newPin);
       }
 
@@ -1373,8 +1260,9 @@
     try {
       await resetAddonData();
       closeUnlockModal();
-      showSetupSection();
-      showToast('All data has been reset', 'success');
+      chrome.tabs.create({ url: chrome.runtime.getURL('onboarding/welcome.html') });
+      window.close();
+      return;
     } catch (error) {
       elements.unlockResetMessage.textContent = error.message || 'Unable to reset addon data.';
     }
@@ -1405,58 +1293,6 @@
     unlockForConfiguredTimeout().catch(() => { });
   }
 
-  function openInitialPinModal(resumeAction) {
-    state.pendingWalletAction = resumeAction || null;
-    elements.initialPinError.textContent = '';
-    elements.initialPinInput.value = '';
-    elements.initialPinConfirmInput.value = '';
-    elements.initialPinModal.classList.remove('hidden');
-    elements.initialPinInput.focus();
-  }
-
-  function closeInitialPinModal() {
-    elements.initialPinModal.classList.add('hidden');
-  }
-
-  function cancelInitialPinSetup() {
-    state.pendingWalletAction = null;
-    closeInitialPinModal();
-  }
-
-  async function ensurePinReadyForWalletSetup(resumeAction) {
-    if (state.settings?.pinHash) return true;
-    openInitialPinModal(resumeAction);
-    return false;
-  }
-
-  async function handleInitialPinSetup() {
-    try {
-      const pin = (elements.initialPinInput.value || '').trim();
-      const confirm = (elements.initialPinConfirmInput.value || '').trim();
-      if (pin.length < 4 || pin.length > 20) throw new Error('PIN must be 4 to 20 characters');
-      if (pin !== confirm) throw new Error('PIN confirmation does not match');
-
-      state.settings = {
-        ...state.settings,
-        pinHash: await NEURAI_UTILS.hashText(pin)
-      };
-      state.sessionPin = pin;
-      await unlockForConfiguredTimeout();
-      await saveSettings();
-      await notifySettingsUpdated();
-      syncPinSettingsUI();
-      closeInitialPinModal();
-
-      const action = state.pendingWalletAction;
-      state.pendingWalletAction = null;
-      if (typeof action === 'function') {
-        await action();
-      }
-    } catch (error) {
-      elements.initialPinError.textContent = error.message;
-    }
-  }
-
   async function unlockForConfiguredTimeout() {
     const minutes = NEURAI_UTILS.normalizeLockTimeoutMinutes(state.settings?.lockTimeoutMinutes);
     state.unlockUntil = Date.now() + minutes * 60 * 1000;
@@ -1473,7 +1309,7 @@
     try {
       await unlockActiveWalletPrivateKey(entered);
       await ensureAccountsEncryptedWithPin(entered);
-      state.sessionPin = entered;
+      await persistSessionPin(entered);
       await saveAccountsData(entered);
     } catch (error) {
       elements.unlockError.textContent = 'Unable to unlock wallet keys: ' + error.message;
@@ -1492,6 +1328,10 @@
   // ── Backup Modal ──────────────────────────────────────────────────────────
 
   function openBackupModal() {
+    if (state.walletType === 'hardware') {
+      showToast('Hardware wallet secrets stay on the device', 'error');
+      return;
+    }
     elements.backupModal.classList.remove('hidden');
     elements.backupAuthSection.classList.remove('hidden');
     elements.backupDataSection.classList.add('hidden');
@@ -1603,6 +1443,116 @@
     }
   }
 
+  // ── HW connection status monitoring ──────────────────────────────────────
+
+  function startHwStatusMonitor() {
+    stopHwStatusMonitor();
+    updateHwConnectionUI();
+    // Poll connection status every 2 seconds
+    hwStatusInterval = setInterval(updateHwConnectionUI, 2000);
+  }
+
+  function stopHwStatusMonitor() {
+    if (hwStatusInterval) {
+      clearInterval(hwStatusInterval);
+      hwStatusInterval = null;
+    }
+  }
+
+  function updateHwConnectionUI() {
+    if (state.walletType !== 'hardware') {
+      elements.hwReconnectBtn.classList.add('hidden');
+      return;
+    }
+
+    const isConnected = !!(hwDevice && hwDevice.connected);
+    setConnectionStatus(isConnected);
+
+    if (isConnected) {
+      elements.hwReconnectBtn.classList.add('hidden');
+    } else {
+      elements.hwReconnectBtn.classList.remove('hidden');
+    }
+  }
+
+  function handleHwReconnect() {
+    // The popup loses focus (and closes) when the serial port picker opens,
+    // so we redirect to the expanded tab where reconnection works normally.
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup/expanded.html') });
+  }
+
+  async function reconnectHwDevice() {
+    if (hwDevice) {
+      try { await hwDevice.disconnect(); } catch (_) { }
+      hwDevice = null;
+    }
+
+    const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
+    await device.connect();
+    const info = await device.getInfo();
+
+    // Validate network
+    const expectedNetwork = state.network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
+    if (info.network && info.network !== expectedNetwork) {
+      await device.disconnect();
+      throw new Error('Device is ' + info.network + ', expected ' + expectedNetwork);
+    }
+
+    hwDevice = device;
+  }
+
+  async function ensureHwConnected() {
+    if (hwDevice && hwDevice.connected) return true;
+    try {
+      await reconnectHwDevice();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function requestHardwareWalletAddress() {
+    // Disconnect any previous session
+    if (hwDevice) {
+      try { await hwDevice.disconnect(); } catch (_) { }
+      hwDevice = null;
+    }
+
+    const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
+    await device.connect();
+    const info = await device.getInfo();
+    const addrResp = await device.getAddress();
+
+    // Keep the device connected for future signing requests
+    hwDevice = device;
+
+    return {
+      deviceName: info.device || 'NeuraiHW',
+      deviceNetwork: info.network || null,
+      firmwareVersion: info.version || null,
+      address: addrResp.address,
+      publicKey: addrResp.pubkey,
+      derivationPath: addrResp.path || null,
+      masterFingerprint: info.master_fingerprint || null
+    };
+  }
+
+  function validateHardwareWalletNetwork(selectedNetwork, deviceNetwork) {
+    const expectedNetwork = selectedNetwork === 'xna-test' ? 'NeuraiTest' : 'Neurai';
+    if (deviceNetwork && deviceNetwork !== expectedNetwork) {
+      throw new Error(
+        'The ESP32 is configured for ' + deviceNetwork + ' but the addon is set to ' + expectedNetwork
+      );
+    }
+  }
+
+  function isSerialPortSelectionCancelled(error) {
+    return !!(error && (
+      error.name === 'NotFoundError' ||
+      String(error.message || '').includes('No port selected by the user')
+    ));
+  }
+
   function getRpcUrlForNetwork(network) {
     const s = state.settings || C.DEFAULT_SETTINGS;
     return network === 'xna-test'
@@ -1611,7 +1561,7 @@
   }
 
   function applyReaderRpcForCurrentContext() {
-    const network = hasActiveWallet() ? state.network : (elements.network.value || 'xna');
+    const network = hasActiveWallet() ? state.network : ((elements.network && elements.network.value) || 'xna');
     if (network === 'xna-test') NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     const url = getRpcUrlForNetwork(network);
     if (url) NeuraiReader.setURL(url);
@@ -1619,7 +1569,7 @@
 
   // ── Background message listener ───────────────────────────────────────────
 
-  chrome.runtime.onMessage.addListener((message) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === MSG.BALANCE_UPDATE && message.balance) {
       state.balance = message.balance;
       renderAmount(elements.xnaBalance, message.balance, '0');
@@ -1630,7 +1580,94 @@
         applyReaderRpcForCurrentContext();
       });
     }
+
+    // ── HW signing requests from background ───────────────────────────────
+    if (message.type === MSG.HW_SIGN_MESSAGE) {
+      if (!hwDevice || !hwDevice.connected) return false;
+      handleHwSignMessage(message).then(sendResponse);
+      return true; // async response
+    }
+    if (message.type === MSG.HW_SIGN_RAW_TX) {
+      if (!hwDevice || !hwDevice.connected) return false;
+      handleHwSignRawTx(message).then(sendResponse);
+      return true;
+    }
   });
+
+  async function handleHwSignMessage(message) {
+    if (!hwDevice || !hwDevice.connected) {
+      return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
+    }
+    try {
+      showToast('Confirm message signing on your device...', 'success');
+      const result = await hwDevice.signMessage(message.message);
+      showToast('Message signed', 'success');
+      return { success: true, signature: result.signature, address: result.address };
+    } catch (err) {
+      showToast('Signing failed', 'error');
+      updateHwConnectionUI();
+      return { error: 'HW sign failed: ' + err.message };
+    }
+  }
+
+  async function handleHwSignRawTx(message) {
+    if (!hwDevice || !hwDevice.connected) {
+      return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
+    }
+    try {
+      // Get device address/pubkey info for PSBT
+      const info = hwDevice.info || await hwDevice.getInfo();
+      const addrResp = await hwDevice.getAddress();
+
+      // Fetch full raw transactions for each UTXO (needed for nonWitnessUtxo)
+      const utxos = message.utxos || [];
+      const rpcUrl = getRpcUrlForNetwork(state.network);
+      const enrichedUtxos = await fetchRawTxForUtxos(utxos, rpcUrl);
+
+      // Build PSBT from raw transaction
+      const networkType = state.network === 'xna-test' ? 'xna-test' : 'xna';
+      const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
+        network: networkType,
+        rawTransactionHex: message.txHex,
+        utxos: enrichedUtxos,
+        pubkey: addrResp.pubkey,
+        masterFingerprint: info.master_fingerprint,
+        derivationPath: addrResp.path
+      });
+
+      // Sign on device
+      const signResult = await hwDevice.signPsbt(psbtBase64);
+
+      // Finalize
+      const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
+
+      return { success: true, signedTxHex: finalized.txHex, complete: true };
+    } catch (err) {
+      updateHwConnectionUI();
+      return { error: 'HW sign failed: ' + err.message };
+    }
+  }
+
+  async function fetchRawTxForUtxos(utxos, rpcUrl) {
+    const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
+    const rawTxMap = {};
+    for (const txid of txids) {
+      try {
+        const resp = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '1.0', id: 'hw-rawtx', method: 'getrawtransaction', params: [txid, 0] })
+        });
+        const data = await resp.json();
+        if (data.result) rawTxMap[txid] = data.result;
+      } catch (_) { }
+    }
+    return utxos.map(u => ({
+      txid: u.txid, vout: u.vout,
+      value: Math.round((u.amount || 0) * 1e8),
+      rawTxHex: rawTxMap[u.txid] || null
+    }));
+  }
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;

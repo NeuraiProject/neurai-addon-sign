@@ -24,6 +24,7 @@ COPY_DIRS=(
   lib
   shared
   popup
+  onboarding
 )
 
 COPY_FILES=(
@@ -68,7 +69,7 @@ node -e "
   chrome.background = { page: 'background/background.html' };
 
   // Remove permissions not valid in Firefox
-  chrome.permissions = (chrome.permissions || []).filter(p => p !== 'windows');
+  chrome.permissions = (chrome.permissions || []).filter((p) => !['windows'].includes(p));
 
   // Add Firefox-specific settings
   chrome.browser_specific_settings = {

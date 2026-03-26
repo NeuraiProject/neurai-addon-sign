@@ -12,6 +12,7 @@
     ACTIVE_ACCOUNT_KEY: 'neurai_wallet_active_account_v1',
     SETTINGS_KEY:       'neurai_wallet_settings',
     UNLOCK_UNTIL_KEY:   'neurai_wallet_unlock_until_v1',
+    SESSION_PIN_KEY:    'neurai_wallet_session_pin_v1',
 
     // ── Account limits ────────────────────────────────────────────────────────
     MAX_ACCOUNTS: 10,
@@ -43,7 +44,14 @@
       SETTINGS_UPDATED:     'SETTINGS_UPDATED',
       BALANCE_UPDATE:       'BALANCE_UPDATE',
       SETTINGS_SYNCED:      'SETTINGS_SYNCED',
-      SIGN_RAW_TX:          'SIGN_RAW_TX'
+      SIGN_RAW_TX:          'SIGN_RAW_TX',
+      SET_SESSION_PIN:      'SET_SESSION_PIN',
+      GET_SESSION_PIN:      'GET_SESSION_PIN',
+      CLEAR_SESSION_PIN:    'CLEAR_SESSION_PIN',
+      HW_SIGN_MESSAGE:      'HW_SIGN_MESSAGE',
+      HW_SIGN_RAW_TX:       'HW_SIGN_RAW_TX',
+      HW_SIGN_RESULT:       'HW_SIGN_RESULT',
+      HW_GET_SIGN_REQUEST:  'HW_GET_SIGN_REQUEST'
     })
 
   });

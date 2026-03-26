@@ -22,6 +22,7 @@ try {
 let pollingInterval = null;
 let walletData = null;
 let walletSettings = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
+let sessionPinCache = '';
 const pendingSignRequests = new Map();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,6 +52,10 @@ function getRpcUrl(network = 'xna') {
   return walletSettings.rpcMainnet || NEURAI_CONSTANTS.RPC_URL;
 }
 
+function isHardwareWallet(wallet) {
+  return wallet?.walletType === 'hardware';
+}
+
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 async function loadWalletData() {
@@ -78,6 +83,31 @@ async function loadWalletSettings() {
       };
       resolve();
     });
+  });
+}
+
+async function loadSessionPinCache() {
+  if (!chrome.storage?.session) {
+    sessionPinCache = '';
+    return;
+  }
+  return new Promise((resolve) => {
+    chrome.storage.session.get(NEURAI_CONSTANTS.SESSION_PIN_KEY, (result) => {
+      sessionPinCache = String(result[NEURAI_CONSTANTS.SESSION_PIN_KEY] || '');
+      resolve();
+    });
+  });
+}
+
+async function persistSessionPinCache(pin) {
+  sessionPinCache = String(pin || '');
+  if (!chrome.storage?.session) return;
+  return new Promise((resolve) => {
+    if (sessionPinCache) {
+      chrome.storage.session.set({ [NEURAI_CONSTANTS.SESSION_PIN_KEY]: sessionPinCache }, resolve);
+    } else {
+      chrome.storage.session.remove(NEURAI_CONSTANTS.SESSION_PIN_KEY, resolve);
+    }
   });
 }
 
@@ -159,9 +189,10 @@ async function handleMessage(message, sender) {
     case MSG.GET_WALLET_INFO:
       await loadWalletData();
       return {
-        hasWallet: !!walletData,
+        hasWallet: !!(walletData && walletData.address),
         address: walletData?.address || null,
         publicKey: walletData?.publicKey || null,
+        walletType: walletData?.walletType || 'software',
         network: walletData?.network || 'xna'
       };
 
@@ -170,6 +201,17 @@ async function handleMessage(message, sender) {
 
     case MSG.SIGN_RAW_TX:
       return signRawTxForPage(message.txHex, message.utxos, message.sighashType, sender);
+
+    case MSG.SET_SESSION_PIN:
+      await persistSessionPinCache(message.pin || '');
+      return { success: true };
+
+    case MSG.CLEAR_SESSION_PIN:
+      await persistSessionPinCache('');
+      return { success: true };
+
+    case MSG.GET_SESSION_PIN:
+      return { success: true, pin: sessionPinCache || '' };
 
     case MSG.GET_SIGN_REQUEST: {
       const pending = pendingSignRequests.get(message.requestId);
@@ -203,6 +245,15 @@ async function signMessageForPage(messageText, sender) {
   await loadWalletData();
   await loadWalletSettings();
 
+  if (isHardwareWallet(walletData)) {
+    return requestHardwareSignature({
+      type: 'message',
+      message: messageText,
+      address: walletData.address,
+      network: walletData.network || 'xna',
+      origin: sender?.url ? new URL(sender.url).origin : 'Unknown site'
+    });
+  }
   if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
   if (!walletData.address) return { error: 'No address available' };
 
@@ -285,6 +336,20 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
   await loadWalletData();
   await loadWalletSettings();
 
+  if (isHardwareWallet(walletData)) {
+    return requestHardwareSignature({
+      type: 'raw_tx',
+      txHex,
+      utxos: utxos || [],
+      sighashType: sighashType || 'ALL',
+      address: walletData.address,
+      publicKey: walletData.publicKey,
+      network: walletData.network || 'xna',
+      masterFingerprint: walletData.hardwareMasterFingerprint || null,
+      derivationPath: walletData.hardwareDerivationPath || null,
+      origin: sender?.url ? new URL(sender.url).origin : 'Unknown site'
+    });
+  }
   if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
   if (!walletData.address) return { error: 'No address available' };
 
@@ -426,6 +491,60 @@ function finalizeSignRequest(requestId, result) {
   pending.resolve(result);
 }
 
+// ── Hardware wallet signing coordination ──────────────────────────────────
+
+async function requestHardwareSignature(payload) {
+  // Send signing request to the open popup/expanded that holds the serial connection.
+  // chrome.runtime.sendMessage reaches all extension pages (popup, expanded, etc.)
+  const msgType = payload.type === 'message'
+    ? NEURAI_CONSTANTS.MSG.HW_SIGN_MESSAGE
+    : NEURAI_CONSTANTS.MSG.HW_SIGN_RAW_TX;
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: msgType,
+      message: payload.message,
+      txHex: payload.txHex,
+      utxos: payload.utxos,
+      sighashType: payload.sighashType,
+      address: payload.address,
+      network: payload.network
+    });
+
+    if (!result || result.error) {
+      return { error: result?.error || 'No response from addon — is the popup open with HW wallet connected?' };
+    }
+
+    // Save to history
+    saveHwSignHistory(result, payload);
+    return result;
+  } catch (err) {
+    return { error: 'Hardware wallet is not connected. Open the Neurai Sign addon and connect your device first.' };
+  }
+}
+
+async function saveHwSignHistory(result, payload) {
+  try {
+    const accountsObj = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY, r)))[NEURAI_CONSTANTS.ACCOUNTS_KEY] || {};
+    const activeId = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY, r)))[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY];
+    if (activeId && accountsObj[activeId]) {
+      if (!Array.isArray(accountsObj[activeId].history)) {
+        accountsObj[activeId].history = [];
+      }
+      const entry = payload.type === 'message'
+        ? { type: 'message', timestamp: Date.now(), origin: payload.origin, message: payload.message, signature: result.signature }
+        : { type: 'raw_tx', timestamp: Date.now(), origin: payload.origin, sighashType: payload.sighashType, inputCount: (payload.utxos || []).length, signedTxHex: result.signedTxHex, complete: result.complete };
+      accountsObj[activeId].history.unshift(entry);
+      if (accountsObj[activeId].history.length > 50) {
+        accountsObj[activeId].history = accountsObj[activeId].history.slice(0, 50);
+      }
+      await new Promise(r => chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj }, r));
+    }
+  } catch (err) {
+    console.error('Failed to save HW sign history:', err);
+  }
+}
+
 // ── Verification ──────────────────────────────────────────────────────────────
 
 async function verifyOwnership(address, message, signature) {
@@ -488,9 +607,16 @@ chrome.windows.onRemoved.addListener((windowId) => {
 async function init() {
   await loadWalletData();
   await loadWalletSettings();
+  await loadSessionPinCache();
   if (walletData && walletData.address) startPolling();
 }
 
-chrome.runtime.onInstalled.addListener(init);
+chrome.runtime.onInstalled.addListener(async (details) => {
+  await init();
+  // Open welcome/onboarding tab on fresh install if no wallet exists
+  if (details.reason === 'install' && (!walletData || !walletData.address)) {
+    chrome.tabs.create({ url: chrome.runtime.getURL('onboarding/welcome.html') });
+  }
+});
 chrome.runtime.onStartup.addListener(init);
 init();
