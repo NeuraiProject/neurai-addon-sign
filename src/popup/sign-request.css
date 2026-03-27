@@ -26,27 +26,35 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
-  min-height: 100vh;
-  padding: 14px;
+  min-height: 100%;
+  padding: 12px;
+  display: flex;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
 }
 
 .panel {
+  width: 100%;
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .head h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: 19px;
 }
 
 .head p {
-  margin: 6px 0 0 0;
+  margin: 4px 0 0 0;
   font-size: 13px;
   color: var(--muted);
 }
@@ -55,14 +63,14 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 12px;
+  padding: 10px;
 }
 
 .row {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 0;
+  padding: 7px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -135,7 +143,7 @@ input {
 .btn {
   flex: 1;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 9px 12px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -155,7 +163,7 @@ input {
 .info-note p {
   margin: 0;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
   color: var(--muted);
 }
 

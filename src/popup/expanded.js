@@ -1050,8 +1050,6 @@
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon.' };
     }
     try {
-      const perfLabel = '[HW Sign Perf][expanded]';
-      const totalStart = performance.now();
       const wallet = state.wallet || {};
       const network = wallet.network || 'xna';
       const rpcUrl = network === 'xna-test'
@@ -1068,12 +1066,9 @@
 
       const utxos = message.utxos || [];
       const txInputs = parseRawTransactionInputs(message.txHex);
-      const fetchStart = performance.now();
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
-      const fetchMs = Math.round(performance.now() - fetchStart);
       const networkType = network === 'xna-test' ? 'xna-test' : 'xna';
       const sighashType = parseSighashType(message.sighashType);
-      const buildStart = performance.now();
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
         network: networkType,
         rawUnsignedTransaction: message.txHex,
@@ -1093,35 +1088,12 @@
           };
         })
       });
-      const buildMs = Math.round(performance.now() - buildStart);
-      const psbtBytes = estimateBase64Bytes(psbtBase64);
-      console.info(perfLabel, {
-        stage: 'prepared',
-        txInputs: txInputs.length,
-        signerInputs: utxos.length,
-        fetchRawTxMs: fetchMs,
-        buildPsbtMs: buildMs,
-        psbtBase64Chars: psbtBase64.length,
-        psbtBytes
-      });
-      const signStart = performance.now();
-      const signResult = await hwDevice.signPsbt(psbtBase64);
-      const signMs = Math.round(performance.now() - signStart);
-      console.info(perfLabel, {
-        stage: 'device-signed',
-        signPsbtMs: signMs,
-        signedPsbtBase64Chars: signResult?.psbt?.length || 0,
-        signedPsbtBytes: estimateBase64Bytes(signResult?.psbt || '')
-      });
-      const finalizeStart = performance.now();
+      const feeSats = calculateRawTransactionFeeSats(message.txHex, enrichedUtxos);
+      const signingDisplay = feeSats !== null
+        ? { feeAmount: formatSatoshisToXna(feeSats), baseCurrency: 'XNA' }
+        : undefined;
+      const signResult = await hwDevice.signPsbt(psbtBase64, signingDisplay);
       const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
-      const finalizeMs = Math.round(performance.now() - finalizeStart);
-      console.info(perfLabel, {
-        stage: 'finalized',
-        finalizeMs,
-        totalMs: Math.round(performance.now() - totalStart),
-        txHexChars: finalized?.txHex?.length || 0
-      });
       return { success: true, signedTxHex: finalized.txHex, complete: true };
     } catch (err) {
       updateHwConnectionUI();
@@ -1214,6 +1186,58 @@
     return inputs;
   }
 
+  function parseRawTransactionOutputs(txHex) {
+    const bytes = hexToBytes(txHex);
+    let offset = 4;
+    const inputVarInt = readVarInt(bytes, offset);
+    offset += inputVarInt.size;
+
+    for (let i = 0; i < inputVarInt.value; i += 1) {
+      offset += 32;
+      offset += 4;
+      const scriptLen = readVarInt(bytes, offset);
+      offset += scriptLen.size + scriptLen.value;
+      offset += 4;
+    }
+
+    const outputVarInt = readVarInt(bytes, offset);
+    offset += outputVarInt.size;
+    const outputs = [];
+
+    for (let i = 0; i < outputVarInt.value; i += 1) {
+      const value = readUInt64LE(bytes, offset);
+      offset += 8;
+      const scriptLen = readVarInt(bytes, offset);
+      offset += scriptLen.size;
+      offset += scriptLen.value;
+      outputs.push({ value });
+    }
+
+    return outputs;
+  }
+
+  function calculateRawTransactionFeeSats(txHex, enrichedUtxos) {
+    try {
+      const inputTotal = (enrichedUtxos || []).reduce((sum, utxo) => {
+        const amount = getPrevoutAmountFromRawTx(utxo.rawTxHex, Number(utxo.vout));
+        return amount === null ? sum : (sum + amount);
+      }, 0n);
+      if (inputTotal <= 0n) return null;
+
+      const outputTotal = parseRawTransactionOutputs(txHex).reduce((sum, output) => sum + output.value, 0n);
+      const fee = inputTotal - outputTotal;
+      return fee >= 0n ? fee : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getPrevoutAmountFromRawTx(rawTxHex, vout) {
+    if (!rawTxHex) return null;
+    const output = parseRawTransactionOutputs(rawTxHex)[vout];
+    return output ? output.value : null;
+  }
+
   function hexToBytes(hex) {
     const normalized = String(hex || '').trim();
     if (!normalized || normalized.length % 2 !== 0) {
@@ -1237,6 +1261,12 @@
       (bytes[offset + 2] << 16) |
       (bytes[offset + 3] << 24)
     ) >>> 0;
+  }
+
+  function readUInt64LE(bytes, offset) {
+    const low = BigInt(readUInt32LE(bytes, offset));
+    const high = BigInt(readUInt32LE(bytes, offset + 4));
+    return low + (high << 32n);
   }
 
   function readVarInt(bytes, offset) {
@@ -1275,6 +1305,10 @@
     if (!normalized) return 0;
     const padding = normalized.endsWith('==') ? 2 : (normalized.endsWith('=') ? 1 : 0);
     return Math.floor((normalized.length * 3) / 4) - padding;
+  }
+
+  function formatSatoshisToXna(satoshis) {
+    return (Number(satoshis) / 1e8).toFixed(8);
   }
 
   // ── Boot ───────────────────────────────────────────────────────────────────

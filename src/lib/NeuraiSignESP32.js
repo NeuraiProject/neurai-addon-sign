@@ -32,9 +32,9 @@ var NeuraiSignESP32 = (() => {
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
   var __publicField = (obj, key, value2) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value2);
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/base64-js/index.js
+  // node_modules/base64-js/index.js
   var require_base64_js = __commonJS({
-    "../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/base64-js/index.js"(exports) {
+    "node_modules/base64-js/index.js"(exports) {
       "use strict";
       exports.byteLength = byteLength;
       exports.toByteArray = toByteArray;
@@ -133,9 +133,9 @@ var NeuraiSignESP32 = (() => {
     }
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/ieee754/index.js
+  // node_modules/ieee754/index.js
   var require_ieee754 = __commonJS({
-    "../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/ieee754/index.js"(exports) {
+    "node_modules/ieee754/index.js"(exports) {
       exports.read = function(buffer, offset, isLE, mLen, nBytes) {
         var e, m;
         var eLen = nBytes * 8 - mLen - 1;
@@ -216,9 +216,9 @@ var NeuraiSignESP32 = (() => {
     }
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/buffer/index.js
+  // node_modules/buffer/index.js
   var require_buffer = __commonJS({
-    "../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/buffer/index.js"(exports) {
+    "node_modules/buffer/index.js"(exports) {
       "use strict";
       var base64 = require_base64_js();
       var ieee754 = require_ieee754();
@@ -1808,9 +1808,9 @@ var NeuraiSignESP32 = (() => {
     }
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bech32/dist/index.js
+  // node_modules/bech32/dist/index.js
   var require_dist = __commonJS({
-    "../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bech32/dist/index.js"(exports) {
+    "node_modules/bech32/dist/index.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.bech32m = exports.bech32 = void 0;
@@ -1992,10 +1992,10 @@ var NeuraiSignESP32 = (() => {
     validatePSBT: () => $68e2926fe257f2e4$export$78a5723c75e7be9
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/dist/index.mjs
+  // node_modules/@neuraiproject/neurai-sign-esp32/dist/index.mjs
   var import_buffer = __toESM(require_buffer(), 1);
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/networks.js
+  // node_modules/bitcoinjs-lib/src/esm/networks.js
   var bitcoin = {
     /**
      * The message prefix used for signing Bitcoin messages.
@@ -2032,7 +2032,7 @@ var NeuraiSignESP32 = (() => {
     wif: 128
   };
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/script.js
+  // node_modules/bitcoinjs-lib/src/esm/script.js
   var script_exports = {};
   __export(script_exports, {
     OPS: () => OPS,
@@ -2050,7 +2050,7 @@ var NeuraiSignESP32 = (() => {
     toStack: () => toStack
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/bip66.js
+  // node_modules/bitcoinjs-lib/src/esm/bip66.js
   function check(buffer) {
     if (buffer.length < 8) return false;
     if (buffer.length > 72) return false;
@@ -2121,7 +2121,7 @@ var NeuraiSignESP32 = (() => {
     return signature2;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/ops.js
+  // node_modules/bitcoinjs-lib/src/esm/ops.js
   var OPS;
   (function(OPS9) {
     OPS9[OPS9["OP_FALSE"] = 0] = "OP_FALSE";
@@ -2245,7 +2245,7 @@ var NeuraiSignESP32 = (() => {
     OPS9[OPS9["OP_INVALIDOPCODE"] = 255] = "OP_INVALIDOPCODE";
   })(OPS || (OPS = {}));
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/uint8array-tools/src/mjs/browser.js
+  // node_modules/uint8array-tools/src/mjs/browser.js
   var HEX_STRINGS = "0123456789abcdefABCDEF";
   var HEX_CODES = HEX_STRINGS.split("").map((c) => c.codePointAt(0));
   var HEX_CODEPOINTS = Array(256).fill(true).map((_, i) => {
@@ -2539,7 +2539,7 @@ var NeuraiSignESP32 = (() => {
     }
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/push_data.js
+  // node_modules/bitcoinjs-lib/src/esm/push_data.js
   function encodingLength(i) {
     return i < OPS.OP_PUSHDATA1 ? 1 : i <= 255 ? 2 : i <= 65535 ? 3 : 5;
   }
@@ -2587,7 +2587,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/script_number.js
+  // node_modules/bitcoinjs-lib/src/esm/script_number.js
   var script_number_exports = {};
   __export(script_number_exports, {
     decode: () => decode3,
@@ -2639,14 +2639,14 @@ var NeuraiSignESP32 = (() => {
     return buffer;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/script_signature.js
+  // node_modules/bitcoinjs-lib/src/esm/script_signature.js
   var script_signature_exports = {};
   __export(script_signature_exports, {
     decode: () => decode4,
     encode: () => encode4
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/valibot/dist/index.mjs
+  // node_modules/valibot/dist/index.mjs
   var store$4;
   // @__NO_SIDE_EFFECTS__
   function getGlobalConfig(config$1) {
@@ -3275,7 +3275,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/types.js
+  // node_modules/bitcoinjs-lib/src/esm/types.js
   var ZERO32 = new Uint8Array(32);
   var EC_P = fromHex(
     "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"
@@ -3345,7 +3345,7 @@ var NeuraiSignESP32 = (() => {
     )
   );
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/script_signature.js
+  // node_modules/bitcoinjs-lib/src/esm/script_signature.js
   var ZERO = new Uint8Array(1);
   function toDER(x) {
     let i = 0;
@@ -3391,7 +3391,7 @@ var NeuraiSignESP32 = (() => {
     return concat([encode(r, s), hashTypeBuffer]);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/script.js
+  // node_modules/bitcoinjs-lib/src/esm/script.js
   var OP_INT_BASE = OPS.OP_RESERVED;
   var StackSchema = array(union([instance(Uint8Array), number()]));
   function isOPInt(value2) {
@@ -3533,7 +3533,7 @@ var NeuraiSignESP32 = (() => {
   var number2 = script_number_exports;
   var signature = script_signature_exports;
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/lazy.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/lazy.js
   function prop(object2, name, f) {
     Object.defineProperty(object2, name, {
       configurable: true,
@@ -3562,7 +3562,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2ms.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2ms.js
   var OPS2 = OPS;
   var OP_INT_BASE2 = OPS2.OP_RESERVED;
   function encodeSmallOrScriptNum(n) {
@@ -3704,7 +3704,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2pk.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2pk.js
   var OPS3 = OPS;
   function p2pk(a, opts) {
     if (!a.input && !a.output && !a.pubkey && !a.input && !a.signature)
@@ -3771,7 +3771,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/@noble/hashes/esm/utils.js
+  // node_modules/@noble/hashes/esm/utils.js
   function isBytes(a) {
     return a instanceof Uint8Array || ArrayBuffer.isView(a) && a.constructor.name === "Uint8Array";
   }
@@ -3830,7 +3830,7 @@ var NeuraiSignESP32 = (() => {
     return hashC;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/@noble/hashes/esm/_md.js
+  // node_modules/@noble/hashes/esm/_md.js
   function setBigUint64(view, byteOffset, value2, isLE) {
     if (typeof view.setBigUint64 === "function")
       return view.setBigUint64(byteOffset, value2, isLE);
@@ -3950,7 +3950,7 @@ var NeuraiSignESP32 = (() => {
     1541459225
   ]);
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/@noble/hashes/esm/legacy.js
+  // node_modules/@noble/hashes/esm/legacy.js
   var Rho160 = /* @__PURE__ */ Uint8Array.from([
     7,
     4,
@@ -4068,10 +4068,10 @@ var NeuraiSignESP32 = (() => {
   };
   var ripemd160 = /* @__PURE__ */ createHasher(() => new RIPEMD160());
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/@noble/hashes/esm/ripemd160.js
+  // node_modules/@noble/hashes/esm/ripemd160.js
   var ripemd1602 = ripemd160;
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/@noble/hashes/esm/sha2.js
+  // node_modules/@noble/hashes/esm/sha2.js
   var SHA256_K = /* @__PURE__ */ Uint32Array.from([
     1116352408,
     1899447441,
@@ -4211,10 +4211,10 @@ var NeuraiSignESP32 = (() => {
   };
   var sha256 = /* @__PURE__ */ createHasher(() => new SHA256());
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/@noble/hashes/esm/sha256.js
+  // node_modules/@noble/hashes/esm/sha256.js
   var sha2562 = sha256;
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/crypto.js
+  // node_modules/bitcoinjs-lib/src/esm/crypto.js
   function hash160(buffer) {
     return ripemd1602(sha2562(buffer));
   }
@@ -4821,7 +4821,7 @@ var NeuraiSignESP32 = (() => {
     return sha2562(concat([TAGGED_HASH_PREFIXES[prefix], data]));
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bs58/node_modules/base-x/src/esm/index.js
+  // node_modules/bitcoinjs-lib/node_modules/base-x/src/esm/index.js
   function base(ALPHABET2) {
     if (ALPHABET2.length >= 255) {
       throw new TypeError("Alphabet too long");
@@ -4952,11 +4952,11 @@ var NeuraiSignESP32 = (() => {
   }
   var esm_default = base;
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bs58/src/esm/index.js
+  // node_modules/bitcoinjs-lib/node_modules/bs58/src/esm/index.js
   var ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   var esm_default2 = esm_default(ALPHABET);
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bs58check/src/esm/base.js
+  // node_modules/bitcoinjs-lib/node_modules/bs58check/src/esm/base.js
   function base_default(checksumFn) {
     function encode20(payload) {
       var payloadU8 = Uint8Array.from(payload);
@@ -4995,13 +4995,13 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bs58check/src/esm/index.js
+  // node_modules/bitcoinjs-lib/node_modules/bs58check/src/esm/index.js
   function sha256x2(buffer) {
     return sha2562(sha2562(buffer));
   }
   var esm_default3 = base_default(sha256x2);
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2pkh.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2pkh.js
   var OPS4 = OPS;
   function p2pkh(a, opts) {
     if (!a.address && !a.hash && !a.output && !a.pubkey && !a.input)
@@ -5116,7 +5116,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2sh.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2sh.js
   var OPS5 = OPS;
   function p2sh(a, opts) {
     if (!a.address && !a.hash && !a.output && !a.redeem && !a.input)
@@ -5282,7 +5282,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2wpkh.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2wpkh.js
   var import_bech32 = __toESM(require_dist(), 1);
   var OPS6 = OPS;
   var EMPTY_BUFFER = new Uint8Array(0);
@@ -5399,7 +5399,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2wsh.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2wsh.js
   var import_bech322 = __toESM(require_dist(), 1);
   var OPS7 = OPS;
   var EMPTY_BUFFER2 = new Uint8Array(0);
@@ -5563,7 +5563,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/ecc_lib.js
+  // node_modules/bitcoinjs-lib/src/esm/ecc_lib.js
   var _ECCLIB_CACHE = {};
   function getEccLib() {
     if (!_ECCLIB_CACHE.eccLib)
@@ -5573,7 +5573,7 @@ var NeuraiSignESP32 = (() => {
     return _ECCLIB_CACHE.eccLib;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/varuint-bitcoin/src/esm/index.js
+  // node_modules/varuint-bitcoin/src/esm/index.js
   var esm_exports = {};
   __export(esm_exports, {
     decode: () => decode5,
@@ -5581,7 +5581,7 @@ var NeuraiSignESP32 = (() => {
     encodingLength: () => encodingLength2
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/varuint-bitcoin/node_modules/uint8array-tools/src/mjs/browser.js
+  // node_modules/varuint-bitcoin/node_modules/uint8array-tools/src/mjs/browser.js
   var HEX_STRINGS2 = "0123456789abcdefABCDEF";
   var HEX_CODES2 = HEX_STRINGS2.split("").map((c) => c.codePointAt(0));
   var HEX_CODEPOINTS2 = Array(256).fill(true).map((_, i) => {
@@ -5723,7 +5723,7 @@ var NeuraiSignESP32 = (() => {
     }
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/varuint-bitcoin/src/esm/index.js
+  // node_modules/varuint-bitcoin/src/esm/index.js
   var checkUInt64 = (n) => {
     if (n < 0 || n > 0xffffffffffffffffn) {
       throw new RangeError("value out of range");
@@ -5797,7 +5797,7 @@ var NeuraiSignESP32 = (() => {
     return n < 253 ? 1 : n <= 65535 ? 3 : n <= 4294967295 ? 5 : 9;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/bufferutils.js
+  // node_modules/bitcoinjs-lib/src/esm/bufferutils.js
   var MAX_JS_NUMBER = 9007199254740991;
   function verifuint(value2, max) {
     if (typeof value2 !== "number" && typeof value2 !== "bigint")
@@ -5938,7 +5938,7 @@ var NeuraiSignESP32 = (() => {
     }
   };
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/bip341.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/bip341.js
   var LEAF_VERSION_TAPSCRIPT = 192;
   var MAX_TAPTREE_DEPTH = 128;
   var isHashBranch = (ht) => "left" in ht && "right" in ht;
@@ -6016,7 +6016,7 @@ var NeuraiSignESP32 = (() => {
     return concat([buffer, s]);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/payments/p2tr.js
+  // node_modules/bitcoinjs-lib/src/esm/payments/p2tr.js
   var import_bech323 = __toESM(require_dist(), 1);
   var OPS8 = OPS;
   var TAPROOT_WITNESS_VERSION = 1;
@@ -6260,7 +6260,7 @@ var NeuraiSignESP32 = (() => {
     return Object.assign(o, a);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/address.js
+  // node_modules/bitcoinjs-lib/src/esm/address.js
   var import_bech324 = __toESM(require_dist(), 1);
   var FUTURE_SEGWIT_MAX_SIZE = 40;
   var FUTURE_SEGWIT_MIN_SIZE = 2;
@@ -6391,7 +6391,7 @@ var NeuraiSignESP32 = (() => {
     throw new Error(address + " has no matching Script");
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/transaction.js
+  // node_modules/bitcoinjs-lib/src/esm/transaction.js
   function varSliceSize(someScript) {
     const length2 = someScript.length;
     return esm_exports.encodingLength(length2) + length2;
@@ -6856,7 +6856,7 @@ var NeuraiSignESP32 = (() => {
   __publicField(_Transaction, "ADVANCED_TRANSACTION_FLAG", 1);
   var Transaction = _Transaction;
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/block.js
+  // node_modules/bitcoinjs-lib/src/esm/block.js
   var errorMerkleNoTxes = new TypeError(
     "Cannot compute merkle root for zero transactions"
   );
@@ -6864,7 +6864,7 @@ var NeuraiSignESP32 = (() => {
     "Cannot compute witness commit for non-segwit block"
   );
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/index.js
+  // node_modules/bip174/src/esm/lib/converter/index.js
   var converter_exports = {};
   __export(converter_exports, {
     globals: () => globals,
@@ -6872,7 +6872,7 @@ var NeuraiSignESP32 = (() => {
     outputs: () => outputs
   });
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/typeFields.js
+  // node_modules/bip174/src/esm/lib/typeFields.js
   var GlobalTypes;
   (function(GlobalTypes2) {
     GlobalTypes2[GlobalTypes2["UNSIGNED_TX"] = 0] = "UNSIGNED_TX";
@@ -6907,7 +6907,7 @@ var NeuraiSignESP32 = (() => {
     OutputTypes2[OutputTypes2["TAP_BIP32_DERIVATION"] = 7] = "TAP_BIP32_DERIVATION";
   })(OutputTypes || (OutputTypes = {}));
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/global/globalXpub.js
+  // node_modules/bip174/src/esm/lib/converter/global/globalXpub.js
   var globalXpub_exports = {};
   __export(globalXpub_exports, {
     canAddToArray: () => canAddToArray,
@@ -6980,7 +6980,7 @@ var NeuraiSignESP32 = (() => {
     return array2.filter((v) => compare(v.extendedPubkey, item.extendedPubkey)).length === 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/global/unsignedTx.js
+  // node_modules/bip174/src/esm/lib/converter/global/unsignedTx.js
   var unsignedTx_exports = {};
   __export(unsignedTx_exports, {
     encode: () => encode7
@@ -6992,7 +6992,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/finalScriptSig.js
+  // node_modules/bip174/src/esm/lib/converter/input/finalScriptSig.js
   var finalScriptSig_exports = {};
   __export(finalScriptSig_exports, {
     canAdd: () => canAdd,
@@ -7024,7 +7024,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.finalScriptSig === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/finalScriptWitness.js
+  // node_modules/bip174/src/esm/lib/converter/input/finalScriptWitness.js
   var finalScriptWitness_exports = {};
   __export(finalScriptWitness_exports, {
     canAdd: () => canAdd2,
@@ -7056,7 +7056,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.finalScriptWitness === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/nonWitnessUtxo.js
+  // node_modules/bip174/src/esm/lib/converter/input/nonWitnessUtxo.js
   var nonWitnessUtxo_exports = {};
   __export(nonWitnessUtxo_exports, {
     canAdd: () => canAdd3,
@@ -7087,7 +7087,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.nonWitnessUtxo === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/partialSig.js
+  // node_modules/bip174/src/esm/lib/converter/input/partialSig.js
   var partialSig_exports = {};
   __export(partialSig_exports, {
     canAddToArray: () => canAddToArray2,
@@ -7144,7 +7144,7 @@ var NeuraiSignESP32 = (() => {
     return array2.filter((v) => compare(v.pubkey, item.pubkey) === 0).length === 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/porCommitment.js
+  // node_modules/bip174/src/esm/lib/converter/input/porCommitment.js
   var porCommitment_exports = {};
   __export(porCommitment_exports, {
     canAdd: () => canAdd4,
@@ -7176,7 +7176,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.porCommitment === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/sighashType.js
+  // node_modules/bip174/src/esm/lib/converter/input/sighashType.js
   var sighashType_exports = {};
   __export(sighashType_exports, {
     canAdd: () => canAdd5,
@@ -7210,7 +7210,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.sighashType === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/tapKeySig.js
+  // node_modules/bip174/src/esm/lib/converter/input/tapKeySig.js
   var tapKeySig_exports = {};
   __export(tapKeySig_exports, {
     canAdd: () => canAdd6,
@@ -7244,7 +7244,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.tapKeySig === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/tapLeafScript.js
+  // node_modules/bip174/src/esm/lib/converter/input/tapLeafScript.js
   var tapLeafScript_exports = {};
   __export(tapLeafScript_exports, {
     canAddToArray: () => canAddToArray3,
@@ -7293,7 +7293,7 @@ var NeuraiSignESP32 = (() => {
     return array2.filter((v) => compare(v.controlBlock, item.controlBlock) === 0).length === 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/tapMerkleRoot.js
+  // node_modules/bip174/src/esm/lib/converter/input/tapMerkleRoot.js
   var tapMerkleRoot_exports = {};
   __export(tapMerkleRoot_exports, {
     canAdd: () => canAdd7,
@@ -7325,7 +7325,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.tapMerkleRoot === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/tapScriptSig.js
+  // node_modules/bip174/src/esm/lib/converter/input/tapScriptSig.js
   var tapScriptSig_exports = {};
   __export(tapScriptSig_exports, {
     canAddToArray: () => canAddToArray4,
@@ -7378,7 +7378,7 @@ var NeuraiSignESP32 = (() => {
     ).length === 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/input/witnessUtxo.js
+  // node_modules/bip174/src/esm/lib/converter/input/witnessUtxo.js
   var witnessUtxo_exports = {};
   __export(witnessUtxo_exports, {
     canAdd: () => canAdd8,
@@ -7429,7 +7429,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.witnessUtxo === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/output/tapTree.js
+  // node_modules/bip174/src/esm/lib/converter/output/tapTree.js
   var tapTree_exports = {};
   __export(tapTree_exports, {
     canAdd: () => canAdd9,
@@ -7487,7 +7487,7 @@ var NeuraiSignESP32 = (() => {
     return !!currentData && !!newData && currentData.tapTree === void 0;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/shared/bip32Derivation.js
+  // node_modules/bip174/src/esm/lib/converter/shared/bip32Derivation.js
   var range2 = (n) => [...Array(n).keys()];
   var isValidDERKey = (pubkey) => pubkey.length === 33 && [2, 3].includes(pubkey[0]) || pubkey.length === 65 && 4 === pubkey[0];
   function makeConverter(TYPE_BYTE, isValidPubkey = isValidDERKey) {
@@ -7559,7 +7559,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/shared/checkPubkey.js
+  // node_modules/bip174/src/esm/lib/converter/shared/checkPubkey.js
   function makeChecker(pubkeyTypes) {
     return checkPubkey;
     function checkPubkey(keyVal) {
@@ -7576,7 +7576,7 @@ var NeuraiSignESP32 = (() => {
     }
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/shared/redeemScript.js
+  // node_modules/bip174/src/esm/lib/converter/shared/redeemScript.js
   function makeConverter2(TYPE_BYTE) {
     function decode19(keyVal) {
       if (keyVal.key[0] !== TYPE_BYTE) {
@@ -7609,7 +7609,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/shared/tapBip32Derivation.js
+  // node_modules/bip174/src/esm/lib/converter/shared/tapBip32Derivation.js
   var isValidBIP340Key = (pubkey) => pubkey.length === 32;
   function makeConverter3(TYPE_BYTE) {
     const parent = makeConverter(TYPE_BYTE, isValidBIP340Key);
@@ -7650,7 +7650,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/shared/tapInternalKey.js
+  // node_modules/bip174/src/esm/lib/converter/shared/tapInternalKey.js
   function makeConverter4(TYPE_BYTE) {
     function decode19(keyVal) {
       if (keyVal.key[0] !== TYPE_BYTE || keyVal.key.length !== 1) {
@@ -7685,7 +7685,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/shared/witnessScript.js
+  // node_modules/bip174/src/esm/lib/converter/shared/witnessScript.js
   function makeConverter5(TYPE_BYTE) {
     function decode19(keyVal) {
       if (keyVal.key[0] !== TYPE_BYTE) {
@@ -7718,7 +7718,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/index.js
+  // node_modules/bip174/src/esm/lib/converter/index.js
   var globals = {
     unsignedTx: unsignedTx_exports,
     globalXpub: globalXpub_exports,
@@ -7761,7 +7761,7 @@ var NeuraiSignESP32 = (() => {
     tapInternalKey: makeConverter4(OutputTypes.TAP_INTERNAL_KEY)
   };
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/converter/tools.js
+  // node_modules/bip174/src/esm/lib/converter/tools.js
   var range3 = (n) => [...Array(n).keys()];
   function keyValsToBuffer(keyVals) {
     const buffers = keyVals.map(keyValToBuffer);
@@ -7781,7 +7781,7 @@ var NeuraiSignESP32 = (() => {
     return buffer;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/parser/fromBuffer.js
+  // node_modules/bip174/src/esm/lib/parser/fromBuffer.js
   function psbtFromBuffer(buffer, txGetter) {
     let offset = 0;
     function varSlice() {
@@ -8087,7 +8087,7 @@ var NeuraiSignESP32 = (() => {
     return { globalMap, inputs: inputs2, outputs: outputs2 };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/parser/toBuffer.js
+  // node_modules/bip174/src/esm/lib/parser/toBuffer.js
   function psbtToBuffer({ globalMap, inputs: inputs2, outputs: outputs2 }) {
     const { globalKeyVals, inputKeyVals, outputKeyVals } = psbtToKeyVals({
       globalMap,
@@ -8137,7 +8137,7 @@ var NeuraiSignESP32 = (() => {
     };
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/combiner/index.js
+  // node_modules/bip174/src/esm/lib/combiner/index.js
   function combine(psbts) {
     const self = psbts[0];
     const selfKeyVals = psbtToKeyVals(self);
@@ -8215,7 +8215,7 @@ var NeuraiSignESP32 = (() => {
     return set;
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/utils.js
+  // node_modules/bip174/src/esm/lib/utils.js
   function checkForInput(inputs2, inputIndex) {
     const input = inputs2[inputIndex];
     if (input === void 0) throw new Error(`No input #${inputIndex}`);
@@ -8317,7 +8317,7 @@ var NeuraiSignESP32 = (() => {
     updateOutput(data, output);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bip174/src/esm/lib/psbt.js
+  // node_modules/bip174/src/esm/lib/psbt.js
   var Psbt = class {
     constructor(tx) {
       this.inputs = [];
@@ -8447,7 +8447,7 @@ var NeuraiSignESP32 = (() => {
     }
   };
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/psbt/psbtutils.js
+  // node_modules/bitcoinjs-lib/src/esm/psbt/psbtutils.js
   function isPaymentFactory(payment) {
     return (script) => {
       try {
@@ -8544,7 +8544,7 @@ var NeuraiSignESP32 = (() => {
     }).map((sig) => ({ signature: sig }));
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/psbt/bip371.js
+  // node_modules/bitcoinjs-lib/src/esm/psbt/bip371.js
   var toXOnly = (pubKey) => pubKey.length === 32 ? pubKey : pubKey.slice(1, 33);
   function tapScriptFinalizer(inputIndex, input, tapLeafHashToFinalize) {
     const tapLeaf = findTapLeafToFinalize(
@@ -8747,7 +8747,7 @@ var NeuraiSignESP32 = (() => {
     return io && !!(io.redeemScript || io.witnessScript || io.bip32Derivation && io.bip32Derivation.length);
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/node_modules/bitcoinjs-lib/src/esm/psbt.js
+  // node_modules/bitcoinjs-lib/src/esm/psbt.js
   var DEFAULT_OPTS = {
     /**
      * A bitcoinjs Network object. This is only used if you pass an `address`
@@ -9618,18 +9618,12 @@ var NeuraiSignESP32 = (() => {
   function checkPartialSigSighashes(input) {
     if (!input.sighashType || !input.partialSig) return;
     const { partialSig, sighashType } = input;
-    let normalizedSighashType = sighashType;
     partialSig.forEach((pSig) => {
       const { hashType } = signature.decode(pSig.signature);
-      if (normalizedSighashType !== hashType) {
-        console.warn("[NeuraiSignESP32] Adjusting input sighashType to match returned signature", {
-          previousSighashType: normalizedSighashType,
-          returnedHashType: hashType
-        });
-        normalizedSighashType = hashType;
+      if (sighashType !== hashType) {
+        throw new Error("Signature sighash does not match input sighash type");
       }
     });
-    input.sighashType = normalizedSighashType;
   }
   function checkScriptForPubkey(pubkey, script, action) {
     if (!pubkeyInScript(pubkey, script)) {
@@ -10110,10 +10104,7 @@ var NeuraiSignESP32 = (() => {
     const outputAmount = tx.outs.reduce((total, o) => total + o.value, 0n);
     const fee = inputAmount - outputAmount;
     if (fee < 0) {
-      cache.__FEE = 0n;
-      cache.__EXTRACTED_TX = tx;
-      cache.__FEE_RATE = 0;
-      return;
+      throw new Error("Outputs are spending more than Inputs");
     }
     const bytes = tx.virtualSize();
     cache.__FEE = fee;
@@ -10253,7 +10244,7 @@ var NeuraiSignESP32 = (() => {
     return [...Array(n).keys()];
   }
 
-  // ../ESP32/HW-ESP32-SIGN/lib/neurai-sign-esp32/dist/index.mjs
+  // node_modules/@neuraiproject/neurai-sign-esp32/dist/index.mjs
   var $f1b85200f32d8427$var$DEFAULT_FILTERS = [
     {
       usbVendorId: 12346,
@@ -10295,16 +10286,9 @@ var NeuraiSignESP32 = (() => {
       this.baudRate = options?.baudRate ?? $f1b85200f32d8427$var$DEFAULT_BAUD_RATE;
       this.filters = options?.filters ?? $f1b85200f32d8427$var$DEFAULT_FILTERS;
     }
-    /**
-    * Check if Web Serial API is available.
-    */
     static isSupported() {
       return typeof navigator !== "undefined" && "serial" in navigator;
     }
-    /**
-    * Open a serial connection to the ESP32.
-    * Triggers browser port selection dialog.
-    */
     async open() {
       if (!_$f1b85200f32d8427$export$f93edba7156cc57b.isSupported()) throw new Error("Web Serial API not supported. Use Chrome, Edge, or Opera.");
       this.port = await navigator.serial.requestPort({
@@ -10329,9 +10313,6 @@ var NeuraiSignESP32 = (() => {
       await this.delay(1200);
       this.responseQueue = [];
     }
-    /**
-    * Close the serial connection.
-    */
     async close() {
       this.isReading = false;
       if (this.reader) {
@@ -10351,19 +10332,9 @@ var NeuraiSignESP32 = (() => {
       }
       this.responseQueue = [];
     }
-    /**
-    * Whether the serial port is currently connected.
-    */
     get connected() {
       return this.port !== null && this.writer !== null;
     }
-    /**
-    * Send a JSON command to the device and wait for a JSON response.
-    *
-    * @param command - The command object (e.g. { action: "info" })
-    * @param timeoutMs - Response timeout in milliseconds (default: 65000 for sign operations)
-    * @returns The parsed device response
-    */
     async sendCommand(command, timeoutMs = 65e3) {
       if (!this.writer) throw new Error("Serial port not connected");
       this.responseQueue = [];
@@ -10380,10 +10351,6 @@ var NeuraiSignESP32 = (() => {
       if (!response) throw new Error("Device response timeout");
       return response;
     }
-    /**
-    * Send a command and wait, skipping intermediate "processing" status messages.
-    * Useful for sign_psbt which sends a processing ACK before the actual response.
-    */
     async sendCommandFinal(command, timeoutMs = 65e3) {
       if (!this.writer) throw new Error("Serial port not connected");
       this.responseQueue = [];
@@ -10405,7 +10372,6 @@ var NeuraiSignESP32 = (() => {
       }
       throw new Error("Device response timeout");
     }
-    // ─── Private ──────────────────────────────────────────────────────────────
     async readLoop() {
       let buffer = "";
       while (this.isReading && this.reader) try {
@@ -10453,17 +10419,10 @@ var NeuraiSignESP32 = (() => {
         check15();
       });
     }
-    /**
-    * Write data in small chunks with pauses between them.
-    *
-    * The ESP32 CDC serial buffer can lose data when the host sends a large
-    * payload in a single write. Splitting into 32-byte chunks with a 4 ms
-    * pause gives the firmware time to drain its receive buffer.
-    */
     async writeChunked(data, chunkSize = 256, pauseMs = 8) {
       if (!this.writer) throw new Error("Serial port not connected");
-      const totalStart = Date.now();
       const totalChunks = Math.ceil(data.length / chunkSize);
+      const startedAt = Date.now();
       let totalReadyMs = 0;
       let totalWriteMs = 0;
       let totalPauseMs = 0;
@@ -10473,37 +10432,36 @@ var NeuraiSignESP32 = (() => {
         pauseMs,
         totalChunks
       });
-      for (let offset = 0; offset < data.length; offset += chunkSize) {
+      for (let offset = 0, chunkIndex = 0; offset < data.length; offset += chunkSize, chunkIndex += 1) {
         const chunk = data.slice(offset, offset + chunkSize);
-        const chunkIndex = Math.floor(offset / chunkSize) + 1;
-        const readyStart = Date.now();
+        const readyStartedAt = Date.now();
         await this.writer.ready;
-        const readyMs = Date.now() - readyStart;
+        const readyMs = Date.now() - readyStartedAt;
         totalReadyMs += readyMs;
-        const writeStart = Date.now();
+        const writeStartedAt = Date.now();
         await this.writer.write(chunk);
-        const writeMs = Date.now() - writeStart;
+        const writeMs = Date.now() - writeStartedAt;
         totalWriteMs += writeMs;
-        let pauseDelayMs = 0;
-        if (offset + chunkSize < data.length) {
-          const pauseStart = Date.now();
+        let actualPauseMs = 0;
+        if (pauseMs > 0 && offset + chunkSize < data.length) {
+          const pauseStartedAt = Date.now();
           await this.delay(pauseMs);
-          pauseDelayMs = Date.now() - pauseStart;
-          totalPauseMs += pauseDelayMs;
+          actualPauseMs = Date.now() - pauseStartedAt;
+          totalPauseMs += actualPauseMs;
         }
         console.debug("[NeuraiESP32 Serial][writeChunked] chunk", {
-          chunkIndex,
+          chunkIndex: chunkIndex + 1,
           totalChunks,
           chunkBytes: chunk.length,
           readyMs,
           writeMs,
-          pauseMs: pauseDelayMs
+          pauseMs: actualPauseMs
         });
       }
       console.debug("[NeuraiESP32 Serial][writeChunked] complete", {
         totalBytes: data.length,
         totalChunks,
-        totalMs: Date.now() - totalStart,
+        totalMs: Date.now() - startedAt,
         totalReadyMs,
         totalWriteMs,
         totalPauseMs
@@ -10579,6 +10537,33 @@ var NeuraiSignESP32 = (() => {
     if (hex.length !== 8) throw new Error(`Invalid master fingerprint: expected 8 hex chars, got ${hex.length}`);
     return (0, import_buffer.Buffer).from(hex, "hex");
   }
+  function $68e2926fe257f2e4$var$getSignatureHashType(signature2) {
+    return signature2[signature2.length - 1] ?? 1;
+  }
+  function $68e2926fe257f2e4$var$checkPartialSigSighashes(input) {
+    if (!input.sighashType || !input.partialSig) return;
+    let normalizedSighashType = input.sighashType;
+    input.partialSig.forEach((pSig) => {
+      const hashType = $68e2926fe257f2e4$var$getSignatureHashType(pSig.signature);
+      if (normalizedSighashType !== hashType) {
+        console.warn("[NeuraiSignESP32] Adjusting input sighashType to match returned signature", {
+          previousSighashType: normalizedSighashType,
+          returnedHashType: hashType
+        });
+        normalizedSighashType = hashType;
+      }
+    });
+    input.sighashType = normalizedSighashType;
+  }
+  function $68e2926fe257f2e4$var$nonWitnessUtxoTxFromCache(cache, input, inputIndex) {
+    const existing = cache.__NON_WITNESS_UTXO_TX_CACHE?.[inputIndex];
+    if (existing) return existing;
+    if (!input.nonWitnessUtxo) throw new Error(`Missing nonWitnessUtxo for input #${inputIndex}`);
+    const tx = Transaction.fromBuffer(input.nonWitnessUtxo);
+    cache.__NON_WITNESS_UTXO_TX_CACHE ?? (cache.__NON_WITNESS_UTXO_TX_CACHE = {});
+    cache.__NON_WITNESS_UTXO_TX_CACHE[inputIndex] = tx;
+    return tx;
+  }
   function $68e2926fe257f2e4$export$236ea1e009011592(options) {
     const { network, utxos, outputs: outputs2, changeAddress, pubkey, masterFingerprint, derivationPath, feeRate = $68e2926fe257f2e4$var$DEFAULT_FEE_RATE } = options;
     if (utxos.length === 0) throw new Error("No UTXOs provided");
@@ -10635,18 +10620,14 @@ var NeuraiSignESP32 = (() => {
         sequence: metadata.sequence ?? input.sequence,
         nonWitnessUtxo: (0, import_buffer.Buffer).from(metadata.rawTxHex, "hex")
       };
-      if (metadata.masterFingerprint && metadata.derivationPath && metadata.pubkey) {
-        inputData.bip32Derivation = [
-          {
-            masterFingerprint: $68e2926fe257f2e4$var$parseMasterFingerprint(metadata.masterFingerprint),
-            path: metadata.derivationPath,
-            pubkey: (0, import_buffer.Buffer).from(metadata.pubkey, "hex")
-          }
-        ];
-      }
-      if (metadata.sighashType !== void 0) {
-        inputData.sighashType = metadata.sighashType;
-      }
+      if (metadata.masterFingerprint && metadata.derivationPath && metadata.pubkey) inputData.bip32Derivation = [
+        {
+          masterFingerprint: $68e2926fe257f2e4$var$parseMasterFingerprint(metadata.masterFingerprint),
+          path: metadata.derivationPath,
+          pubkey: (0, import_buffer.Buffer).from(metadata.pubkey, "hex")
+        }
+      ];
+      if (metadata.sighashType !== void 0) inputData.sighashType = metadata.sighashType;
       psbt.addInput(inputData);
     }
     for (const output of tx.outs) psbt.addOutput({
@@ -10659,8 +10640,8 @@ var NeuraiSignESP32 = (() => {
     const psbt = Psbt2.fromBase64(signedPsbtBase64, {
       network: (0, $ab66056610f04b01$export$7de4970ebfd8206d)(network)
     });
-    psbt.finalizeAllInputs();
-    const tx = psbt.extractTransaction();
+    $68e2926fe257f2e4$var$finalizeNeuraiP2pkhInputs(psbt, true);
+    const tx = $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt, true);
     return {
       txHex: tx.toHex(),
       txId: tx.getId()
@@ -10689,12 +10670,9 @@ var NeuraiSignESP32 = (() => {
         });
       });
     }
-    try {
-      psbt.finalizeAllInputs();
-    } catch {
-      $68e2926fe257f2e4$var$finalizeLegacyP2pkhInputs(psbt);
-    }
-    const tx = $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt);
+    psbt.data.inputs.forEach((input) => $68e2926fe257f2e4$var$checkPartialSigSighashes(input));
+    $68e2926fe257f2e4$var$finalizeNeuraiP2pkhInputs(psbt, false);
+    const tx = $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt, false);
     return {
       txHex: tx.toHex(),
       txId: tx.getId()
@@ -10768,17 +10746,27 @@ var NeuraiSignESP32 = (() => {
     }
     throw new Error("PSBT values larger than 32 bits are not supported");
   }
-  function $68e2926fe257f2e4$var$finalizeLegacyP2pkhInputs(psbt) {
+  function $68e2926fe257f2e4$var$finalizeNeuraiP2pkhInputs(psbt, requireAllInputs) {
+    let finalizedCount = 0;
     for (let index = 0; index < psbt.inputCount; index += 1) {
       const input = psbt.data.inputs[index];
-      if (input.finalScriptSig || input.finalScriptWitness) continue;
+      if (input.finalScriptSig || input.finalScriptWitness) {
+        finalizedCount += 1;
+        continue;
+      }
       const partialSig = input.partialSig?.[0];
       const nonWitnessUtxo = input.nonWitnessUtxo;
       const txInput = psbt.txInputs[index];
-      if (!partialSig || !nonWitnessUtxo || !txInput) continue;
+      if (!partialSig || !nonWitnessUtxo || !txInput) {
+        if (requireAllInputs) throw new Error(`Missing data to finalize input #${index}`);
+        continue;
+      }
       const prevTx = Transaction.fromBuffer(nonWitnessUtxo);
       const prevOut = prevTx.outs[txInput.index];
-      if (!prevOut) continue;
+      if (!prevOut) {
+        if (requireAllInputs) throw new Error(`Missing prevout to finalize input #${index}`);
+        continue;
+      }
       psbt.finalizeInput(index, () => ({
         finalScriptSig: script_exports.compile([
           partialSig.signature,
@@ -10786,83 +10774,84 @@ var NeuraiSignESP32 = (() => {
         ]),
         finalScriptWitness: void 0
       }));
+      finalizedCount += 1;
     }
+    if (requireAllInputs && finalizedCount !== psbt.inputCount) throw new Error(`Not all inputs were finalized (${finalizedCount}/${psbt.inputCount})`);
   }
-  function $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt) {
-    const allFinalized = psbt.data.inputs.every((input) => !!(input.finalScriptSig || input.finalScriptWitness));
-    if (allFinalized) {
-      return psbt.extractTransaction(true);
-    }
+  function $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt, requireAllInputs) {
     const cache = psbt.__CACHE;
-    const tx = cache.__TX.clone();
-    $68e2926fe257f2e4$var$inputFinalizeGetAmtsPartial(psbt.data.inputs, tx, cache);
+    const baseTx = cache?.__TX;
+    if (!baseTx || !cache) {
+      if (requireAllInputs) return psbt.extractTransaction(true);
+      return psbt.extractTransaction();
+    }
+    const tx = baseTx.clone();
+    $68e2926fe257f2e4$var$inputFinalizeGetAmtsPartial(psbt.data.inputs, tx, cache, requireAllInputs);
     return tx;
   }
-  function $68e2926fe257f2e4$var$inputFinalizeGetAmtsPartial(inputs2, tx, cache) {
+  function $68e2926fe257f2e4$var$inputFinalizeGetAmtsPartial(inputs2, tx, cache, requireAllInputs) {
     let inputAmount = 0n;
     inputs2.forEach((input, idx) => {
       if (input.finalScriptSig) tx.ins[idx].script = input.finalScriptSig;
-      if (input.finalScriptWitness) {
-        tx.ins[idx].witness = scriptWitnessToWitnessStack(input.finalScriptWitness);
-      }
+      if (input.finalScriptWitness) tx.ins[idx].witness = $68e2926fe257f2e4$var$scriptWitnessToWitnessStack(input.finalScriptWitness);
       if (input.witnessUtxo) {
         inputAmount += input.witnessUtxo.value;
-      } else if (input.nonWitnessUtxo) {
-        const nwTx = nonWitnessUtxoTxFromCache(cache, input, idx);
+        return;
+      }
+      if (input.nonWitnessUtxo) {
+        const nwTx = $68e2926fe257f2e4$var$nonWitnessUtxoTxFromCache(cache, input, idx);
         const vout = tx.ins[idx].index;
         const out = nwTx.outs[vout];
+        if (!out) {
+          if (requireAllInputs) throw new Error(`Missing prevout amount for input #${idx}`);
+          return;
+        }
         inputAmount += out.value;
+        return;
       }
+      if (requireAllInputs) throw new Error(`Missing UTXO data for input #${idx}`);
     });
     const outputAmount = tx.outs.reduce((total, o) => total + o.value, 0n);
     const fee = inputAmount - outputAmount;
-    cache.__FEE = fee >= 0 ? fee : 0n;
+    cache.__FEE = fee >= 0n ? fee : 0n;
     cache.__EXTRACTED_TX = tx;
     cache.__FEE_RATE = fee > 0n ? Math.floor(Number(fee / BigInt(tx.virtualSize()))) : 0;
+  }
+  function $68e2926fe257f2e4$var$scriptWitnessToWitnessStack(finalScriptWitness) {
+    const buffer = (0, import_buffer.Buffer).from(finalScriptWitness);
+    let offset = 0;
+    const count = $68e2926fe257f2e4$var$readPsbtVarInt(buffer, offset);
+    offset += count.size;
+    const stack = [];
+    for (let i = 0; i < count.value; i += 1) {
+      const itemLen = $68e2926fe257f2e4$var$readPsbtVarInt(buffer, offset);
+      offset += itemLen.size;
+      stack.push(buffer.subarray(offset, offset + itemLen.value));
+      offset += itemLen.value;
+    }
+    return stack;
   }
   var $a6c8409f4f68b3eb$export$fa10ee8b91a777b7 = class {
     constructor(options) {
       this.deviceInfo = null;
       this.serial = new (0, $f1b85200f32d8427$export$f93edba7156cc57b)(options);
     }
-    /**
-    * Check if Web Serial API is supported in this browser.
-    */
     static isSupported() {
       return (0, $f1b85200f32d8427$export$f93edba7156cc57b).isSupported();
     }
-    /**
-    * Whether the device is currently connected.
-    */
     get connected() {
       return this.serial.connected;
     }
-    /**
-    * Cached device info from the last getInfo() call.
-    */
     get info() {
       return this.deviceInfo;
     }
-    // ─── Connection ─────────────────────────────────────────────────────────
-    /**
-    * Connect to the ESP32 hardware wallet.
-    * Opens the browser port selection dialog.
-    */
     async connect() {
       await this.serial.open();
     }
-    /**
-    * Disconnect from the device.
-    */
     async disconnect() {
       this.deviceInfo = null;
       await this.serial.close();
     }
-    // ─── Device commands ────────────────────────────────────────────────────
-    /**
-    * Get device information (no user confirmation needed).
-    * Returns device name, version, network, address, pubkey, etc.
-    */
     async getInfo() {
       const response = await this.serial.sendCommand({
         action: "info"
@@ -10871,10 +10860,6 @@ var NeuraiSignESP32 = (() => {
       this.deviceInfo = response;
       return this.deviceInfo;
     }
-    /**
-    * Request the device address and public key.
-    * Requires user physical confirmation on the device (30s timeout).
-    */
     async getAddress() {
       const response = await this.serial.sendCommand({
         action: "get_address"
@@ -10882,10 +10867,6 @@ var NeuraiSignESP32 = (() => {
       this.assertSuccess(response);
       return response;
     }
-    /**
-    * Request the BIP32 account extended public key (xpub).
-    * Requires user physical confirmation on the device (30s timeout).
-    */
     async getBip32Pubkey() {
       const response = await this.serial.sendCommand({
         action: "get_bip32_pubkey"
@@ -10893,16 +10874,6 @@ var NeuraiSignESP32 = (() => {
       this.assertSuccess(response);
       return response;
     }
-    /**
-    * Sign a message to prove address ownership.
-    * Requires user physical confirmation on the device (30s timeout).
-    *
-    * The signature is base64-encoded, compatible with Bitcoin/Neurai message
-    * signing (recoverable ECDSA with "Neurai Signed Message:\n" prefix).
-    *
-    * @param message - The message string to sign (max 1024 bytes)
-    * @returns Signature (base64), address, and the original message
-    */
     async signMessage(message) {
       const response = await this.serial.sendCommand({
         action: "sign_message",
@@ -10911,12 +10882,6 @@ var NeuraiSignESP32 = (() => {
       this.assertSuccess(response);
       return response;
     }
-    /**
-    * Send a raw PSBT (base64) to the device for signing.
-    * Requires user physical confirmation on the device (60s timeout).
-    *
-    * Use this if you build the PSBT yourself.
-    */
     async signPsbt(psbtBase64, display) {
       const response = await this.serial.sendCommandFinal({
         action: "sign_psbt",
@@ -10928,25 +10893,6 @@ var NeuraiSignESP32 = (() => {
       this.assertSuccess(response);
       return response;
     }
-    // ─── High-level transaction flow ────────────────────────────────────────
-    /**
-    * Build, sign, and finalize a transaction in one call.
-    *
-    * This is the main method for sending XNA. It:
-    * 1. Builds an unsigned PSBT from the provided UTXOs and outputs
-    * 2. Sends it to the ESP32 for signing (user confirms on device)
-    * 3. Finalizes the signed PSBT and extracts the raw transaction
-    *
-    * @param options.network - Network type (default: uses device info)
-    * @param options.utxos - UTXOs to spend (must include rawTxHex)
-    * @param options.outputs - Destination outputs [{address, value}]
-    * @param options.changeAddress - Address for change (typically device address)
-    * @param options.pubkey - Compressed public key hex (from getAddress)
-    * @param options.masterFingerprint - From getInfo().master_fingerprint
-    * @param options.derivationPath - From getAddress().path
-    * @param options.feeRate - Fee rate in sat/byte (default: 1024)
-    * @returns ISignResult with txHex ready to broadcast
-    */
     async signTransaction(options) {
       const info = this.deviceInfo;
       const network = options.network ?? this.inferNetworkType(info);
@@ -10975,19 +10921,15 @@ var NeuraiSignESP32 = (() => {
         signedInputs: signResponse.signed_inputs
       };
     }
-    // ─── Private helpers ────────────────────────────────────────────────────
     assertSuccess(response) {
       if (response.status === "error") throw new Error(`Device error: ${response.message}`);
     }
-    /**
-    * Infer the NetworkType from cached device info.
-    */
     inferNetworkType(info) {
       if (!info) return "xna";
-      const networkName = info.network?.toLowerCase() ?? "";
-      const coinType = info.coin_type;
-      if (networkName.includes("test")) return coinType === 1900 ? "xna-test" : "xna-legacy-test";
-      if (networkName.includes("legacy") || coinType === 0) return "xna-legacy";
+      const name = (info.network ?? "").toLowerCase();
+      if (name.includes("legacy") && name.includes("test")) return "xna-legacy-test";
+      if (name.includes("legacy")) return "xna-legacy";
+      if (name.includes("test")) return "xna-test";
       return "xna";
     }
   };
