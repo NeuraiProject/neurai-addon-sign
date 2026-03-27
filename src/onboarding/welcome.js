@@ -91,6 +91,18 @@
   var walletResult = null;
   var canReuseSessionPin = false;
 
+  function applyThemeFromSettings(settings) {
+    if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
+      NEURAI_UTILS.applyTheme(settings || {});
+      return;
+    }
+    var selected = ((settings || {}).theme) || 'dark';
+    var theme = selected === 'system'
+      ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+      : selected;
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
   // ── Step navigation ────────────────────────────────────────────────────────
 
   var allStepCards = [
@@ -551,6 +563,7 @@
 
     existingAccounts = result[C.ACCOUNTS_KEY] || null;
     existingSettings = result[C.SETTINGS_KEY] || null;
+    applyThemeFromSettings(existingSettings || C.DEFAULT_SETTINGS);
     existingPinHash = (existingSettings && existingSettings.pinHash) || '';
     var unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
 
@@ -597,6 +610,10 @@
     }
 
     setupListeners();
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (area !== 'local' || !changes || !changes[C.SETTINGS_KEY]) return;
+      applyThemeFromSettings(changes[C.SETTINGS_KEY].newValue || C.DEFAULT_SETTINGS);
+    });
     goToStep(1);
   }
 

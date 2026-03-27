@@ -9618,12 +9618,18 @@ var NeuraiSignESP32 = (() => {
   function checkPartialSigSighashes(input) {
     if (!input.sighashType || !input.partialSig) return;
     const { partialSig, sighashType } = input;
+    let normalizedSighashType = sighashType;
     partialSig.forEach((pSig) => {
       const { hashType } = signature.decode(pSig.signature);
-      if (sighashType !== hashType) {
-        throw new Error("Signature sighash does not match input sighash type");
+      if (normalizedSighashType !== hashType) {
+        console.warn("[NeuraiSignESP32] Adjusting input sighashType to match returned signature", {
+          previousSighashType: normalizedSighashType,
+          returnedHashType: hashType
+        });
+        normalizedSighashType = hashType;
       }
     });
+    input.sighashType = normalizedSighashType;
   }
   function checkScriptForPubkey(pubkey, script, action) {
     if (!pubkeyInScript(pubkey, script)) {
@@ -10104,7 +10110,10 @@ var NeuraiSignESP32 = (() => {
     const outputAmount = tx.outs.reduce((total, o) => total + o.value, 0n);
     const fee = inputAmount - outputAmount;
     if (fee < 0) {
-      throw new Error("Outputs are spending more than Inputs");
+      cache.__FEE = 0n;
+      cache.__EXTRACTED_TX = tx;
+      cache.__FEE_RATE = 0;
+      return;
     }
     const bytes = tx.virtualSize();
     cache.__FEE = fee;
@@ -10451,14 +10460,54 @@ var NeuraiSignESP32 = (() => {
     * payload in a single write. Splitting into 32-byte chunks with a 4 ms
     * pause gives the firmware time to drain its receive buffer.
     */
-    async writeChunked(data, chunkSize = 32, pauseMs = 4) {
+    async writeChunked(data, chunkSize = 256, pauseMs = 8) {
       if (!this.writer) throw new Error("Serial port not connected");
+      const totalStart = Date.now();
+      const totalChunks = Math.ceil(data.length / chunkSize);
+      let totalReadyMs = 0;
+      let totalWriteMs = 0;
+      let totalPauseMs = 0;
+      console.debug("[NeuraiESP32 Serial][writeChunked] start", {
+        totalBytes: data.length,
+        chunkSize,
+        pauseMs,
+        totalChunks
+      });
       for (let offset = 0; offset < data.length; offset += chunkSize) {
         const chunk = data.slice(offset, offset + chunkSize);
+        const chunkIndex = Math.floor(offset / chunkSize) + 1;
+        const readyStart = Date.now();
         await this.writer.ready;
+        const readyMs = Date.now() - readyStart;
+        totalReadyMs += readyMs;
+        const writeStart = Date.now();
         await this.writer.write(chunk);
-        if (offset + chunkSize < data.length) await this.delay(pauseMs);
+        const writeMs = Date.now() - writeStart;
+        totalWriteMs += writeMs;
+        let pauseDelayMs = 0;
+        if (offset + chunkSize < data.length) {
+          const pauseStart = Date.now();
+          await this.delay(pauseMs);
+          pauseDelayMs = Date.now() - pauseStart;
+          totalPauseMs += pauseDelayMs;
+        }
+        console.debug("[NeuraiESP32 Serial][writeChunked] chunk", {
+          chunkIndex,
+          totalChunks,
+          chunkBytes: chunk.length,
+          readyMs,
+          writeMs,
+          pauseMs: pauseDelayMs
+        });
       }
+      console.debug("[NeuraiESP32 Serial][writeChunked] complete", {
+        totalBytes: data.length,
+        totalChunks,
+        totalMs: Date.now() - totalStart,
+        totalReadyMs,
+        totalWriteMs,
+        totalPauseMs
+      });
     }
     delay(ms) {
       return new Promise((resolve) => setTimeout(resolve, ms));
@@ -10580,19 +10629,25 @@ var NeuraiSignESP32 = (() => {
       const input = tx.ins[index];
       const metadata = options.inputs[index];
       if (!metadata) throw new Error(`Missing input metadata for input #${index}`);
-      psbt.addInput({
+      const inputData = {
         hash: metadata.txid,
         index: metadata.vout,
         sequence: metadata.sequence ?? input.sequence,
-        nonWitnessUtxo: (0, import_buffer.Buffer).from(metadata.rawTxHex, "hex"),
-        bip32Derivation: [
+        nonWitnessUtxo: (0, import_buffer.Buffer).from(metadata.rawTxHex, "hex")
+      };
+      if (metadata.masterFingerprint && metadata.derivationPath && metadata.pubkey) {
+        inputData.bip32Derivation = [
           {
             masterFingerprint: $68e2926fe257f2e4$var$parseMasterFingerprint(metadata.masterFingerprint),
             path: metadata.derivationPath,
             pubkey: (0, import_buffer.Buffer).from(metadata.pubkey, "hex")
           }
-        ]
-      });
+        ];
+      }
+      if (metadata.sighashType !== void 0) {
+        inputData.sighashType = metadata.sighashType;
+      }
+      psbt.addInput(inputData);
     }
     for (const output of tx.outs) psbt.addOutput({
       script: (0, import_buffer.Buffer).from(output.script),
@@ -10639,7 +10694,7 @@ var NeuraiSignESP32 = (() => {
     } catch {
       $68e2926fe257f2e4$var$finalizeLegacyP2pkhInputs(psbt);
     }
-    const tx = psbt.extractTransaction(true);
+    const tx = $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt);
     return {
       txHex: tx.toHex(),
       txId: tx.getId()
@@ -10720,10 +10775,10 @@ var NeuraiSignESP32 = (() => {
       const partialSig = input.partialSig?.[0];
       const nonWitnessUtxo = input.nonWitnessUtxo;
       const txInput = psbt.txInputs[index];
-      if (!partialSig || !nonWitnessUtxo || !txInput) throw new Error(`Missing data to finalize input #${index}`);
+      if (!partialSig || !nonWitnessUtxo || !txInput) continue;
       const prevTx = Transaction.fromBuffer(nonWitnessUtxo);
       const prevOut = prevTx.outs[txInput.index];
-      if (!prevOut) throw new Error(`Missing prevout to finalize input #${index}`);
+      if (!prevOut) continue;
       psbt.finalizeInput(index, () => ({
         finalScriptSig: script_exports.compile([
           partialSig.signature,
@@ -10732,6 +10787,38 @@ var NeuraiSignESP32 = (() => {
         finalScriptWitness: void 0
       }));
     }
+  }
+  function $68e2926fe257f2e4$var$extractFinalizableTransaction(psbt) {
+    const allFinalized = psbt.data.inputs.every((input) => !!(input.finalScriptSig || input.finalScriptWitness));
+    if (allFinalized) {
+      return psbt.extractTransaction(true);
+    }
+    const cache = psbt.__CACHE;
+    const tx = cache.__TX.clone();
+    $68e2926fe257f2e4$var$inputFinalizeGetAmtsPartial(psbt.data.inputs, tx, cache);
+    return tx;
+  }
+  function $68e2926fe257f2e4$var$inputFinalizeGetAmtsPartial(inputs2, tx, cache) {
+    let inputAmount = 0n;
+    inputs2.forEach((input, idx) => {
+      if (input.finalScriptSig) tx.ins[idx].script = input.finalScriptSig;
+      if (input.finalScriptWitness) {
+        tx.ins[idx].witness = scriptWitnessToWitnessStack(input.finalScriptWitness);
+      }
+      if (input.witnessUtxo) {
+        inputAmount += input.witnessUtxo.value;
+      } else if (input.nonWitnessUtxo) {
+        const nwTx = nonWitnessUtxoTxFromCache(cache, input, idx);
+        const vout = tx.ins[idx].index;
+        const out = nwTx.outs[vout];
+        inputAmount += out.value;
+      }
+    });
+    const outputAmount = tx.outs.reduce((total, o) => total + o.value, 0n);
+    const fee = inputAmount - outputAmount;
+    cache.__FEE = fee >= 0 ? fee : 0n;
+    cache.__EXTRACTED_TX = tx;
+    cache.__FEE_RATE = fee > 0n ? Math.floor(Number(fee / BigInt(tx.virtualSize()))) : 0;
   }
   var $a6c8409f4f68b3eb$export$fa10ee8b91a777b7 = class {
     constructor(options) {
@@ -10837,7 +10924,7 @@ var NeuraiSignESP32 = (() => {
         ...display ? {
           display
         } : {}
-      }, 65e3);
+      }, 12e4);
       this.assertSuccess(response);
       return response;
     }

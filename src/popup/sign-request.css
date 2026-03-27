@@ -79,6 +79,7 @@ body {
   font-size: 12px;
   text-align: right;
   overflow-wrap: anywhere;
+  color: var(--text);
 }
 
 h2 {
@@ -122,6 +123,10 @@ input {
   color: #fca5a5;
 }
 
+:root[data-theme="light"] .error {
+  color: #b91c1c;
+}
+
 .actions {
   display: flex;
   gap: 8px;
@@ -147,8 +152,81 @@ input {
   color: #fff;
 }
 
+.info-note p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
 .hidden {
   display: none !important;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 6, 23, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 1000;
+}
+
+.modal-card {
+  width: min(440px, 100%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+}
+
+.modal-copy {
+  margin: 8px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.port-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.port-option {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--pre-bg);
+  cursor: pointer;
+}
+
+.port-option input {
+  width: auto;
+  margin: 0;
+}
+
+.port-option-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.port-option-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.port-option-meta {
+  font-size: 12px;
+  color: var(--muted);
+  padding-left: 26px;
 }
 
 /* === Sign type header === */

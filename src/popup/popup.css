@@ -552,84 +552,39 @@ body {
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 14px;
   border-radius: var(--radius-sm);
-}
-
-.status-bar .account-chip {
-  margin-left: auto;
 }
 
 .hw-icon {
   display: flex;
   align-items: center;
-  color: var(--text-muted);
-  opacity: 0.7;
+  justify-content: center;
+  min-width: 16px;
+  color: var(--text-primary);
+  transition: color 0.2s;
 }
 
 .hw-icon.hidden {
-  display: none;
+  visibility: hidden;
 }
 
-.status-indicator {
-  display: flex;
-  align-items: center;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
-}
-
-.status-dot.disconnected {
-  background: var(--danger);
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
-  animation: none;
-}
-
-.status-dot.loading {
-  background: var(--warning);
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
-  animation: pulse 1s ease-in-out infinite;
-}
-
-.btn-hw-reconnect {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--danger);
-  background: transparent;
-  color: var(--danger);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.btn-hw-reconnect:hover {
-  background: var(--danger);
-  color: #fff;
-}
-
-.btn-hw-reconnect.hidden {
-  display: none;
-}
-
-.account-chip {
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: var(--text-secondary);
-  font-size: 10px;
+.status-account-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
+}
+
+.status-last-updated {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* === Address === */

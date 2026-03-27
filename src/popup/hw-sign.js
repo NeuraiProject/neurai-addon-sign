@@ -23,17 +23,27 @@
     messageBlock: document.getElementById('messageBlock'),
     messageCardTitle: document.getElementById('messageCardTitle'),
     messageValue: document.getElementById('messageValue'),
+    txDetailsBlock: document.getElementById('txDetailsBlock'),
+    txExpandBtn: document.getElementById('txExpandBtn'),
+    txExpandChevron: document.getElementById('txExpandChevron'),
+    txDetails: document.getElementById('txDetails'),
+    txHexValue: document.getElementById('txHexValue'),
+    utxosSection: document.getElementById('utxosSection'),
+    utxosList: document.getElementById('utxosList'),
     hwStatus: document.getElementById('hwStatus'),
     hwStatusText: document.getElementById('hwStatusText'),
     errorText: document.getElementById('errorText'),
     cancelBtn: document.getElementById('cancelBtn'),
+    openExpandedBtn: document.getElementById('openExpandedBtn'),
     connectSignBtn: document.getElementById('connectSignBtn')
   };
 
   let request = null;
   let signing = false;
-
-  // ── Theme ────────────────────────────────────────────────────────────────
+  let keepAlivePort = null;
+  let keepAliveTimer = null;
+  let connectionPollTimer = null;
+  let isHwConnected = false;
 
   function applyThemeFromSettings(settings) {
     if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
@@ -56,8 +66,6 @@
     });
   }
 
-  // ── Status display ─────────────────────────────────────────────────────
-
   function setStatus(type, text) {
     elements.hwStatus.className = 'hw-status hw-status--' + type;
     const iconHtml = type === 'connecting' || type === 'confirm'
@@ -70,10 +78,9 @@
     elements.hwStatus.innerHTML = iconHtml + '<span>' + text + '</span>';
   }
 
-  // ── Init ────────────────────────────────────────────────────────────────
-
   async function init() {
     await loadTheme();
+    startKeepAlive();
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local' || !changes || !changes[C.SETTINGS_KEY]) return;
@@ -86,20 +93,6 @@
       return;
     }
 
-    // Check Web Serial support
-    if (typeof NeuraiSignESP32 === 'undefined' || !NeuraiSignESP32.NeuraiESP32) {
-      elements.errorText.textContent = 'Hardware wallet library not available.';
-      elements.connectSignBtn.disabled = true;
-      return;
-    }
-
-    if (!NeuraiSignESP32.NeuraiESP32.isSupported()) {
-      elements.errorText.textContent = 'Web Serial is not supported in this browser. Use Chrome, Edge, or Opera.';
-      elements.connectSignBtn.disabled = true;
-      return;
-    }
-
-    // Fetch the signing request payload from background
     const response = await chrome.runtime.sendMessage({
       type: MSG.HW_GET_SIGN_REQUEST,
       requestId: requestId
@@ -115,7 +108,11 @@
     populateUI(request);
 
     elements.cancelBtn.addEventListener('click', handleCancel);
-    elements.connectSignBtn.addEventListener('click', handleConnectAndSign);
+    elements.openExpandedBtn.addEventListener('click', handleOpenExpanded);
+    elements.connectSignBtn.addEventListener('click', handleSignRequest);
+
+    await refreshConnectionState();
+    startConnectionPolling();
   }
 
   function populateUI(req) {
@@ -132,6 +129,32 @@
       elements.sighashValue.textContent = req.sighashType || 'ALL';
       elements.inputsRow.classList.remove('hidden');
       elements.inputsValue.textContent = (req.utxos || []).length || '--';
+
+      elements.txHexValue.textContent = req.txHex || '(not available)';
+      if (Array.isArray(req.utxos) && req.utxos.length > 0) {
+        elements.utxosList.innerHTML = '';
+        req.utxos.forEach((utxo, i) => {
+          const row = document.createElement('div');
+          row.className = 'utxo-row';
+          row.innerHTML = `
+            <div class="utxo-index">#${i + 1}</div>
+            <div class="utxo-fields">
+              <div class="utxo-field"><span>txid</span><code>${utxo.txid || '--'}</code></div>
+              <div class="utxo-field"><span>vout</span><code>${utxo.vout ?? '--'}</code></div>
+              ${utxo.amount != null ? `<div class="utxo-field"><span>amount</span><code>${utxo.amount} XNA</code></div>` : ''}
+            </div>`;
+          elements.utxosList.appendChild(row);
+        });
+        elements.utxosSection.classList.remove('hidden');
+      } else {
+        elements.utxosSection.classList.add('hidden');
+      }
+      elements.txDetailsBlock.classList.remove('hidden');
+      elements.txExpandBtn.addEventListener('click', () => {
+        const isHidden = elements.txDetails.classList.toggle('hidden');
+        elements.txExpandChevron.style.transform = isHidden ? '' : 'rotate(180deg)';
+        elements.txExpandBtn.childNodes[1].textContent = isHidden ? ' Show transaction details' : ' Hide transaction details';
+      });
     } else {
       elements.pageTitle.textContent = 'HW Message Signing';
       elements.signTypeBadge.textContent = 'Message';
@@ -146,166 +169,82 @@
     elements.networkValue.textContent = req.network || '--';
   }
 
-  // ── Cancel ──────────────────────────────────────────────────────────────
+  async function refreshConnectionState() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: MSG.HW_CONNECTION_STATUS });
+      isHwConnected = !!(response && response.connected);
+    } catch (_) {
+      isHwConnected = false;
+    }
+
+    elements.openExpandedBtn.classList.toggle('hidden', isHwConnected);
+    elements.connectSignBtn.classList.toggle('hidden', !isHwConnected);
+    elements.connectSignBtn.disabled = !isHwConnected || signing;
+
+    if (isHwConnected) {
+      setStatus('confirm', 'Hardware wallet connected. You can sign this request now.');
+      elements.errorText.textContent = '';
+    } else {
+      setStatus('waiting', 'Hardware wallet is not connected in the addon.');
+      elements.errorText.textContent = 'You must connect your hardware wallet first from the full wallet view.';
+    }
+  }
+
+  function startConnectionPolling() {
+    stopConnectionPolling();
+    connectionPollTimer = setInterval(refreshConnectionState, 2000);
+  }
+
+  function stopConnectionPolling() {
+    if (connectionPollTimer) {
+      clearInterval(connectionPollTimer);
+      connectionPollTimer = null;
+    }
+  }
 
   async function handleCancel() {
+    stopConnectionPolling();
+    stopKeepAlive();
     await sendResult({ error: 'User cancelled hardware signing' });
     window.close();
   }
 
-  // ── Connect & Sign ─────────────────────────────────────────────────────
+  function handleOpenExpanded() {
+    chrome.tabs.create({ url: chrome.runtime.getURL('popup/expanded.html') });
+  }
 
-  async function handleConnectAndSign() {
-    if (signing) return;
+  async function handleSignRequest() {
+    if (signing || !isHwConnected) return;
     signing = true;
     elements.connectSignBtn.disabled = true;
     elements.errorText.textContent = '';
-
-    // Use empty filters so the browser serial picker shows all devices
-    // (Chrome extension context may restrict filtered requestPort)
-    const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
+    setStatus('connecting', 'Sending request to the connected hardware wallet...');
 
     try {
-      // Step 1: Connect
-      setStatus('connecting', 'Select your ESP32 device in the browser dialog...');
-      await device.connect();
+      const response = await chrome.runtime.sendMessage({
+        type: MSG.HW_EXECUTE_SIGN_REQUEST,
+        requestId: requestId
+      });
 
-      setStatus('connecting', 'Reading device info...');
-      const info = await device.getInfo();
-
-      // Validate network
-      const expectedNetwork = request.network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-      if (info.network && info.network !== expectedNetwork) {
-        throw new Error('Device is configured for ' + info.network + ' but the addon expects ' + expectedNetwork);
+      if (!response || response.error) {
+        signing = false;
+        await refreshConnectionState();
+        setStatus('error', 'Unable to sign with the connected device');
+        elements.errorText.textContent = response?.error || 'Unknown hardware signing error.';
+        return;
       }
 
-      // Step 2: Sign
-      if (request.type === 'message') {
-        await signMessage(device, info);
-      } else if (request.type === 'raw_tx') {
-        await signRawTransaction(device, info);
-      } else {
-        throw new Error('Unknown signing request type: ' + request.type);
-      }
+      setStatus('success', 'Request signed successfully');
+      stopConnectionPolling();
+      stopKeepAlive();
+      setTimeout(() => window.close(), 500);
     } catch (err) {
-      if (err && (err.name === 'NotFoundError' || String(err.message || '').includes('No port selected'))) {
-        setStatus('error', 'Device selection cancelled');
-        elements.errorText.textContent = 'No device was selected.';
-      } else {
-        setStatus('error', 'Signing failed');
-        elements.errorText.textContent = err.message || 'Unknown error';
-      }
       signing = false;
-      elements.connectSignBtn.disabled = false;
-    } finally {
-      try { await device.disconnect(); } catch (_) { }
+      await refreshConnectionState();
+      setStatus('error', 'Unable to sign with the connected device');
+      elements.errorText.textContent = err.message || 'Unknown hardware signing error.';
     }
   }
-
-  // ── Message signing ────────────────────────────────────────────────────
-
-  async function signMessage(device, info) {
-    setStatus('confirm', 'Confirm message signing on your device...');
-    const result = await device.signMessage(request.message);
-
-    setStatus('success', 'Message signed successfully');
-    await sendResult({
-      type: 'message',
-      signature: result.signature,
-      address: result.address
-    });
-
-    setTimeout(() => window.close(), 800);
-  }
-
-  // ── Raw transaction signing ────────────────────────────────────────────
-
-  async function signRawTransaction(device, info) {
-    setStatus('connecting', 'Preparing transaction...');
-
-    // We need to get the device's address/pubkey info for PSBT construction
-    setStatus('confirm', 'Confirm address export on your device...');
-    const addrResp = await device.getAddress();
-
-    setStatus('connecting', 'Fetching input transaction data...');
-
-    // Fetch full raw transactions for each UTXO input (required for nonWitnessUtxo)
-    const utxos = request.utxos || [];
-    const enrichedUtxos = await enrichUtxosWithRawTx(utxos, request.network);
-
-    setStatus('connecting', 'Building PSBT...');
-
-    // Build PSBT from the raw transaction hex
-    const networkType = request.network === 'xna-test' ? 'xna-test' : 'xna';
-    const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
-      network: networkType,
-      rawTransactionHex: request.txHex,
-      utxos: enrichedUtxos,
-      pubkey: addrResp.pubkey,
-      masterFingerprint: info.master_fingerprint,
-      derivationPath: addrResp.path
-    });
-
-    // Send to device for signing
-    setStatus('confirm', 'Review and confirm the transaction on your device...');
-    const signResult = await device.signPsbt(psbtBase64);
-
-    // Finalize
-    setStatus('connecting', 'Finalizing transaction...');
-    const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
-
-    setStatus('success', 'Transaction signed successfully');
-    await sendResult({
-      type: 'raw_tx',
-      signedTxHex: finalized.txHex,
-      complete: true
-    });
-
-    setTimeout(() => window.close(), 800);
-  }
-
-  // ── Fetch raw transactions for UTXOs via RPC ───────────────────────────
-
-  async function enrichUtxosWithRawTx(utxos, network) {
-    const rpcUrl = network === 'xna-test'
-      ? (C.RPC_URL_TESTNET || 'https://rpc-testnet.neurai.org/rpc')
-      : (C.RPC_URL || 'https://rpc-main.neurai.org/rpc');
-
-    // Collect unique txids
-    const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
-
-    // Fetch raw tx hex for each txid
-    const rawTxMap = {};
-    for (const txid of txids) {
-      try {
-        const response = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '1.0',
-            id: 'hw-sign-rawtx',
-            method: 'getrawtransaction',
-            params: [txid, 0]
-          })
-        });
-        const data = await response.json();
-        if (data.result) {
-          rawTxMap[txid] = data.result;
-        }
-      } catch (err) {
-        console.warn('Failed to fetch raw tx for ' + txid + ':', err);
-      }
-    }
-
-    return utxos.map(u => ({
-      txid: u.txid,
-      vout: u.vout,
-      value: Math.round((u.amount || 0) * 1e8),
-      rawTxHex: rawTxMap[u.txid] || null
-    }));
-  }
-
-  // ── Send result back to background ─────────────────────────────────────
 
   async function sendResult(result) {
     await chrome.runtime.sendMessage({
@@ -315,7 +254,26 @@
     });
   }
 
-  // ── Boot ───────────────────────────────────────────────────────────────
+  function startKeepAlive() {
+    if (!chrome.runtime || typeof chrome.runtime.connect !== 'function') return;
+    keepAlivePort = chrome.runtime.connect({ name: 'hw-sign-keepalive' });
+    keepAliveTimer = setInterval(function () {
+      try {
+        keepAlivePort.postMessage({ type: 'ping', at: Date.now() });
+      } catch (_) { }
+    }, 20000);
+  }
+
+  function stopKeepAlive() {
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+    }
+    if (keepAlivePort) {
+      try { keepAlivePort.disconnect(); } catch (_) { }
+      keepAlivePort = null;
+    }
+  }
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);

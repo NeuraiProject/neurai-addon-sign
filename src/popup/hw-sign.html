@@ -25,6 +25,12 @@
     .hw-status--success { color: #34d399; }
     .hw-status--error { color: #fca5a5; }
 
+    :root[data-theme="light"] .hw-status--waiting { color: #b45309; }
+    :root[data-theme="light"] .hw-status--connecting { color: #1d4ed8; }
+    :root[data-theme="light"] .hw-status--confirm { color: #7c3aed; }
+    :root[data-theme="light"] .hw-status--success { color: #059669; }
+    :root[data-theme="light"] .hw-status--error { color: #b91c1c; }
+
     .hw-spinner {
       width: 16px;
       height: 16px;
@@ -93,6 +99,23 @@
       <pre id="messageValue">--</pre>
     </section>
 
+    <section class="card hidden" id="txDetailsBlock">
+      <button class="tx-expand-btn" id="txExpandBtn" type="button">
+        <svg id="txExpandChevron" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 8.5L1.5 4h9L6 8.5z"/></svg>
+        Show transaction details
+      </button>
+      <div class="tx-details hidden" id="txDetails">
+        <div class="tx-details-section">
+          <div class="tx-details-label">Raw transaction hex</div>
+          <pre class="tx-hex" id="txHexValue"></pre>
+        </div>
+        <div class="tx-details-section hidden" id="utxosSection">
+          <div class="tx-details-label">Inputs (UTXOs)</div>
+          <div id="utxosList"></div>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
       <div id="hwStatus" class="hw-status hw-status--waiting">
         <span class="hw-icon">
@@ -102,11 +125,16 @@
       </div>
     </section>
 
+    <section class="card info-note">
+      <p>Keep full wallet view open while hardware wallet is connected.</p>
+    </section>
+
     <p class="error" id="errorText"></p>
 
     <div class="actions">
       <button id="cancelBtn" class="btn btn-secondary" type="button">Cancel</button>
-      <button id="connectSignBtn" class="btn btn-primary" type="button">Connect &amp; Sign</button>
+      <button id="openExpandedBtn" class="btn btn-primary hidden" type="button">Reconnect HW to Sign</button>
+      <button id="connectSignBtn" class="btn btn-primary hidden" type="button">Sign request</button>
     </div>
   </main>
 

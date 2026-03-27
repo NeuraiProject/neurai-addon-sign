@@ -56,7 +56,7 @@
     switchAccountBtn: document.getElementById('switchAccountBtn'),
     newAccountBtn: document.getElementById('newAccountBtn'),
     currentAccountDisplay: document.getElementById('currentAccountDisplay'),
-    hwReconnectBtn: document.getElementById('hwReconnectBtn'),
+    lastUpdatedDisplay: document.getElementById('lastUpdatedDisplay'),
     hwIcon: document.getElementById('hwIcon'),
     addressDisplay: document.getElementById('addressDisplay'),
     copyAddressBtn: document.getElementById('copyAddressBtn'),
@@ -69,7 +69,6 @@
     assetsList: document.getElementById('assetsList'),
     assetsEmpty: document.getElementById('assetsEmpty'),
     refreshBtn: document.getElementById('refreshBtn'),
-    statusIndicator: document.getElementById('statusIndicator'),
     changeWalletBtn: document.getElementById('changeWalletBtn'),
     toggleHistoryBtn: document.getElementById('toggleHistoryBtn'),
     toggleHistoryBtnText: document.getElementById('toggleHistoryBtnText'),
@@ -162,7 +161,8 @@
       const meta = document.createElement('div');
       meta.className = 'history-item-meta';
       if (isRawTx) {
-        meta.innerHTML = `<span class="history-item-badge history-item-badge--rawtx">RAW TX</span>
+        const rawTxLabel = getRawTxHistoryLabel(item);
+        meta.innerHTML = `<span class="history-item-badge history-item-badge--rawtx">${escapeHtml(rawTxLabel)}</span>
           <span class="history-item-meta-detail">Sighash: <strong>${item.sighashType || 'ALL'}</strong></span>
           <span class="history-item-meta-detail">Inputs: <strong>${item.inputCount ?? '?'}</strong></span>`;
       } else {
@@ -231,6 +231,7 @@
     network: 'xna',
     balance: null,
     pendingBalance: null,
+    lastPortfolioUpdatedAt: 0,
     assets: [],
     pollingInterval: null,
     isConnected: false,
@@ -305,7 +306,6 @@
     });
     elements.backupModal.addEventListener('click', (e) => { if (e.target === elements.backupModal) closeBackupModal(); });
 
-    elements.hwReconnectBtn.addEventListener('click', handleHwReconnect);
     elements.copyAddressBtn.addEventListener('click', handleCopyAddress);
     elements.refreshBtn.addEventListener('click', handleRefresh);
     elements.balanceTabGeneral.addEventListener('click', () => switchBalanceTab('general'));
@@ -462,10 +462,12 @@
 
         const assetBalance = await NeuraiReader.getAssetBalance(state.address);
         state.assets = normalizeAssetsFromRpc(assetBalance);
+        state.lastPortfolioUpdatedAt = Date.now();
 
         renderAmount(elements.xnaBalance, state.balance, '0');
         renderAmount(elements.pendingBalance, state.pendingBalance, '0');
         renderAssetsList();
+        renderLastUpdated();
 
         state.isConnected = true;
         setConnectionStatus(true);
@@ -512,14 +514,14 @@
     if (isTestnet) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     applyReaderRpcForCurrentContext();
 
-    // Show HW icon and start monitoring if hardware wallet
+    // Show HW icon only for hardware accounts.
     const isHw = state.walletType === 'hardware';
     elements.hwIcon.classList.toggle('hidden', !isHw);
+    renderLastUpdated();
     if (isHw) {
       startHwStatusMonitor();
     } else {
       stopHwStatusMonitor();
-      elements.hwReconnectBtn.classList.add('hidden');
     }
 
     if (isAddonLocked()) {
@@ -539,10 +541,8 @@
     elements.loadingOverlay.classList.toggle('hidden', !show);
   }
 
-  function setConnectionStatus(connected) {
-    const dot = elements.statusIndicator.querySelector('.status-dot');
-    dot.className = 'status-dot' + (connected ? '' : ' disconnected');
-    dot.title = connected ? 'Connected' : 'Disconnected';
+  function setConnectionStatus() {
+    elements.hwIcon.title = 'Hardware wallet';
   }
 
   function setLoadingStatus(loading) {
@@ -639,6 +639,11 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function getRawTxHistoryLabel(item) {
+    const sighash = String(item?.sighashType || 'ALL').trim().toUpperCase();
+    return sighash === 'SINGLE|ANYONECANPAY' ? 'Offer' : 'Purchase';
   }
 
   // ── Storage ───────────────────────────────────────────────────────────────
@@ -789,6 +794,7 @@
         hardwareDeviceNetwork: entry.hardwareDeviceNetwork || null,
         hardwareFirmwareVersion: entry.hardwareFirmwareVersion || null,
         hardwareDerivationPath: entry.hardwareDerivationPath || null,
+        hardwareMasterFingerprint: entry.hardwareMasterFingerprint || null,
         network: entry.network || 'xna',
         history: Array.isArray(entry.history) ? entry.history : []
       };
@@ -944,6 +950,7 @@
           hardwareDeviceNetwork: entry.hardwareDeviceNetwork || null,
           hardwareFirmwareVersion: entry.hardwareFirmwareVersion || null,
           hardwareDerivationPath: entry.hardwareDerivationPath || null,
+          hardwareMasterFingerprint: entry.hardwareMasterFingerprint || null,
           network: entry.network || 'xna',
           history: Array.isArray(entry.history) ? entry.history : []
         };
@@ -998,6 +1005,7 @@
       hardwareDeviceNetwork: walletData.hardwareDeviceNetwork || previous.hardwareDeviceNetwork || null,
       hardwareFirmwareVersion: walletData.hardwareFirmwareVersion || previous.hardwareFirmwareVersion || null,
       hardwareDerivationPath: walletData.hardwareDerivationPath || previous.hardwareDerivationPath || null,
+      hardwareMasterFingerprint: walletData.hardwareMasterFingerprint || previous.hardwareMasterFingerprint || null,
       network: state.network,
       history: Array.isArray(walletData.history) ? walletData.history : (Array.isArray(previous.history) ? previous.history : [])
     };
@@ -1006,6 +1014,7 @@
   function clearActiveWalletData() {
     stopPolling();
     state.privateKey = state.mnemonic = state.passphrase = state.address = state.publicKey = state.balance = state.pendingBalance = null;
+    state.lastPortfolioUpdatedAt = 0;
     state.walletType = 'software';
     state.assets = [];
     renderAssetsList();
@@ -1026,6 +1035,18 @@
     const label = getAccountLabel(state.activeAccountId);
     if (elements.setupAccountLabel) elements.setupAccountLabel.textContent = 'Account: ' + label;
     elements.currentAccountDisplay.textContent = label;
+  }
+
+  function renderLastUpdated() {
+    if (!elements.lastUpdatedDisplay) return;
+    elements.lastUpdatedDisplay.textContent = state.lastPortfolioUpdatedAt
+      ? formatLastUpdated(state.lastPortfolioUpdatedAt)
+      : 'Never updated';
+  }
+
+  function formatLastUpdated(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleString();
   }
 
   // ── Account modal ─────────────────────────────────────────────────────────
@@ -1461,24 +1482,10 @@
 
   function updateHwConnectionUI() {
     if (state.walletType !== 'hardware') {
-      elements.hwReconnectBtn.classList.add('hidden');
       return;
     }
 
-    const isConnected = !!(hwDevice && hwDevice.connected);
-    setConnectionStatus(isConnected);
-
-    if (isConnected) {
-      elements.hwReconnectBtn.classList.add('hidden');
-    } else {
-      elements.hwReconnectBtn.classList.remove('hidden');
-    }
-  }
-
-  function handleHwReconnect() {
-    // The popup loses focus (and closes) when the serial port picker opens,
-    // so we redirect to the expanded tab where reconnection works normally.
-    chrome.tabs.create({ url: chrome.runtime.getURL('popup/expanded.html') });
+    setConnectionStatus();
   }
 
   async function reconnectHwDevice() {
@@ -1580,6 +1587,14 @@
         applyReaderRpcForCurrentContext();
       });
     }
+    if (message.type === 'HW_CONNECTION_STATUS_PAGE') {
+      sendResponse({
+        success: true,
+        connected: !!(hwDevice && hwDevice.connected),
+        source: 'popup'
+      });
+      return true;
+    }
 
     // ── HW signing requests from background ───────────────────────────────
     if (message.type === MSG.HW_SIGN_MESSAGE) {
@@ -1615,37 +1630,123 @@
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
-      // Get device address/pubkey info for PSBT
-      const info = hwDevice.info || await hwDevice.getInfo();
-      const addrResp = await hwDevice.getAddress();
+      const perfLabel = '[HW Sign Perf][popup]';
+      const totalStart = performance.now();
+      const metadata = await ensureHardwareSigningMetadata(message);
+      const publicKey = metadata.publicKey;
+      const derivationPath = metadata.derivationPath;
+      const masterFingerprint = metadata.masterFingerprint;
+
+      if (!publicKey || !derivationPath || !masterFingerprint) {
+        return { error: 'Hardware wallet metadata is incomplete. Reconnect the hardware wallet from the full wallet view.' };
+      }
 
       // Fetch full raw transactions for each UTXO (needed for nonWitnessUtxo)
       const utxos = message.utxos || [];
       const rpcUrl = getRpcUrlForNetwork(state.network);
-      const enrichedUtxos = await fetchRawTxForUtxos(utxos, rpcUrl);
+      const txInputs = parseRawTransactionInputs(message.txHex);
+      const fetchStart = performance.now();
+      const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
+      const fetchMs = Math.round(performance.now() - fetchStart);
 
       // Build PSBT from raw transaction
       const networkType = state.network === 'xna-test' ? 'xna-test' : 'xna';
+      const sighashType = parseSighashType(message.sighashType);
+      const buildStart = performance.now();
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
         network: networkType,
-        rawTransactionHex: message.txHex,
-        utxos: enrichedUtxos,
-        pubkey: addrResp.pubkey,
-        masterFingerprint: info.master_fingerprint,
-        derivationPath: addrResp.path
+        rawUnsignedTransaction: message.txHex,
+        inputs: enrichedUtxos.map((utxo) => {
+          const signerUtxo = utxos.find((candidate) => candidate.txid === utxo.txid && Number(candidate.vout) === Number(utxo.vout));
+          return {
+            txid: utxo.txid,
+            vout: utxo.vout,
+            sequence: utxo.sequence,
+            rawTxHex: utxo.rawTxHex,
+            ...(signerUtxo ? {
+              masterFingerprint,
+              derivationPath,
+              pubkey: publicKey,
+              sighashType
+            } : {})
+          };
+        })
+      });
+      const buildMs = Math.round(performance.now() - buildStart);
+      const psbtBytes = estimateBase64Bytes(psbtBase64);
+      console.info(perfLabel, {
+        stage: 'prepared',
+        txInputs: txInputs.length,
+        signerInputs: utxos.length,
+        fetchRawTxMs: fetchMs,
+        buildPsbtMs: buildMs,
+        psbtBase64Chars: psbtBase64.length,
+        psbtBytes
       });
 
       // Sign on device
+      const signStart = performance.now();
       const signResult = await hwDevice.signPsbt(psbtBase64);
+      const signMs = Math.round(performance.now() - signStart);
+      console.info(perfLabel, {
+        stage: 'device-signed',
+        signPsbtMs: signMs,
+        signedPsbtBase64Chars: signResult?.psbt?.length || 0,
+        signedPsbtBytes: estimateBase64Bytes(signResult?.psbt || '')
+      });
 
       // Finalize
+      const finalizeStart = performance.now();
       const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
+      const finalizeMs = Math.round(performance.now() - finalizeStart);
+      console.info(perfLabel, {
+        stage: 'finalized',
+        finalizeMs,
+        totalMs: Math.round(performance.now() - totalStart),
+        txHexChars: finalized?.txHex?.length || 0
+      });
 
       return { success: true, signedTxHex: finalized.txHex, complete: true };
     } catch (err) {
       updateHwConnectionUI();
       return { error: 'HW sign failed: ' + err.message };
     }
+  }
+
+  async function ensureHardwareSigningMetadata(message) {
+    const activeWallet = getActiveWalletData() || {};
+    let publicKey = message.publicKey || state.publicKey || null;
+    let derivationPath = message.derivationPath || activeWallet.hardwareDerivationPath || null;
+    let masterFingerprint = message.masterFingerprint || activeWallet.hardwareMasterFingerprint || null;
+
+    const needsInfo = !masterFingerprint;
+    const needsAddress = !publicKey || !derivationPath;
+
+    if (needsInfo) {
+      const info = hwDevice.info || await hwDevice.getInfo();
+      masterFingerprint = info?.master_fingerprint || masterFingerprint;
+    }
+    if (needsAddress) {
+      const addrResp = await hwDevice.getAddress();
+      publicKey = addrResp?.pubkey || publicKey;
+      derivationPath = addrResp?.path || derivationPath;
+    }
+
+    if (publicKey && derivationPath && masterFingerprint && (
+      activeWallet.publicKey !== publicKey ||
+      activeWallet.hardwareDerivationPath !== derivationPath ||
+      activeWallet.hardwareMasterFingerprint !== masterFingerprint
+    )) {
+      setActiveWalletData({
+        ...activeWallet,
+        publicKey,
+        hardwareDerivationPath: derivationPath,
+        hardwareMasterFingerprint: masterFingerprint
+      });
+      await saveAccountsData();
+    }
+
+    return { publicKey, derivationPath, masterFingerprint };
   }
 
   async function fetchRawTxForUtxos(utxos, rpcUrl) {
@@ -1664,9 +1765,100 @@
     }
     return utxos.map(u => ({
       txid: u.txid, vout: u.vout,
+      sequence: u.sequence,
       value: Math.round((u.amount || 0) * 1e8),
       rawTxHex: rawTxMap[u.txid] || null
     }));
+  }
+
+  function parseRawTransactionInputs(txHex) {
+    const bytes = hexToBytes(txHex);
+    let offset = 4;
+    const inputVarInt = readVarInt(bytes, offset);
+    offset += inputVarInt.size;
+
+    const inputs = [];
+    for (let i = 0; i < inputVarInt.value; i += 1) {
+      const txidBytes = bytes.slice(offset, offset + 32);
+      offset += 32;
+      const vout = readUInt32LE(bytes, offset);
+      offset += 4;
+      const scriptLen = readVarInt(bytes, offset);
+      offset += scriptLen.size + scriptLen.value;
+      const sequence = readUInt32LE(bytes, offset);
+      offset += 4;
+
+      inputs.push({
+        txid: bytesToHex([...txidBytes].reverse()),
+        vout,
+        sequence
+      });
+    }
+
+    return inputs;
+  }
+
+  function hexToBytes(hex) {
+    const normalized = String(hex || '').trim();
+    if (!normalized || normalized.length % 2 !== 0) {
+      throw new Error('Invalid raw transaction hex');
+    }
+    const bytes = [];
+    for (let i = 0; i < normalized.length; i += 2) {
+      bytes.push(parseInt(normalized.slice(i, i + 2), 16));
+    }
+    return bytes;
+  }
+
+  function bytesToHex(bytes) {
+    return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function readUInt32LE(bytes, offset) {
+    return (
+      bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24)
+    ) >>> 0;
+  }
+
+  function readVarInt(bytes, offset) {
+    const first = bytes[offset];
+    if (first < 0xfd) return { value: first, size: 1 };
+    if (first === 0xfd) {
+      return { value: bytes[offset + 1] | (bytes[offset + 2] << 8), size: 3 };
+    }
+    if (first === 0xfe) {
+      return { value: readUInt32LE(bytes, offset + 1), size: 5 };
+    }
+    throw new Error('Unsupported varint in raw transaction');
+  }
+
+  function parseSighashType(sighashType) {
+    const normalized = String(sighashType || 'ALL')
+      .toUpperCase()
+      .split('|')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    let value = 0;
+    normalized.forEach((part) => {
+      if (part === 'ALL') value |= 0x01;
+      else if (part === 'NONE') value |= 0x02;
+      else if (part === 'SINGLE') value |= 0x03;
+      else if (part === 'ANYONECANPAY') value |= 0x80;
+      else throw new Error('Unsupported sighash type: ' + sighashType);
+    });
+
+    return value || 0x01;
+  }
+
+  function estimateBase64Bytes(base64) {
+    const normalized = String(base64 || '');
+    if (!normalized) return 0;
+    const padding = normalized.endsWith('==') ? 2 : (normalized.endsWith('=') ? 1 : 0);
+    return Math.floor((normalized.length * 3) / 4) - padding;
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {

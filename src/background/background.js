@@ -24,6 +24,8 @@ let walletData = null;
 let walletSettings = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
 let sessionPinCache = '';
 const pendingSignRequests = new Map();
+const pendingHwSignRequests = new Map();
+const keepAlivePorts = new Set();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -181,6 +183,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Keep channel open for async response
 });
 
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'hw-sign-keepalive') return;
+  keepAlivePorts.add(port);
+  port.onDisconnect.addListener(() => {
+    keepAlivePorts.delete(port);
+  });
+  port.onMessage.addListener(() => {
+    // Intentionally empty. Receiving messages on this port helps keep the
+    // service worker alive while the HW signing window is open.
+  });
+});
+
 async function handleMessage(message, sender) {
   const { MSG } = NEURAI_CONSTANTS;
 
@@ -219,8 +233,23 @@ async function handleMessage(message, sender) {
       return { success: true, request: pending.payload, pinRequired: !!walletSettings.pinHash };
     }
 
+    case MSG.HW_GET_SIGN_REQUEST: {
+      const pending = pendingHwSignRequests.get(message.requestId);
+      if (!pending) return { error: 'Hardware sign request not found or expired' };
+      return { success: true, request: pending.payload };
+    }
+
+    case MSG.HW_CONNECTION_STATUS:
+      return queryHardwareConnectionStatus();
+
     case MSG.SIGN_REQUEST_DECISION:
       return resolveSignRequestDecision(message);
+
+    case MSG.HW_SIGN_RESULT:
+      return resolveHwSignResult(message);
+
+    case MSG.HW_EXECUTE_SIGN_REQUEST:
+      return executePendingHwSignRequest(message.requestId);
 
     case MSG.VERIFY_OWNERSHIP:
       return verifyOwnership(message.address, message.message, message.signature);
@@ -494,8 +523,33 @@ function finalizeSignRequest(requestId, result) {
 // ── Hardware wallet signing coordination ──────────────────────────────────
 
 async function requestHardwareSignature(payload) {
-  // Send signing request to the open popup/expanded that holds the serial connection.
-  // chrome.runtime.sendMessage reaches all extension pages (popup, expanded, etc.)
+  const requestId = 'hw_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const approvalUrl = chrome.runtime.getURL('popup/hw-sign.html') +
+    '?requestId=' + encodeURIComponent(requestId);
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      pendingHwSignRequests.delete(requestId);
+      resolve({ error: 'Hardware signing request timed out' });
+    }, 180000);
+
+    pendingHwSignRequests.set(requestId, {
+      payload,
+      resolve,
+      timeout,
+      windowId: null,
+      settling: false,
+      lastError: 'Hardware wallet is not connected'
+    });
+
+    chrome.windows.create({ url: approvalUrl, type: 'popup', width: 460, height: 720 }, (win) => {
+      const pending = pendingHwSignRequests.get(requestId);
+      if (pending) pending.windowId = win?.id || null;
+    });
+  });
+}
+
+async function executeHardwareSignature(payload) {
   const msgType = payload.type === 'message'
     ? NEURAI_CONSTANTS.MSG.HW_SIGN_MESSAGE
     : NEURAI_CONSTANTS.MSG.HW_SIGN_RAW_TX;
@@ -508,19 +562,45 @@ async function requestHardwareSignature(payload) {
       utxos: payload.utxos,
       sighashType: payload.sighashType,
       address: payload.address,
+      publicKey: payload.publicKey,
+      masterFingerprint: payload.masterFingerprint,
+      derivationPath: payload.derivationPath,
       network: payload.network
     });
 
     if (!result || result.error) {
-      return { error: result?.error || 'No response from addon — is the popup open with HW wallet connected?' };
+      return { error: result?.error || 'Hardware wallet is not connected. Open the full wallet view and reconnect your device.' };
     }
 
-    // Save to history
-    saveHwSignHistory(result, payload);
     return result;
-  } catch (err) {
-    return { error: 'Hardware wallet is not connected. Open the Neurai Sign addon and connect your device first.' };
+  } catch (_) {
+    return { error: 'Hardware wallet is not connected. Open the full wallet view and reconnect your device.' };
   }
+}
+
+async function queryHardwareConnectionStatus() {
+  try {
+    const result = await chrome.runtime.sendMessage({ type: 'HW_CONNECTION_STATUS_PAGE' });
+    if (result && typeof result.connected === 'boolean') return result;
+  } catch (_) { }
+  return { success: true, connected: false };
+}
+
+async function executePendingHwSignRequest(requestId) {
+  const pending = pendingHwSignRequests.get(requestId);
+  if (!pending) return { error: 'Hardware sign request not found or expired' };
+
+  const result = await executeHardwareSignature(pending.payload);
+  if (!result || result.error) {
+    pending.lastError = result?.error || 'Unable to sign with the connected hardware wallet.';
+    return { error: pending.lastError };
+  }
+
+  finalizeHwSignRequest(requestId, result);
+  saveHwSignHistory(result, pending.payload).catch((err) => {
+    console.error('Failed to save HW sign history:', err);
+  });
+  return { success: true };
 }
 
 async function saveHwSignHistory(result, payload) {
@@ -543,6 +623,41 @@ async function saveHwSignHistory(result, payload) {
   } catch (err) {
     console.error('Failed to save HW sign history:', err);
   }
+}
+
+async function resolveHwSignResult(message) {
+  const pending = pendingHwSignRequests.get(message.requestId);
+  if (!pending) return { error: 'Hardware sign request not found or expired' };
+  pending.settling = true;
+
+  const result = message.error
+    ? { error: message.error }
+    : {
+        success: true,
+        signature: message.signature,
+        address: message.address,
+        signedTxHex: message.signedTxHex,
+        complete: message.complete
+      };
+
+  finalizeHwSignRequest(message.requestId, result);
+
+  if (!message.error) {
+    saveHwSignHistory(result, pending.payload).catch((err) => {
+      console.error('Failed to save HW sign history:', err);
+    });
+  }
+
+  return { success: true };
+}
+
+function finalizeHwSignRequest(requestId, result) {
+  const pending = pendingHwSignRequests.get(requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  pendingHwSignRequests.delete(requestId);
+  if (pending.windowId) chrome.windows.remove(pending.windowId).catch(() => { });
+  pending.resolve(result);
 }
 
 // ── Verification ──────────────────────────────────────────────────────────────
@@ -597,6 +712,13 @@ chrome.windows.onRemoved.addListener((windowId) => {
   for (const [requestId, pending] of pendingSignRequests.entries()) {
     if (pending.windowId === windowId) {
       finalizeSignRequest(requestId, { approved: false, error: 'User closed signature request' });
+      break;
+    }
+  }
+  for (const [requestId, pending] of pendingHwSignRequests.entries()) {
+    if (pending.windowId === windowId) {
+      if (pending.settling) continue;
+      finalizeHwSignRequest(requestId, { error: 'User closed hardware signing window' });
       break;
     }
   }

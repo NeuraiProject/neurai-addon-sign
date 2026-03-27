@@ -9,7 +9,7 @@
   var _requestId = 0;
   var _pending = {};
 
-  function _request(action, data) {
+  function _request(action, data, timeoutMs) {
     return new Promise(function(resolve, reject) {
       var id = 'nw_' + (++_requestId) + '_' + Math.random().toString(36).substr(2, 6);
       _pending[id] = { resolve: resolve, reject: reject };
@@ -18,13 +18,15 @@
         detail: { requestId: id, action: action, data: data || {} }
       }));
 
-      // Timeout after 30 seconds
+      // Default timeout is short for read-only actions, but signing flows
+      // can legitimately take much longer because they may require popup
+      // approval, device selection and physical confirmation on the HW.
       setTimeout(function() {
         if (_pending[id]) {
           delete _pending[id];
           reject(new Error('Request timed out'));
         }
-      }, 30000);
+      }, timeoutMs || 30000);
     });
   }
 
@@ -63,7 +65,7 @@
       if (!message || typeof message !== 'string') {
         return Promise.reject(new Error('Message must be a non-empty string'));
       }
-      return _request('signMessage', { message: message });
+      return _request('signMessage', { message: message }, 180000);
     },
 
     verifyMessage: function(address, message, signature) {
@@ -81,7 +83,7 @@
       if (!txHex || typeof txHex !== 'string') {
         return Promise.reject(new Error('txHex must be a non-empty string'));
       }
-      return _request('signRawTransaction', { txHex: txHex, utxos: utxos || [], sighashType: sighashType || 'ALL' });
+      return _request('signRawTransaction', { txHex: txHex, utxos: utxos || [], sighashType: sighashType || 'ALL' }, 180000);
     },
 
     getInfo: function() {

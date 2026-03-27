@@ -10,33 +10,53 @@
 </head>
 
 <body>
-  <main class="layout">
-    <header class="page-header card">
-      <div>
-        <h1>Neurai Sign</h1>
-        <p id="headerSubtitle">Full tab view</p>
+  <main class="app-shell">
+    <header class="topbar card">
+      <div class="topbar-brand">
+        <div class="brand-lockup">
+          <img class="brand-icon" src="../icons/icon48.png" alt="Neurai icon" width="36" height="36">
+          <div>
+            <p class="eyebrow">Wallet dashboard</p>
+            <h1>Neurai Sign</h1>
+          </div>
+        </div>
+        <div id="headerSubtitle" class="topbar-subtitle topbar-device-indicator hidden" aria-label="Hardware wallet account">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M14 3H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm-.5 8.5h-11v-7h11v7zM4 7h2v2H4V7z" />
+          </svg>
+        </div>
       </div>
-      <div class="header-actions">
+      <div class="topbar-actions">
+        <div class="network-pill">
+          <span class="network-pill-dot"></span>
+          <span id="networkValue">--</span>
+        </div>
         <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
       </div>
     </header>
 
-    <!-- ── Mnemonic backup section ────────────────────────────────────────── -->
     <section id="mnemonicSection" class="card mnemonic-card hidden">
-      <h2>Back Up Your Recovery Phrase</h2>
-      <p class="setup-subtitle">Write these words in order and store them somewhere safe.
-        They are the only way to recover your wallet if you lose access.</p>
-      <div id="mnemonicWords" class="mnemonic-grid"></div>
-
-      <div class="form-group hidden" id="mnemonicPassphraseDisplay" style="margin-top: 12px; margin-bottom: 0;">
-        <label>Passphrase</label>
-        <div class="account-current" id="mnemonicPassphraseText" style="word-break: break-all;"></div>
+      <div class="section-intro">
+        <p class="eyebrow eyebrow-warning">Critical backup</p>
+        <h2>Back Up Your Recovery Phrase</h2>
+        <p class="setup-subtitle">
+          Write these words in order and store them somewhere safe. They are the only way to recover your wallet if you
+          lose access.
+        </p>
       </div>
 
-      <label class="checkbox-label" style="margin-top: 16px;">
+      <div id="mnemonicWords" class="mnemonic-grid"></div>
+
+      <div class="form-group hidden" id="mnemonicPassphraseDisplay">
+        <label>Passphrase</label>
+        <div class="account-current" id="mnemonicPassphraseText"></div>
+      </div>
+
+      <label class="checkbox-label">
         <input type="checkbox" id="mnemonicBackedUp">
-        I have safely backed up my recovery phrase
+        <span>I have safely backed up my recovery phrase</span>
       </label>
+
       <div class="settings-actions">
         <button class="btn btn-secondary btn-small" id="mnemonicCopyBtn" type="button">Copy All</button>
         <button id="mnemonicConfirmBtn" class="btn btn-primary btn-small" type="button" disabled>
@@ -45,90 +65,133 @@
       </div>
     </section>
 
-    <!-- ── Wallet section (shown when configured) ────────────────────────── -->
-    <div id="walletSection" class="hidden">
-      <section class="card">
-        <h2>Wallet</h2>
-        <div class="grid">
-          <div class="row">
-            <span>Network</span>
-            <strong id="networkValue">--</strong>
+    <div id="walletSection" class="wallet-dashboard hidden">
+      <section class="hero-grid">
+        <section class="card active-account-card">
+          <div class="section-head active-account-head">
+            <div class="section-intro">
+              <p class="eyebrow">Active account</p>
+              <h2 id="accountValue">--</h2>
+              <p class="section-copy">Current wallet identity selected in the extension.</p>
+            </div>
+            <div class="account-actions">
+              <button id="changeAccountBtn" class="btn btn-secondary btn-small btn-account-switch" type="button">Change account</button>
+              <button id="newAccountBtn" class="btn btn-primary btn-small" type="button">New account</button>
+            </div>
           </div>
-          <div class="row">
-            <span>Account</span>
-            <strong id="accountValue">--</strong>
+        </section>
+
+        <section class="card address-card">
+          <div class="section-head">
+            <span class="panel-label">Receiving address</span>
+            <button id="copyAddressBtn" class="btn btn-secondary btn-small copy-btn" type="button">
+              <span class="copy-btn-label">Copy</span>
+            </button>
           </div>
-          <div class="row">
-            <span>Status</span>
-            <strong id="statusValue">--</strong>
-          </div>
-          <div class="row hidden" id="hwStatusRow">
-            <span>Device</span>
-            <strong id="hwStatusValue" style="display: flex; align-items: center; gap: 6px;">
-              <span class="status-dot-expanded" id="hwStatusDot" title="Disconnected"></span>
-              <span id="hwStatusText">--</span>
-              <button class="btn btn-secondary hidden" id="hwReconnectBtn" type="button"
-                style="padding: 2px 8px; font-size: 10px; border-radius: 6px;">Reconnect</button>
-            </strong>
+          <p class="address" id="addressValue">--</p>
+        </section>
+      </section>
+
+      <section class="card portfolio-card">
+        <div class="section-intro">
+          <p class="eyebrow">Overview</p>
+          <h2>Portfolio</h2>
+        </div>
+
+        <div class="portfolio-grid">
+          <section class="card balance-card">
+            <div class="section-intro">
+              <p class="eyebrow">Portfolio</p>
+              <h2>Assets Balance</h2>
+              <p class="section-copy">Assets detected for the active address.</p>
+            </div>
+            <div class="balance-panel" id="balancePanelAssets" role="tabpanel">
+              <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
+              <div class="assets-list" id="assetsList"></div>
+            </div>
+            <div class="pager hidden" id="assetsPager">
+              <button class="btn btn-secondary btn-small pager-btn" id="assetsPrevBtn" type="button">←</button>
+              <span class="pager-label" id="assetsPageLabel">1 / 1</span>
+              <button class="btn btn-secondary btn-small pager-btn" id="assetsNextBtn" type="button">→</button>
+            </div>
+          </section>
+
+          <div class="portfolio-side">
+            <div class="stat-card stat-card-balance">
+              <p class="panel-label">Available balance</p>
+              <div class="balance-inline">
+                <span class="currency-pill">XNA</span>
+                <strong class="value-main" id="balanceValue">--</strong>
+              </div>
+              <div class="hero-meta">
+                <span class="meta-label">Pending</span>
+                <strong id="pendingValue">--</strong>
+              </div>
+            </div>
+
+            <section class="card hardware-card hidden" id="hardwareCard">
+              <div class="section-intro">
+                <p class="eyebrow">Hardware</p>
+                <h2>Hardware Wallet</h2>
+              </div>
+              <div class="hardware-status-line">
+                <span class="status-dot-expanded" id="hwStatusDot" title="Disconnected"></span>
+                <div class="hardware-status-copy">
+                  <strong id="hwStatusText">--</strong>
+                  <span id="statusValue">--</span>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-small hidden" id="hwReconnectBtn" type="button">Reconnect</button>
+            </section>
           </div>
         </div>
       </section>
 
-      <section class="card">
-        <div class="section-head">
-          <h2>Your Address</h2>
-          <button id="copyAddressBtn" class="btn btn-secondary" type="button">Copy</button>
-        </div>
-        <p class="address" id="addressValue">--</p>
-      </section>
-
-      <section class="card balance-card">
-        <h2>Balance</h2>
-        <div class="balance-tabs" role="tablist" aria-label="Balance views">
-          <button class="balance-tab is-active" id="balanceTabGeneral" type="button" role="tab" aria-selected="true"
-            aria-controls="balancePanelGeneral">
-            General
-          </button>
-          <button class="balance-tab" id="balanceTabAssets" type="button" role="tab" aria-selected="false"
-            aria-controls="balancePanelAssets">
-            Assets
-          </button>
-        </div>
-
-        <div class="balance-panel" id="balancePanelGeneral" role="tabpanel">
-          <div class="row">
-            <span>XNA</span>
-            <strong class="value-main" id="balanceValue">--</strong>
+      <div class="dashboard-grid">
+        <section class="card recent-moves-card">
+          <div class="section-intro">
+            <p class="eyebrow">On-chain</p>
+            <h2>Recent Address Movements</h2>
+            <p class="section-copy">Latest confirmed transactions involving the receiving address.</p>
           </div>
-          <div class="row">
-            <span>Pending</span>
-            <strong id="pendingValue">--</strong>
+          <div id="recentMovementsList">
+            <div class="history-empty" id="recentMovementsEmpty">No recent movements found</div>
           </div>
-        </div>
+          <div class="pager hidden" id="recentMovementsPager">
+            <button class="btn btn-secondary btn-small pager-btn" id="recentMovementsPrevBtn" type="button">←</button>
+            <span class="pager-label" id="recentMovementsPageLabel">1 / 1</span>
+            <button class="btn btn-secondary btn-small pager-btn" id="recentMovementsNextBtn" type="button">→</button>
+          </div>
+        </section>
 
-        <div class="balance-panel hidden" id="balancePanelAssets" role="tabpanel">
-          <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
-          <div class="assets-list" id="assetsList"></div>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" style="vertical-align:-1px;opacity:0.6">
-            <path d="M7 0a7 7 0 1 0 0 14A7 7 0 0 0 7 0zm.5 3v4.25l3 1.75-.75 1.25-3.75-2.25V3h1.5z" />
-          </svg>
-          Request History
-        </h2>
-        <div id="historyList">
-          <div class="history-empty" id="historyEmpty">No signature history</div>
-        </div>
-      </section>
+        <section class="card history-card">
+          <div class="section-intro">
+            <p class="eyebrow">Activity</p>
+            <h2>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+                <path d="M7 0a7 7 0 1 0 0 14A7 7 0 0 0 7 0zm.5 3v4.25l3 1.75-.75 1.25-3.75-2.25V3h1.5z" />
+              </svg>
+              Request History
+            </h2>
+            <p class="section-copy">Latest signing requests and raw transaction activity.</p>
+          </div>
+          <div id="historyList">
+            <div class="history-empty" id="historyEmpty">No signature history</div>
+          </div>
+          <div class="pager hidden" id="historyPager">
+            <button class="btn btn-secondary btn-small pager-btn" id="historyPrevBtn" type="button">←</button>
+            <span class="pager-label" id="historyPageLabel">1 / 1</span>
+            <button class="btn btn-secondary btn-small pager-btn" id="historyNextBtn" type="button">→</button>
+          </div>
+        </section>
+      </div>
     </div>
   </main>
 
   <div id="unlockModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="unlockTitle">
     <div class="unlock-panel warning-modal">
       <div id="unlockPrimaryView">
+        <p class="eyebrow eyebrow-warning">Security check</p>
         <h2 id="unlockTitle">Wallet Locked</h2>
         <p>Enter your PIN to unlock the extension.</p>
         <div class="form-group">
@@ -152,8 +215,8 @@
           <div class="unlock-reset-copy">
             <h2 class="unlock-reset-title">Restore account</h2>
             <p class="unlock-reset-description">
-              This process will remove all Neurai Sign data to allow restoring with your seed words.
-              To continue, write <strong>RESET</strong> in the textbox below.
+              This process will remove all Neurai Sign data to allow restoring with your seed words. To continue, write
+              <strong>RESET</strong> in the textbox below.
             </p>
           </div>
         </div>
@@ -162,8 +225,10 @@
         </div>
         <p class="account-hint" id="unlockResetMessage"></p>
         <div class="settings-actions">
-          <button class="btn btn-secondary btn-small unlock-reset-back-btn" id="unlockResetCancelBtn" type="button">Back</button>
-          <button class="btn btn-primary btn-small unlock-reset-confirm-btn" id="unlockResetConfirmBtn" type="button">Confirm</button>
+          <button class="btn btn-secondary btn-small unlock-reset-back-btn" id="unlockResetCancelBtn"
+            type="button">Back</button>
+          <button class="btn btn-primary btn-small unlock-reset-confirm-btn" id="unlockResetConfirmBtn"
+            type="button">Confirm</button>
         </div>
       </div>
     </div>
@@ -172,6 +237,7 @@
   <div id="initialPinModal" class="unlock-modal hidden" role="dialog" aria-modal="true"
     aria-labelledby="initialPinTitle">
     <div class="unlock-panel">
+      <p class="eyebrow">Secure wallet</p>
       <h2 id="initialPinTitle">Create Access PIN</h2>
       <p>Before saving your first wallet, set a PIN. Your private key will be encrypted with this PIN.</p>
       <label for="initialPinInput">New PIN</label>
@@ -179,9 +245,9 @@
       <label for="initialPinConfirmInput">Confirm PIN</label>
       <input id="initialPinConfirmInput" type="password" placeholder="Repeat PIN" autocomplete="new-password">
       <p id="initialPinError" class="unlock-error"></p>
-      <div style="display: flex; gap: 8px; margin-top: 8px;">
-        <button id="initialPinCancelBtn" class="btn btn-secondary" style="flex: 1;" type="button">Cancel</button>
-        <button id="initialPinSaveBtn" class="btn btn-primary" style="flex: 1;" type="button">Set PIN</button>
+      <div class="settings-actions">
+        <button id="initialPinCancelBtn" class="btn btn-secondary" type="button">Cancel</button>
+        <button id="initialPinSaveBtn" class="btn btn-primary" type="button">Set PIN</button>
       </div>
     </div>
   </div>

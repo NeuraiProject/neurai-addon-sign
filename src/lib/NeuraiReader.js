@@ -82,6 +82,24 @@ const NeuraiReader = (function() {
         return result;
     }
 
+    // Get transaction ids related to an address
+    async function getAddressTxids(address) {
+        const addresses = Array.isArray(address) ? address : [address];
+        const result = await rpc('getaddresstxids', [
+            { addresses: addresses }
+        ]);
+        return result;
+    }
+
+    // Get per-tx deltas for an address
+    async function getAddressDeltas(address, assetName = 'XNA') {
+        const addresses = Array.isArray(address) ? address : [address];
+        const result = await rpc('getaddressdeltas', [
+            { addresses: addresses, assetName }
+        ]);
+        return result;
+    }
+
     // Get public key for an address (if revealed on chain)
     async function getPubKey(address) {
         const result = await rpc('getpubkey', [address]);
@@ -163,6 +181,8 @@ const NeuraiReader = (function() {
         getAssetBalance,
         getAddressUTXOs,
         getAddressMempool,
+        getAddressTxids,
+        getAddressDeltas,
         getPubKey,
         verifyMessage,
         getTransaction,
