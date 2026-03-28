@@ -91,6 +91,41 @@
   var walletResult = null;
   var canReuseSessionPin = false;
 
+  async function tryReuseConfiguredSessionPin(expectedPinHash, unlockUntil) {
+    if (!expectedPinHash || unlockUntil <= Date.now()) return false;
+
+    var sessionPin = '';
+
+    if (chrome.storage && chrome.storage.session) {
+      try {
+        sessionPin = await new Promise(function (resolve) {
+          chrome.storage.session.get(C.SESSION_PIN_KEY, function (result) {
+            resolve(String((result && result[C.SESSION_PIN_KEY]) || ''));
+          });
+        });
+      } catch (_) { }
+    }
+
+    if (!sessionPin && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        var sessionResult = await chrome.runtime.sendMessage({ type: C.MSG.GET_SESSION_PIN });
+        sessionPin = String((sessionResult && sessionResult.pin) || '');
+      } catch (_) { }
+    }
+
+    if (!sessionPin) return false;
+
+    try {
+      var sessionHash = await NEURAI_UTILS.hashText(sessionPin);
+      if (sessionHash !== expectedPinHash) return false;
+      pin = sessionPin;
+      canReuseSessionPin = true;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function applyThemeFromSettings(settings) {
     if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
       NEURAI_UTILS.applyTheme(settings || {});
@@ -566,20 +601,7 @@
     applyThemeFromSettings(existingSettings || C.DEFAULT_SETTINGS);
     existingPinHash = (existingSettings && existingSettings.pinHash) || '';
     var unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
-
-    if (existingPinHash && unlockUntil > Date.now() && chrome.runtime && chrome.runtime.sendMessage) {
-      try {
-        var sessionResult = await chrome.runtime.sendMessage({ type: C.MSG.GET_SESSION_PIN });
-        var sessionPin = String((sessionResult && sessionResult.pin) || '');
-        if (sessionPin) {
-          var sessionHash = await NEURAI_UTILS.hashText(sessionPin);
-          if (sessionHash === existingPinHash) {
-            pin = sessionPin;
-            canReuseSessionPin = true;
-          }
-        }
-      } catch (_) { }
-    }
+    await tryReuseConfiguredSessionPin(existingPinHash, unlockUntil);
 
     if (isNewAccount) {
       // New account mode — need existing wallet + PIN

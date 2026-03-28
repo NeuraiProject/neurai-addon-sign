@@ -206,7 +206,6 @@
 
     elements.historyEmpty.classList.add('hidden');
     const pageItems = paginateItems(history, state.historyPage);
-
     pageItems.forEach(item => {
       const el = document.createElement('div');
       el.className = 'history-item';
@@ -557,7 +556,18 @@
 
   function getRawTxHistoryLabel(item) {
     const sighash = String(item?.sighashType || 'ALL').trim().toUpperCase();
-    return sighash === 'SINGLE|ANYONECANPAY' ? 'Offer' : 'Purchase';
+    if (sighash === 'SINGLE|ANYONECANPAY') return 'Offer';
+    if (isSwapUtxoConsolidation(item)) return 'UTXO Consolidation';
+    if (isSwapHistoryOrigin(item?.origin)) return 'Purchase';
+    return 'Transaction';
+  }
+
+  function isSwapUtxoConsolidation(item) {
+    return isSwapHistoryOrigin(item?.origin) && Number(item?.inputCount || 0) > 1;
+  }
+
+  function isSwapHistoryOrigin(origin) {
+    return /swap\.neurai\.org/i.test(String(origin || ''));
   }
 
   function applyReaderConfig(network) {
@@ -714,7 +724,20 @@
   function isAddonLocked() {
     if (!hasActiveWallet()) return false;
     if (!state.settings?.pinHash) return false;
-    return state.unlockUntil <= Date.now();
+    const unlockExpired = state.unlockUntil <= Date.now();
+    const missingSessionPin = !state.sessionPin;
+    const locked = unlockExpired || missingSessionPin;
+
+    if (locked && state.unlockUntil !== 0) {
+      state.unlockUntil = 0;
+      chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 }, () => { });
+    }
+
+    if (locked) {
+      state.sessionPin = '';
+    }
+
+    return locked;
   }
 
   function openUnlockModal() {
