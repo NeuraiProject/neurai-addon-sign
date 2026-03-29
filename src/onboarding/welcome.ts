@@ -1,5 +1,8 @@
 /* Neurai Sign — Onboarding Wizard */
-/* global NEURAI_CONSTANTS, NEURAI_UTILS, NeuraiKey, NeuraiSignESP32, chrome */
+/* global NeuraiKey, NeuraiSignESP32, chrome */
+import { NEURAI_CONSTANTS } from '../shared/constants.js';
+import { NEURAI_UTILS } from '../shared/utils.js';
+import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
 (function () {
   'use strict';
@@ -30,8 +33,8 @@
     welcomeFeatures: document.getElementById('welcomeFeatures'),
     getStartedBtn: document.getElementById('getStartedBtn'),
     // Step 2
-    pinInput: document.getElementById('pinInput'),
-    pinConfirmInput: document.getElementById('pinConfirmInput'),
+    pinInput: document.getElementById('pinInput') as HTMLInputElement | null,
+    pinConfirmInput: document.getElementById('pinConfirmInput') as HTMLInputElement | null,
     pinError: document.getElementById('pinError'),
     pinBackBtn: document.getElementById('pinBackBtn'),
     pinNextBtn: document.getElementById('pinNextBtn'),
@@ -41,23 +44,23 @@
     methodGenerate: document.getElementById('methodGenerate'),
     methodHardware: document.getElementById('methodHardware'),
     // Step 4a - Import
-    importNetwork: document.getElementById('importNetwork'),
-    importSeed: document.getElementById('importSeed'),
-    importPassphrase: document.getElementById('importPassphrase'),
+    importNetwork: document.getElementById('importNetwork') as HTMLSelectElement | null,
+    importSeed: document.getElementById('importSeed') as HTMLTextAreaElement | null,
+    importPassphrase: document.getElementById('importPassphrase') as HTMLInputElement | null,
     importError: document.getElementById('importError'),
     importBackBtn: document.getElementById('importBackBtn'),
     importConfirmBtn: document.getElementById('importConfirmBtn'),
     toggleImportPassphrase: document.getElementById('toggleImportPassphrase'),
     // Step 4b - Generate
-    generateNetwork: document.getElementById('generateNetwork'),
-    generateWordCount: document.getElementById('generateWordCount'),
-    generatePassphrase: document.getElementById('generatePassphrase'),
+    generateNetwork: document.getElementById('generateNetwork') as HTMLSelectElement | null,
+    generateWordCount: document.getElementById('generateWordCount') as HTMLSelectElement | null,
+    generatePassphrase: document.getElementById('generatePassphrase') as HTMLInputElement | null,
     generateError: document.getElementById('generateError'),
     generateBackBtn: document.getElementById('generateBackBtn'),
     generateConfirmBtn: document.getElementById('generateConfirmBtn'),
     toggleGeneratePassphrase: document.getElementById('toggleGeneratePassphrase'),
     // Step 4c - Hardware
-    hardwareNetwork: document.getElementById('hardwareNetwork'),
+    hardwareNetwork: document.getElementById('hardwareNetwork') as HTMLSelectElement | null,
     hardwareError: document.getElementById('hardwareError'),
     hardwareBackBtn: document.getElementById('hardwareBackBtn'),
     hardwareConnectBtn: document.getElementById('hardwareConnectBtn'),
@@ -65,9 +68,9 @@
     mnemonicGrid: document.getElementById('mnemonicGrid'),
     backupPassphraseRow: document.getElementById('backupPassphraseRow'),
     backupPassphraseText: document.getElementById('backupPassphraseText'),
-    backupConfirmCheck: document.getElementById('backupConfirmCheck'),
+    backupConfirmCheck: document.getElementById('backupConfirmCheck') as HTMLInputElement | null,
     backupCopyBtn: document.getElementById('backupCopyBtn'),
-    backupNextBtn: document.getElementById('backupNextBtn'),
+    backupNextBtn: document.getElementById('backupNextBtn') as HTMLButtonElement | null,
     // Step 5
     successTitle: document.getElementById('successTitle'),
     successSubtitle: document.getElementById('successSubtitle'),
@@ -81,28 +84,40 @@
 
   // ── State ──────────────────────────────────────────────────────────────────
 
+  interface WalletResult {
+    address: string;
+    publicKey: string;
+    privateKey: string | null;
+    mnemonic: string | null;
+    passphrase: string | null;
+    network: string;
+    walletType: 'software' | 'hardware';
+    hardwareDeviceName?: string | null;
+    hardwareDeviceNetwork?: string | null;
+    hardwareFirmwareVersion?: string | null;
+    hardwareDerivationPath?: string | null;
+    hardwareMasterFingerprint?: string | null;
+  }
+
   var currentStep = 1;
   var pin = '';
   var existingPinHash = '';
-  var existingAccounts = null;
-  var existingSettings = null;
+  var existingAccounts: AccountsRecord | null = null;
+  var existingSettings: WalletSettings | null = null;
   var method = ''; // 'import' | 'generate' | 'hardware'
   var generatedMnemonic = '';
-  var walletResult = null;
+  var walletResult: WalletResult | null = null;
   var canReuseSessionPin = false;
 
-  async function tryReuseConfiguredSessionPin(expectedPinHash, unlockUntil) {
+  async function tryReuseConfiguredSessionPin(expectedPinHash: string, unlockUntil: number) {
     if (!expectedPinHash || unlockUntil <= Date.now()) return false;
 
     var sessionPin = '';
 
     if (chrome.storage && chrome.storage.session) {
       try {
-        sessionPin = await new Promise(function (resolve) {
-          chrome.storage.session.get(C.SESSION_PIN_KEY, function (result) {
-            resolve(String((result && result[C.SESSION_PIN_KEY]) || ''));
-          });
-        });
+        const res = await chrome.storage.session.get(C.SESSION_PIN_KEY);
+        sessionPin = String((res && res[C.SESSION_PIN_KEY]) || '');
       } catch (_) { }
     }
 
@@ -126,13 +141,13 @@
     }
   }
 
-  function applyThemeFromSettings(settings) {
+  function applyThemeFromSettings(settings: Partial<WalletSettings> | null) {
     if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
       NEURAI_UTILS.applyTheme(settings || {});
       return;
     }
     var selected = ((settings || {}).theme) || 'dark';
-    var theme = selected === 'system'
+    var theme: string = selected === 'system'
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       : selected;
     document.documentElement.setAttribute('data-theme', theme);
@@ -144,9 +159,9 @@
     el.step1, el.step2, el.step3,
     el.step4Import, el.step4Generate, el.step4Hardware, el.step4Backup,
     el.step5
-  ].filter(Boolean);
+  ].filter(Boolean) as HTMLElement[];
 
-  function getStepCard(stepNum) {
+  function getStepCard(stepNum: number): HTMLElement | null {
     switch (stepNum) {
       case 1: return el.step1;
       case 2: return el.step2;
@@ -162,7 +177,7 @@
     }
   }
 
-  function goToStep(stepNum) {
+  function goToStep(stepNum: number) {
     allStepCards.forEach(function (c) { c.classList.add('hidden'); });
     var card = getStepCard(stepNum);
     if (!card) return;
@@ -175,12 +190,12 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function updateProgressBar(stepNum) {
+  function updateProgressBar(stepNum: number) {
     var displayStep = stepNum === 45 ? 4 : stepNum;
     // In new-account mode steps are shifted: no PIN step
     // Visual progress: 1=welcome, 2=PIN(or skip), 3=method, 4=form, 5=success
-    var dots = el.progressBar.querySelectorAll('.progress-dot');
-    var lines = el.progressBar.querySelectorAll('.progress-line');
+    var dots = el.progressBar!.querySelectorAll('.progress-dot');
+    var lines = el.progressBar!.querySelectorAll('.progress-line');
 
     dots.forEach(function (dot, i) {
       var num = i + 1;
@@ -196,30 +211,30 @@
 
   // ── Toast ──────────────────────────────────────────────────────────────────
 
-  var toastTimer = null;
-  function showToast(msg, type) {
-    clearTimeout(toastTimer);
-    el.toast.textContent = msg;
-    el.toast.className = 'toast toast-' + (type || 'success') + ' visible';
+  var toastTimer: ReturnType<typeof setTimeout> | null = null;
+  function showToast(msg: string, type?: string) {
+    clearTimeout(toastTimer!);
+    el.toast!.textContent = msg;
+    el.toast!.className = 'toast toast-' + (type || 'success') + ' visible';
     toastTimer = setTimeout(function () {
-      el.toast.classList.remove('visible');
+      el.toast!.classList.remove('visible');
     }, 3000);
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
-  function showLoading(msg) {
-    el.loadingText.textContent = msg || 'Loading...';
-    el.loadingOverlay.classList.remove('hidden');
+  function showLoading(msg?: string) {
+    el.loadingText!.textContent = msg || 'Loading...';
+    el.loadingOverlay!.classList.remove('hidden');
   }
 
   function hideLoading() {
-    el.loadingOverlay.classList.add('hidden');
+    el.loadingOverlay!.classList.add('hidden');
   }
 
   // ── Toggle password visibility ─────────────────────────────────────────────
 
-  function setupToggle(btn, input) {
+  function setupToggle(btn: HTMLElement | null, input: HTMLInputElement | null) {
     if (!btn || !input) return;
     btn.addEventListener('click', function () {
       input.type = input.type === 'password' ? 'text' : 'password';
@@ -229,19 +244,19 @@
   // ── PIN validation (step 2 — only for fresh install) ───────────────────────
 
   async function handlePinNext() {
-    var p = el.pinInput.value;
-    var pc = el.pinConfirmInput.value;
+    var p = el.pinInput!.value;
+    var pc = el.pinConfirmInput!.value;
 
     if (p.length < 4 || p.length > 20) {
-      el.pinError.textContent = 'PIN must be between 4 and 20 characters.';
+      el.pinError!.textContent = 'PIN must be between 4 and 20 characters.';
       return;
     }
     if (p !== pc) {
-      el.pinError.textContent = 'PINs do not match.';
+      el.pinError!.textContent = 'PINs do not match.';
       return;
     }
 
-    el.pinError.textContent = '';
+    el.pinError!.textContent = '';
     pin = p;
     goToStep(3);
   }
@@ -249,19 +264,19 @@
   // ── PIN verification (new-account mode: verify existing PIN) ───────────────
 
   async function handlePinVerify() {
-    var p = el.pinInput.value;
+    var p = el.pinInput!.value;
     if (!p) {
-      el.pinError.textContent = 'Enter your current PIN.';
+      el.pinError!.textContent = 'Enter your current PIN.';
       return;
     }
 
     var hash = await NEURAI_UTILS.hashText(p);
     if (hash !== existingPinHash) {
-      el.pinError.textContent = 'Incorrect PIN.';
+      el.pinError!.textContent = 'Incorrect PIN.';
       return;
     }
 
-    el.pinError.textContent = '';
+    el.pinError!.textContent = '';
     pin = p;
     goToStep(3);
   }
@@ -269,19 +284,19 @@
   // ── Import wallet ──────────────────────────────────────────────────────────
 
   async function handleImportConfirm() {
-    var seedRaw = el.importSeed.value.trim().replace(/\s+/g, ' ');
+    var seedRaw = el.importSeed!.value.trim().replace(/\s+/g, ' ');
     var words = seedRaw.split(' ');
     if (words.length !== 12 && words.length !== 24) {
-      el.importError.textContent = 'Please enter a valid 12 or 24-word seed phrase.';
+      el.importError!.textContent = 'Please enter a valid 12 or 24-word seed phrase.';
       return;
     }
 
-    el.importError.textContent = '';
+    el.importError!.textContent = '';
     showLoading('Deriving wallet address...');
 
     try {
-      var network = el.importNetwork.value;
-      var passphrase = el.importPassphrase.value || null;
+      var network = el.importNetwork!.value;
+      var passphrase = el.importPassphrase!.value || null;
       var derived = NeuraiKey.getAddressPair(network, seedRaw, 0, 0, passphrase || undefined);
       var addressData = derived.external;
 
@@ -298,23 +313,23 @@
       await saveWallet();
       hideLoading();
       goToStep(5);
-      el.successAddress.textContent = walletResult.address;
+      el.successAddress!.textContent = walletResult.address;
     } catch (err) {
       hideLoading();
-      el.importError.textContent = 'Import failed: ' + err.message;
+      el.importError!.textContent = 'Import failed: ' + (err as Error).message;
     }
   }
 
   // ── Generate wallet ────────────────────────────────────────────────────────
 
   async function handleGenerateConfirm() {
-    el.generateError.textContent = '';
+    el.generateError!.textContent = '';
     showLoading('Generating wallet...');
 
     try {
-      var network = el.generateNetwork.value;
-      var strength = el.generateWordCount.value === '24' ? 256 : 128;
-      var passphrase = el.generatePassphrase.value || null;
+      var network = el.generateNetwork!.value;
+      var strength = el.generateWordCount!.value === '24' ? 256 : 128;
+      var passphrase = el.generatePassphrase!.value || null;
 
       generatedMnemonic = NeuraiKey.generateMnemonic(strength);
       var derived = NeuraiKey.getAddressPair(network, generatedMnemonic, 0, 0, passphrase || undefined);
@@ -334,25 +349,25 @@
       showMnemonicBackup(generatedMnemonic, passphrase);
     } catch (err) {
       hideLoading();
-      el.generateError.textContent = 'Generation failed: ' + err.message;
+      el.generateError!.textContent = 'Generation failed: ' + (err as Error).message;
     }
   }
 
-  function showMnemonicBackup(mnemonic, passphrase) {
+  function showMnemonicBackup(mnemonic: string, passphrase: string | null) {
     var words = mnemonic.split(' ');
-    el.mnemonicGrid.innerHTML = words.map(function (word, i) {
+    el.mnemonicGrid!.innerHTML = words.map(function (word, i) {
       return '<span class="mnemonic-word"><span class="mnemonic-num">' + (i + 1) + '</span>' + word + '</span>';
     }).join('');
 
     if (passphrase) {
-      el.backupPassphraseRow.classList.remove('hidden');
-      el.backupPassphraseText.textContent = passphrase;
+      el.backupPassphraseRow!.classList.remove('hidden');
+      el.backupPassphraseText!.textContent = passphrase;
     } else {
-      el.backupPassphraseRow.classList.add('hidden');
+      el.backupPassphraseRow!.classList.add('hidden');
     }
 
-    el.backupConfirmCheck.checked = false;
-    el.backupNextBtn.disabled = true;
+    el.backupConfirmCheck!.checked = false;
+    el.backupNextBtn!.disabled = true;
     goToStep(45);
   }
 
@@ -362,17 +377,17 @@
       await saveWallet();
       hideLoading();
       goToStep(5);
-      el.successAddress.textContent = walletResult.address;
+      el.successAddress!.textContent = walletResult!.address;
     } catch (err) {
       hideLoading();
-      showToast('Save failed: ' + err.message, 'error');
+      showToast('Save failed: ' + (err as Error).message, 'error');
     }
   }
 
   // ── Hardware wallet ────────────────────────────────────────────────────────
 
   async function handleHardwareConnect() {
-    el.hardwareError.textContent = '';
+    el.hardwareError!.textContent = '';
     showLoading('Connecting to hardware wallet...');
 
     try {
@@ -383,12 +398,12 @@
       var info = await device.getInfo();
       var addrResp = await device.getAddress();
 
-      var network = el.hardwareNetwork.value;
+      var network = el.hardwareNetwork!.value;
       var expectedNetwork = network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
       if (info.network && info.network !== expectedNetwork) {
         await device.disconnect();
         hideLoading();
-        el.hardwareError.textContent =
+        el.hardwareError!.textContent =
           'Device is configured for ' + info.network + ' but you selected ' + expectedNetwork + '.';
         return;
       }
@@ -414,13 +429,14 @@
       await saveWallet();
       hideLoading();
       goToStep(5);
-      el.successAddress.textContent = walletResult.address;
+      el.successAddress!.textContent = walletResult.address;
     } catch (err) {
       hideLoading();
-      if (err && (err.name === 'NotFoundError' || String(err.message || '').includes('No port selected'))) {
-        el.hardwareError.textContent = 'No device selected. Please try again.';
+      const error = err as Error;
+      if (error && (error.name === 'NotFoundError' || String(error.message || '').includes('No port selected'))) {
+        el.hardwareError!.textContent = 'No device selected. Please try again.';
       } else {
-        el.hardwareError.textContent = 'Connection failed: ' + err.message;
+        el.hardwareError!.textContent = 'Connection failed: ' + error.message;
       }
     }
   }
@@ -428,16 +444,16 @@
   // ── Save wallet to chrome.storage ──────────────────────────────────────────
 
   async function saveWallet() {
-    var accounts;
-    var settings;
-    var pinHash;
+    var accounts: Record<string, unknown>;
+    var settings: WalletSettings;
+    var pinHash: string;
 
     if (isNewAccount && existingAccounts && existingSettings) {
       // Add to existing accounts
       accounts = {};
       for (var j = 1; j <= C.MAX_ACCOUNTS; j++) {
         var jid = String(j);
-        accounts[jid] = existingAccounts[jid] || null;
+        accounts[jid] = (existingAccounts as Record<string, unknown>)[jid] || null;
       }
       settings = existingSettings;
       pinHash = existingPinHash;
@@ -449,34 +465,34 @@
       for (var i = 1; i <= C.MAX_ACCOUNTS; i++) accounts[String(i)] = null;
     }
 
-    var account = {
+    var account: Record<string, unknown> = {
       privateKey: null,
       privateKeyEnc: null,
       mnemonic: null,
       mnemonicEnc: null,
       passphrase: null,
       passphraseEnc: null,
-      address: walletResult.address,
-      publicKey: walletResult.publicKey,
-      walletType: walletResult.walletType,
-      hardwareDeviceName: walletResult.hardwareDeviceName || null,
-      hardwareDeviceNetwork: walletResult.hardwareDeviceNetwork || null,
-      hardwareFirmwareVersion: walletResult.hardwareFirmwareVersion || null,
-      hardwareDerivationPath: walletResult.hardwareDerivationPath || null,
-      hardwareMasterFingerprint: walletResult.hardwareMasterFingerprint || null,
-      network: walletResult.network,
+      address: walletResult!.address,
+      publicKey: walletResult!.publicKey,
+      walletType: walletResult!.walletType,
+      hardwareDeviceName: walletResult!.hardwareDeviceName || null,
+      hardwareDeviceNetwork: walletResult!.hardwareDeviceNetwork || null,
+      hardwareFirmwareVersion: walletResult!.hardwareFirmwareVersion || null,
+      hardwareDerivationPath: walletResult!.hardwareDerivationPath || null,
+      hardwareMasterFingerprint: walletResult!.hardwareMasterFingerprint || null,
+      network: walletResult!.network,
       history: []
     };
 
     // Encrypt secrets with PIN
-    if (walletResult.privateKey && pin) {
-      account.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult.privateKey, pin);
+    if (walletResult!.privateKey && pin) {
+      account.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult!.privateKey, pin);
     }
-    if (walletResult.mnemonic && pin) {
-      account.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult.mnemonic, pin);
+    if (walletResult!.mnemonic && pin) {
+      account.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult!.mnemonic, pin);
     }
-    if (walletResult.passphrase && pin) {
-      account.passphraseEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult.passphrase, pin);
+    if (walletResult!.passphrase && pin) {
+      account.passphraseEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult!.passphrase, pin);
     }
 
     accounts[targetAccountId] = account;
@@ -484,14 +500,12 @@
     var lockTimeout = ((settings.lockTimeoutMinutes || 10) * 60 * 1000);
     var unlockUntil = Date.now() + lockTimeout;
 
-    await new Promise(function (resolve) {
-      chrome.storage.local.set({
-        [C.ACCOUNTS_KEY]: accounts,
-        [C.ACTIVE_ACCOUNT_KEY]: targetAccountId,
-        [C.STORAGE_KEY]: account,
-        [C.SETTINGS_KEY]: settings,
-        [C.UNLOCK_UNTIL_KEY]: unlockUntil
-      }, resolve);
+    await chrome.storage.local.set({
+      [C.ACCOUNTS_KEY]: accounts,
+      [C.ACTIVE_ACCOUNT_KEY]: targetAccountId,
+      [C.STORAGE_KEY]: account,
+      [C.SETTINGS_KEY]: settings,
+      [C.UNLOCK_UNTIL_KEY]: unlockUntil
     });
 
     try {
@@ -510,54 +524,54 @@
 
   function setupListeners() {
     // Step 1 — welcome / new-account intro
-    el.getStartedBtn.addEventListener('click', function () {
+    el.getStartedBtn!.addEventListener('click', function () {
       if (isNewAccount && canReuseSessionPin) goToStep(3);
       else goToStep(2);
     });
 
     // Step 2 — PIN
-    el.pinBackBtn.addEventListener('click', function () { goToStep(1); });
-    el.pinNextBtn.addEventListener('click', isNewAccount ? handlePinVerify : handlePinNext);
-    el.pinConfirmInput.addEventListener('keydown', function (e) {
+    el.pinBackBtn!.addEventListener('click', function () { goToStep(1); });
+    el.pinNextBtn!.addEventListener('click', isNewAccount ? handlePinVerify : handlePinNext);
+    el.pinConfirmInput!.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { (isNewAccount ? handlePinVerify : handlePinNext)(); }
     });
-    el.pinInput.addEventListener('keydown', function (e) {
+    el.pinInput!.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && isNewAccount) handlePinVerify();
     });
     setupToggle(el.togglePinVisibility, el.pinInput);
 
     // Step 3 — method
-    el.methodImport.addEventListener('click', function () { method = 'import'; goToStep(4); });
-    el.methodGenerate.addEventListener('click', function () { method = 'generate'; goToStep(4); });
-    el.methodHardware.addEventListener('click', function () { method = 'hardware'; goToStep(4); });
+    el.methodImport!.addEventListener('click', function () { method = 'import'; goToStep(4); });
+    el.methodGenerate!.addEventListener('click', function () { method = 'generate'; goToStep(4); });
+    el.methodHardware!.addEventListener('click', function () { method = 'hardware'; goToStep(4); });
 
     // Step 4a
-    el.importBackBtn.addEventListener('click', function () { goToStep(3); });
-    el.importConfirmBtn.addEventListener('click', handleImportConfirm);
+    el.importBackBtn!.addEventListener('click', function () { goToStep(3); });
+    el.importConfirmBtn!.addEventListener('click', handleImportConfirm);
     setupToggle(el.toggleImportPassphrase, el.importPassphrase);
 
     // Step 4b
-    el.generateBackBtn.addEventListener('click', function () { goToStep(3); });
-    el.generateConfirmBtn.addEventListener('click', handleGenerateConfirm);
+    el.generateBackBtn!.addEventListener('click', function () { goToStep(3); });
+    el.generateConfirmBtn!.addEventListener('click', handleGenerateConfirm);
     setupToggle(el.toggleGeneratePassphrase, el.generatePassphrase);
 
     // Step 4c
-    el.hardwareBackBtn.addEventListener('click', function () { goToStep(3); });
-    el.hardwareConnectBtn.addEventListener('click', handleHardwareConnect);
+    el.hardwareBackBtn!.addEventListener('click', function () { goToStep(3); });
+    el.hardwareConnectBtn!.addEventListener('click', handleHardwareConnect);
 
     // Step 4d
-    el.backupConfirmCheck.addEventListener('change', function () {
-      el.backupNextBtn.disabled = !el.backupConfirmCheck.checked;
+    el.backupConfirmCheck!.addEventListener('change', function () {
+      el.backupNextBtn!.disabled = !el.backupConfirmCheck!.checked;
     });
-    el.backupCopyBtn.addEventListener('click', function () {
+    el.backupCopyBtn!.addEventListener('click', function () {
       navigator.clipboard.writeText(generatedMnemonic).then(function () {
         showToast('Recovery phrase copied', 'success');
       });
     });
-    el.backupNextBtn.addEventListener('click', handleBackupNext);
+    el.backupNextBtn!.addEventListener('click', handleBackupNext);
 
     // Step 5
-    el.finishBtn.addEventListener('click', handleFinish);
+    el.finishBtn!.addEventListener('click', handleFinish);
   }
 
   // ── Adapt UI for new-account mode ──────────────────────────────────────────
@@ -566,38 +580,36 @@
     var label = 'Neurai_' + targetAccountId;
 
     // Step 1 — change welcome to "add account"
-    el.welcomeTitle.textContent = 'Add New Account';
-    el.welcomeSubtitle.textContent =
+    el.welcomeTitle!.textContent = 'Add New Account';
+    el.welcomeSubtitle!.textContent =
       'Set up ' + label + '. Import an existing wallet, generate a new one, or connect a hardware device.';
     if (el.welcomeFeatures) el.welcomeFeatures.classList.add('hidden');
-    el.getStartedBtn.textContent = 'Continue';
+    el.getStartedBtn!.textContent = 'Continue';
 
     // Step 2 — change PIN creation to verification
-    document.getElementById('pinTitle').textContent = 'Verify Your PIN';
-    document.getElementById('pinSubtitle').textContent =
+    document.getElementById('pinTitle')!.textContent = 'Verify Your PIN';
+    document.getElementById('pinSubtitle')!.textContent =
       'Enter your current PIN to continue setting up ' + label + '.';
     var pinConfirmGroup = document.getElementById('pinConfirmGroup');
     if (pinConfirmGroup) pinConfirmGroup.classList.add('hidden');
-    el.pinInput.placeholder = 'Enter your current PIN';
+    el.pinInput!.placeholder = 'Enter your current PIN';
 
     // Step 3 — update subtitle
-    document.getElementById('methodTitle').textContent = 'Set Up ' + label;
+    document.getElementById('methodTitle')!.textContent = 'Set Up ' + label;
 
     // Step 5 — update success
-    el.successTitle.textContent = 'Account Added!';
-    el.successSubtitle.textContent =
+    el.successTitle!.textContent = 'Account Added!';
+    el.successSubtitle!.textContent =
       label + ' is ready. Close this tab to use it from the Neurai Sign extension.';
   }
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
   async function init() {
-    var result = await new Promise(function (resolve) {
-      chrome.storage.local.get([C.ACCOUNTS_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY], resolve);
-    });
+    const result = await chrome.storage.local.get([C.ACCOUNTS_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY]);
 
-    existingAccounts = result[C.ACCOUNTS_KEY] || null;
-    existingSettings = result[C.SETTINGS_KEY] || null;
+    existingAccounts = (result[C.ACCOUNTS_KEY] || null) as AccountsRecord | null;
+    existingSettings = (result[C.SETTINGS_KEY] || null) as WalletSettings | null;
     applyThemeFromSettings(existingSettings || C.DEFAULT_SETTINGS);
     existingPinHash = (existingSettings && existingSettings.pinHash) || '';
     var unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
@@ -615,10 +627,10 @@
       // Fresh install check — if wallet exists, show message
       if (existingAccounts) {
         var hasWallet = Object.keys(existingAccounts).some(function (id) {
-          var entry = existingAccounts[id];
+          var entry = (existingAccounts as AccountsRecord)[id];
           return entry && (
             entry.privateKey ||
-            (entry.privateKeyEnc && typeof entry.privateKeyEnc === 'string' && entry.privateKeyEnc.length > 10) ||
+            (entry.privateKeyEnc && typeof entry.privateKeyEnc === 'string' && (entry.privateKeyEnc as unknown as string).length > 10) ||
             (entry.walletType === 'hardware' && entry.address && entry.publicKey)
           );
         });

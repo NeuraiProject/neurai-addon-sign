@@ -1,8 +1,9 @@
 // Neurai Wallet — Full-tab expanded view
 // Relies on globals loaded before this script:
-//   NeuraiKey               (from ../lib/)
-//   NeuraiReader            (from ../lib/)
-//   NEURAI_CONSTANTS, NEURAI_UTILS  (from ../shared/)
+//   NeuraiKey, NeuraiReader  (from ../lib/ via classic <script> tags)
+import { NEURAI_CONSTANTS } from '../shared/constants.js';
+import { NEURAI_UTILS } from '../shared/utils.js';
+import type { WalletSettings } from '../types/index.js';
 
 (function () {
   'use strict';
@@ -10,83 +11,83 @@
   const C = NEURAI_CONSTANTS;
 
   // ── Persistent HW device connection ─────────────────────────────────────
-  let hwDevice = null; // NeuraiESP32 instance, kept alive while expanded is open
-  let hwStatusInterval = null;
-  let copyAddressFeedbackTimeout = null;
+  let hwDevice: NeuraiESP32Instance | null = null; // NeuraiESP32 instance, kept alive while expanded is open
+  let hwStatusInterval: ReturnType<typeof setInterval> | null = null;
+  let copyAddressFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
   const PAGE_SIZE = 5;
 
   const elements = {
     // Header
-    refreshBtn: document.getElementById('refreshBtn'),
-    headerSubtitle: document.getElementById('headerSubtitle'),
+    refreshBtn: document.getElementById('refreshBtn')!,
+    headerSubtitle: document.getElementById('headerSubtitle')!,
 
     // Sections
     setupSection: document.getElementById('setupSection'),
-    mnemonicSection: document.getElementById('mnemonicSection'),
-    walletSection: document.getElementById('walletSection'),
+    mnemonicSection: document.getElementById('mnemonicSection')!,
+    walletSection: document.getElementById('walletSection')!,
 
     // Wallet display
-    copyAddressBtn: document.getElementById('copyAddressBtn'),
-    changeAccountBtn: document.getElementById('changeAccountBtn'),
-    newAccountBtn: document.getElementById('newAccountBtn'),
-    networkValue: document.getElementById('networkValue'),
-    accountValue: document.getElementById('accountValue'),
-    statusValue: document.getElementById('statusValue'),
-    addressValue: document.getElementById('addressValue'),
-    balanceValue: document.getElementById('balanceValue'),
-    pendingValue: document.getElementById('pendingValue'),
+    copyAddressBtn: document.getElementById('copyAddressBtn')!,
+    changeAccountBtn: document.getElementById('changeAccountBtn') as HTMLButtonElement | null,
+    newAccountBtn: document.getElementById('newAccountBtn') as HTMLButtonElement | null,
+    networkValue: document.getElementById('networkValue')!,
+    accountValue: document.getElementById('accountValue')!,
+    statusValue: document.getElementById('statusValue')!,
+    addressValue: document.getElementById('addressValue')!,
+    balanceValue: document.getElementById('balanceValue')!,
+    pendingValue: document.getElementById('pendingValue')!,
     balancePanelAssets: document.getElementById('balancePanelAssets'),
-    assetsList: document.getElementById('assetsList'),
-    assetsEmpty: document.getElementById('assetsEmpty'),
+    assetsList: document.getElementById('assetsList')!,
+    assetsEmpty: document.getElementById('assetsEmpty')!,
     assetsPager: document.getElementById('assetsPager'),
-    assetsPrevBtn: document.getElementById('assetsPrevBtn'),
-    assetsNextBtn: document.getElementById('assetsNextBtn'),
+    assetsPrevBtn: document.getElementById('assetsPrevBtn') as HTMLButtonElement | null,
+    assetsNextBtn: document.getElementById('assetsNextBtn') as HTMLButtonElement | null,
     assetsPageLabel: document.getElementById('assetsPageLabel'),
-    historyList: document.getElementById('historyList'),
-    historyEmpty: document.getElementById('historyEmpty'),
-    unlockModal: document.getElementById('unlockModal'),
-    unlockPinInput: document.getElementById('unlockPinInput'),
-    unlockError: document.getElementById('unlockError'),
-    unlockConfirmBtn: document.getElementById('unlockConfirmBtn'),
-    unlockPrimaryView: document.getElementById('unlockPrimaryView'),
-    unlockForgotPinLink: document.getElementById('unlockForgotPinLink'),
-    unlockResetView: document.getElementById('unlockResetView'),
-    unlockResetInput: document.getElementById('unlockResetInput'),
-    unlockResetMessage: document.getElementById('unlockResetMessage'),
-    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn'),
-    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn'),
+    historyList: document.getElementById('historyList')!,
+    historyEmpty: document.getElementById('historyEmpty')!,
+    unlockModal: document.getElementById('unlockModal')!,
+    unlockPinInput: document.getElementById('unlockPinInput') as HTMLInputElement,
+    unlockError: document.getElementById('unlockError')!,
+    unlockConfirmBtn: document.getElementById('unlockConfirmBtn')!,
+    unlockPrimaryView: document.getElementById('unlockPrimaryView')!,
+    unlockForgotPinLink: document.getElementById('unlockForgotPinLink')!,
+    unlockResetView: document.getElementById('unlockResetView')!,
+    unlockResetInput: document.getElementById('unlockResetInput') as HTMLInputElement,
+    unlockResetMessage: document.getElementById('unlockResetMessage')!,
+    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn')!,
+    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn')!,
 
     hardwareCard: document.getElementById('hardwareCard'),
     hwStatusDot: document.getElementById('hwStatusDot'),
     hwStatusText: document.getElementById('hwStatusText'),
-    hwReconnectBtn: document.getElementById('hwReconnectBtn'),
-    recentMovementsList: document.getElementById('recentMovementsList'),
-    recentMovementsEmpty: document.getElementById('recentMovementsEmpty'),
+    hwReconnectBtn: document.getElementById('hwReconnectBtn') as HTMLButtonElement | null,
+    recentMovementsList: document.getElementById('recentMovementsList')!,
+    recentMovementsEmpty: document.getElementById('recentMovementsEmpty')!,
     recentMovementsPager: document.getElementById('recentMovementsPager'),
-    recentMovementsPrevBtn: document.getElementById('recentMovementsPrevBtn'),
-    recentMovementsNextBtn: document.getElementById('recentMovementsNextBtn'),
+    recentMovementsPrevBtn: document.getElementById('recentMovementsPrevBtn') as HTMLButtonElement | null,
+    recentMovementsNextBtn: document.getElementById('recentMovementsNextBtn') as HTMLButtonElement | null,
     recentMovementsPageLabel: document.getElementById('recentMovementsPageLabel'),
     historyPager: document.getElementById('historyPager'),
-    historyPrevBtn: document.getElementById('historyPrevBtn'),
-    historyNextBtn: document.getElementById('historyNextBtn'),
+    historyPrevBtn: document.getElementById('historyPrevBtn') as HTMLButtonElement | null,
+    historyNextBtn: document.getElementById('historyNextBtn') as HTMLButtonElement | null,
     historyPageLabel: document.getElementById('historyPageLabel')
   };
 
   let state = {
-    wallet: null,
-    accounts: null,
+    wallet: null as Record<string, unknown> | null,
+    accounts: null as Record<string, Record<string, unknown> | null> | null,
     activeAccountId: '1',
-    settings: { ...C.DEFAULT_SETTINGS },
-    assets: [],
+    settings: { ...C.DEFAULT_SETTINGS } as WalletSettings,
+    assets: [] as unknown[],
     assetsPage: 0,
-    recentMovements: [],
+    recentMovements: [] as unknown[],
     recentMovementsPage: 0,
     historyPage: 0,
     unlockUntil: 0,
     sessionPin: '',
-    autoRefreshInterval: null,
+    autoRefreshInterval: null as ReturnType<typeof setInterval> | null,
     isRefreshingBalance: false,
-    lockWatchInterval: null,
+    lockWatchInterval: null as ReturnType<typeof setInterval> | null,
     lastUnlockTouchAt: 0
   };
 
@@ -193,7 +194,7 @@
   function renderHistory() {
     elements.historyList.innerHTML = '';
     const activeAccount = state.accounts && state.accounts[state.activeAccountId];
-    const history = activeAccount?.history || [];
+    const history = (activeAccount as Record<string, unknown> & { history?: unknown[] })?.history || [];
     const totalPages = Math.max(1, Math.ceil(history.length / PAGE_SIZE));
     state.historyPage = Math.min(state.historyPage, totalPages - 1);
 
@@ -210,13 +211,13 @@
       const el = document.createElement('div');
       el.className = 'history-item';
 
-      const isRawTx = item.type === 'raw_tx';
+      const isRawTx = (item as Record<string, unknown>).type === 'raw_tx';
 
       // Header: origin + date
       const header = document.createElement('div');
       header.className = 'history-item-header';
-      const dateStr = new Date(item.timestamp).toLocaleString();
-      header.innerHTML = `<span class="history-item-origin">${escapeHtml(item.origin)}</span><span>${escapeHtml(dateStr)}</span>`;
+      const dateStr = new Date((item as Record<string, unknown>).timestamp as number).toLocaleString();
+      header.innerHTML = `<span class="history-item-origin">${escapeHtml((item as Record<string, unknown>).origin as string)}</span><span>${escapeHtml(dateStr)}</span>`;
 
       // Type badge row
       const meta = document.createElement('div');
@@ -224,8 +225,8 @@
       if (isRawTx) {
         const rawTxLabel = getRawTxHistoryLabel(item);
         meta.innerHTML = `<span class="history-item-badge history-item-badge--rawtx">${escapeHtml(rawTxLabel)}</span>
-          <span class="history-item-meta-detail">Sighash: <strong>${escapeHtml(item.sighashType || 'ALL')}</strong></span>
-          <span class="history-item-meta-detail">Inputs: <strong>${item.inputCount ?? '?'}</strong></span>`;
+          <span class="history-item-meta-detail">Sighash: <strong>${escapeHtml((item as Record<string, unknown>).sighashType as string || 'ALL')}</strong></span>
+          <span class="history-item-meta-detail">Inputs: <strong>${(item as Record<string, unknown>).inputCount ?? '?'}</strong></span>`;
       } else {
         meta.innerHTML = `<span class="history-item-badge history-item-badge--msg">MSG</span>`;
       }
@@ -249,7 +250,7 @@
 
         const txHex = document.createElement('div');
         txHex.className = 'history-item-sig history-item-txhex';
-        txHex.textContent = item.signedTxHex || item.txHex || '';
+        txHex.textContent = (item as Record<string, unknown>).signedTxHex as string || (item as Record<string, unknown>).txHex as string || '';
 
         details.appendChild(txLabel);
         details.appendChild(txHex);
@@ -266,12 +267,12 @@
       } else {
         const msg = document.createElement('div');
         msg.className = 'history-item-msg';
-        msg.title = item.message;
-        msg.textContent = item.message;
+        msg.title = (item as Record<string, unknown>).message as string;
+        msg.textContent = (item as Record<string, unknown>).message as string;
 
         const sig = document.createElement('div');
         sig.className = 'history-item-sig';
-        sig.textContent = item.signature;
+        sig.textContent = (item as Record<string, unknown>).signature as string;
 
         el.appendChild(msg);
         el.appendChild(sig);
@@ -300,7 +301,7 @@
     const network = state.wallet.network || 'xna';
     elements.networkValue.textContent = network === 'xna-test' ? 'Testnet' : 'Mainnet';
     elements.accountValue.textContent = 'Neurai_' + state.activeAccountId;
-    elements.addressValue.textContent = state.wallet.address || '--';
+    elements.addressValue.textContent = state.wallet.address as string || '--';
     elements.headerSubtitle.classList.toggle('hidden', state.wallet.walletType !== 'hardware');
     updateChangeAccountButton();
   }
@@ -317,14 +318,14 @@
 
     elements.statusValue.textContent = 'Loading…';
 
-    applyReaderConfig(state.wallet.network || 'xna');
+    applyReaderConfig(state.wallet.network as string || 'xna');
 
     try {
-      const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address);
-      const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.wallet.address, 'XNA');
-      const balance = NeuraiReader.formatBalance(balanceData.balance);
+      const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address as string);
+      const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.wallet.address as string, 'XNA');
+      const balance = NeuraiReader.formatBalance(balanceData!.balance);
       const pending = NeuraiReader.formatBalance(pendingDelta);
-      const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address);
+      const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address as string);
       state.assets = normalizeAssetsFromRpc(assetBalance);
       renderAmount(elements.balanceValue, balance, '0');
       renderAmount(elements.pendingValue, pending, '0');
@@ -345,7 +346,7 @@
     }
   }
 
-  function formatAmountParts(value, fallback = '0') {
+  function formatAmountParts(value: unknown, fallback = '0') {
     const raw = String(value ?? '').trim();
     if (!raw || raw === '--') return { integer: '--', decimals: '' };
     const normalized = raw.replace(/,/g, '');
@@ -356,7 +357,7 @@
     return { integer: intPart, decimals: decPart.replace(/0+$/, '') };
   }
 
-  function renderAmount(element, value, fallback = '0') {
+  function renderAmount(element: HTMLElement, value: unknown, fallback = '0') {
     const { integer, decimals } = formatAmountParts(value, fallback);
     element.textContent = '';
     const intNode = document.createElement('span');
@@ -371,37 +372,38 @@
     }
   }
 
-  function formatAssetAmount(amount, decimals) {
+  function formatAssetAmount(amount: unknown, decimals: number) {
     const fixed = Number(amount || 0).toFixed(decimals);
     const trimmed = fixed.replace(/\.?0+$/, '');
     return trimmed || '0';
   }
 
-  function normalizeAssetsFromRpc(assetBalance) {
-    let rows = [];
+  function normalizeAssetsFromRpc(assetBalance: unknown) {
+    let rows: unknown[] = [];
     if (Array.isArray(assetBalance)) {
       rows = assetBalance;
-    } else if (assetBalance && Array.isArray(assetBalance.assets)) {
-      rows = assetBalance.assets;
+    } else if (assetBalance && Array.isArray((assetBalance as Record<string, unknown>).assets)) {
+      rows = (assetBalance as Record<string, unknown[]>).assets;
     } else if (assetBalance && typeof assetBalance === 'object') {
-      rows = Object.keys(assetBalance).map((assetName) => ({
+      rows = Object.keys(assetBalance as object).map((assetName) => ({
         assetName,
-        balance: assetBalance[assetName]
+        balance: (assetBalance as Record<string, unknown>)[assetName]
       }));
     }
 
     return rows
       .map((asset) => {
-        const name = String(asset.assetName || asset.name || '').trim();
+        const a = asset as Record<string, unknown>;
+        const name = String(a.assetName || a.name || '').trim();
         if (!name || name.toUpperCase() === 'XNA') return null;
-        const decimals = (typeof asset.divisible === 'boolean')
-          ? (asset.divisible ? 8 : 0)
+        const decimals = (typeof a.divisible === 'boolean')
+          ? (a.divisible ? 8 : 0)
           : 8;
-        const amount = Number(asset.balance || 0) / Math.pow(10, decimals);
+        const amount = Number(a.balance || 0) / Math.pow(10, decimals);
         return { name, amountText: formatAssetAmount(amount, decimals) };
       })
       .filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+      .sort((a, b) => (a as { name: string }).name.localeCompare((b as { name: string }).name, undefined, { sensitivity: 'base' }));
   }
 
   function renderAssetsList() {
@@ -416,9 +418,10 @@
     }
     elements.assetsEmpty.classList.add('hidden');
     const pageItems = paginateItems(state.assets, state.assetsPage);
-    elements.assetsList.innerHTML = pageItems.map((asset) =>
-      `<div class="asset-item"><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span><span class="asset-balance">${escapeHtml(asset.amountText)}</span></div>`
-    ).join('');
+    elements.assetsList.innerHTML = pageItems.map((asset) => {
+      const a = asset as { name: string; amountText: string };
+      return `<div class="asset-item"><span class="asset-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span><span class="asset-balance">${escapeHtml(a.amountText)}</span></div>`;
+    }).join('');
     updatePager(elements.assetsPager, elements.assetsPageLabel, elements.assetsPrevBtn, elements.assetsNextBtn, state.assetsPage, totalPages);
   }
 
@@ -430,19 +433,19 @@
     }
 
     try {
-      const deltas = await NeuraiReader.getAddressDeltas(state.wallet.address, 'XNA');
-      const movementMap = new Map();
+      const deltas = await NeuraiReader.getAddressDeltas(state.wallet.address as string, 'XNA');
+      const movementMap = new Map<string, { txid: string; netSatoshis: number; height: number }>();
       for (const delta of Array.isArray(deltas) ? deltas : []) {
-        const txid = delta?.txid;
+        const txid = (delta as Record<string, unknown>)?.txid as string;
         if (!txid) continue;
         const current = movementMap.get(txid) || {
           txid,
           netSatoshis: 0,
-          height: Number(delta?.height || 0)
+          height: Number((delta as Record<string, unknown>)?.height || 0)
         };
-        current.netSatoshis += Number(delta?.satoshis || 0);
-        if (Number(delta?.height || 0) > current.height) {
-          current.height = Number(delta.height || 0);
+        current.netSatoshis += Number((delta as Record<string, unknown>)?.satoshis || 0);
+        if (Number((delta as Record<string, unknown>)?.height || 0) > current.height) {
+          current.height = Number((delta as Record<string, unknown>).height || 0);
         }
         movementMap.set(txid, current);
       }
@@ -450,9 +453,9 @@
       const txids = Array.from(movementMap.keys());
       const txs = await Promise.all(txids.map((txid) => NeuraiReader.getTransaction(txid)));
       state.recentMovements = txs
-        .map((tx) => normalizeMovement(tx, movementMap.get(tx.txid)))
+        .map((tx) => normalizeMovement(tx, movementMap.get((tx as Record<string, unknown>).txid as string)))
         .filter(Boolean)
-        .sort((a, b) => b.sortTime - a.sortTime);
+        .sort((a, b) => (b as { sortTime: number }).sortTime - (a as { sortTime: number }).sortTime);
       renderRecentMovements();
     } catch (_) {
       state.recentMovements = [];
@@ -460,7 +463,7 @@
     }
   }
 
-  function normalizeMovement(tx, movement) {
+  function normalizeMovement(tx: unknown, movement: { txid: string; netSatoshis: number; height: number } | undefined) {
     if (!tx || !movement || !movement.txid) return null;
 
     const netSatoshis = Number(movement.netSatoshis || 0);
@@ -469,14 +472,14 @@
     const direction = netSatoshis < 0 ? 'Sent' : 'Received';
     const rawAmount = Math.abs(netSatoshis) / 1e8;
     const amount = rawAmount > 0 ? Number(rawAmount).toFixed(8).replace(/\.?0+$/, '') : '0';
-    const timestamp = Number(tx.blocktime || tx.time || 0);
+    const timestamp = Number((tx as Record<string, unknown>).blocktime || (tx as Record<string, unknown>).time || 0);
 
     return {
       txid: movement.txid,
       direction,
       amountText: amount + ' XNA',
       timestamp: timestamp ? new Date(timestamp * 1000).toLocaleString() : 'Pending',
-      confirmations: Number(tx.confirmations || 0),
+      confirmations: Number((tx as Record<string, unknown>).confirmations || 0),
       sortTime: timestamp || 0
     };
   }
@@ -495,28 +498,38 @@
 
     elements.recentMovementsEmpty.classList.add('hidden');
     const pageItems = paginateItems(state.recentMovements, state.recentMovementsPage);
-    elements.recentMovementsList.innerHTML = pageItems.map((item) => `
+    elements.recentMovementsList.innerHTML = pageItems.map((item) => {
+      const i = item as { direction: string; amountText: string; timestamp: string; confirmations: number; txid: string };
+      return `
       <div class="movement-item">
         <div class="movement-head">
-          <span class="movement-direction movement-direction--${item.direction.toLowerCase()}">${escapeHtml(item.direction)}</span>
-          <strong>${escapeHtml(item.amountText)}</strong>
+          <span class="movement-direction movement-direction--${i.direction.toLowerCase()}">${escapeHtml(i.direction)}</span>
+          <strong>${escapeHtml(i.amountText)}</strong>
         </div>
         <div class="movement-meta">
-          <span>${escapeHtml(item.timestamp)}</span>
-          <span>${item.confirmations > 0 ? escapeHtml(String(item.confirmations)) + ' conf' : 'Pending'}</span>
+          <span>${escapeHtml(i.timestamp)}</span>
+          <span>${i.confirmations > 0 ? escapeHtml(String(i.confirmations)) + ' conf' : 'Pending'}</span>
         </div>
-        <div class="movement-txid">${escapeHtml(item.txid)}</div>
+        <div class="movement-txid">${escapeHtml(i.txid)}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     updatePager(elements.recentMovementsPager, elements.recentMovementsPageLabel, elements.recentMovementsPrevBtn, elements.recentMovementsNextBtn, state.recentMovementsPage, totalPages);
   }
 
-  function paginateItems(items, page) {
+  function paginateItems(items: unknown[], page: number) {
     const start = page * PAGE_SIZE;
     return items.slice(start, start + PAGE_SIZE);
   }
 
-  function updatePager(container, label, prevBtn, nextBtn, page, totalPages) {
+  function updatePager(
+    container: HTMLElement | null,
+    label: HTMLElement | null,
+    prevBtn: HTMLButtonElement | null,
+    nextBtn: HTMLButtonElement | null,
+    page: number,
+    totalPages: number
+  ) {
     if (!container || !label || !prevBtn || !nextBtn) return;
     const hasPages = totalPages > 1;
     container.classList.toggle('hidden', !hasPages);
@@ -525,27 +538,27 @@
     nextBtn.disabled = !hasPages || page >= totalPages - 1;
   }
 
-  function changeHistoryPage(delta) {
+  function changeHistoryPage(delta: number) {
     const activeAccount = state.accounts && state.accounts[state.activeAccountId];
-    const history = activeAccount?.history || [];
+    const history = (activeAccount as Record<string, unknown> & { history?: unknown[] })?.history || [];
     const totalPages = Math.max(1, Math.ceil(history.length / PAGE_SIZE));
     state.historyPage = Math.max(0, Math.min(totalPages - 1, state.historyPage + delta));
     renderHistory();
   }
 
-  function changeRecentMovementsPage(delta) {
+  function changeRecentMovementsPage(delta: number) {
     const totalPages = Math.max(1, Math.ceil(state.recentMovements.length / PAGE_SIZE));
     state.recentMovementsPage = Math.max(0, Math.min(totalPages - 1, state.recentMovementsPage + delta));
     renderRecentMovements();
   }
 
-  function changeAssetsPage(delta) {
+  function changeAssetsPage(delta: number) {
     const totalPages = Math.max(1, Math.ceil(state.assets.length / PAGE_SIZE));
     state.assetsPage = Math.max(0, Math.min(totalPages - 1, state.assetsPage + delta));
     renderAssetsList();
   }
 
-  function escapeHtml(value) {
+  function escapeHtml(value: unknown) {
     return String(value)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -554,23 +567,25 @@
       .replace(/'/g, '&#39;');
   }
 
-  function getRawTxHistoryLabel(item) {
-    const sighash = String(item?.sighashType || 'ALL').trim().toUpperCase();
+  function getRawTxHistoryLabel(item: unknown) {
+    const i = item as Record<string, unknown>;
+    const sighash = String(i?.sighashType || 'ALL').trim().toUpperCase();
     if (sighash === 'SINGLE|ANYONECANPAY') return 'Offer';
     if (isSwapUtxoConsolidation(item)) return 'UTXO Consolidation';
-    if (isSwapHistoryOrigin(item?.origin)) return 'Purchase';
+    if (isSwapHistoryOrigin(i?.origin as string)) return 'Purchase';
     return 'Transaction';
   }
 
-  function isSwapUtxoConsolidation(item) {
-    return isSwapHistoryOrigin(item?.origin) && Number(item?.inputCount || 0) > 1;
+  function isSwapUtxoConsolidation(item: unknown) {
+    const i = item as Record<string, unknown>;
+    return isSwapHistoryOrigin(i?.origin as string) && Number(i?.inputCount || 0) > 1;
   }
 
-  function isSwapHistoryOrigin(origin) {
+  function isSwapHistoryOrigin(origin: unknown) {
     return /swap\.neurai\.org/i.test(String(origin || ''));
   }
 
-  function applyReaderConfig(network) {
+  function applyReaderConfig(network: string) {
     if (network === 'xna-test') NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     const rpcUrl = network === 'xna-test' ? state.settings.rpcTestnet : state.settings.rpcMainnet;
     if (rpcUrl) NeuraiReader.setURL(rpcUrl);
@@ -584,7 +599,7 @@
       .catch(() => showCopyAddressFeedback(false));
   }
 
-  function isConfiguredAccount(entry) {
+  function isConfiguredAccount(entry: Record<string, unknown> | null | undefined) {
     return !!(entry && (
       entry.privateKey ||
       entry.privateKeyEnc ||
@@ -594,7 +609,7 @@
     ));
   }
 
-  function getConfiguredAccountIds(accountsData = state.accounts || {}) {
+  function getConfiguredAccountIds(accountsData: Record<string, Record<string, unknown> | null> = state.accounts || {}) {
     return Object.keys(accountsData).filter((id) => isConfiguredAccount(accountsData[id]));
   }
 
@@ -614,7 +629,7 @@
     const currentIndex = configuredIds.indexOf(state.activeAccountId);
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % configuredIds.length : 0;
     const targetId = configuredIds[nextIndex];
-    const targetWallet = state.accounts[targetId];
+    const targetWallet = state.accounts![targetId];
     if (!targetWallet) return;
 
     state.activeAccountId = String(targetId);
@@ -623,11 +638,9 @@
     state.historyPage = 0;
     state.recentMovementsPage = 0;
 
-    await new Promise((resolve) => {
-      chrome.storage.local.set({
-        [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
-        [C.STORAGE_KEY]: targetWallet
-      }, resolve);
+    await chrome.storage.local.set({
+      [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
+      [C.STORAGE_KEY]: targetWallet
     });
 
     showWalletSection();
@@ -637,7 +650,7 @@
   function findNextEmptyAccountId() {
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
-      if (!isConfiguredAccount(state.accounts[id])) return id;
+      if (!isConfiguredAccount(state.accounts![id])) return id;
     }
     return null;
   }
@@ -648,7 +661,7 @@
     window.location.href = chrome.runtime.getURL('onboarding/welcome.html?mode=new-account&id=' + nextId);
   }
 
-  function showCopyAddressFeedback(success) {
+  function showCopyAddressFeedback(success: boolean) {
     if (!elements.copyAddressBtn) return;
     if (copyAddressFeedbackTimeout) {
       clearTimeout(copyAddressFeedbackTimeout);
@@ -656,11 +669,11 @@
     }
 
     elements.copyAddressBtn.classList.toggle('is-success', success);
-    elements.copyAddressBtn.querySelector('.copy-btn-label').textContent = success ? 'Copied' : 'Failed';
+    elements.copyAddressBtn.querySelector('.copy-btn-label')!.textContent = success ? 'Copied' : 'Failed';
 
     copyAddressFeedbackTimeout = setTimeout(() => {
       elements.copyAddressBtn.classList.remove('is-success');
-      elements.copyAddressBtn.querySelector('.copy-btn-label').textContent = 'Copy';
+      elements.copyAddressBtn.querySelector('.copy-btn-label')!.textContent = 'Copy';
       copyAddressFeedbackTimeout = null;
     }, 1400);
   }
@@ -668,46 +681,35 @@
   // ── Storage ────────────────────────────────────────────────────────────────
 
   async function loadState() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(
-        [C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY],
-        (result) => {
-          state.accounts = result[C.ACCOUNTS_KEY] || null;
-          state.activeAccountId = String(result[C.ACTIVE_ACCOUNT_KEY] || '1');
-          const activeWallet = state.accounts && state.accounts[state.activeAccountId]
-            ? state.accounts[state.activeAccountId]
-            : null;
-          state.wallet = activeWallet || result[C.STORAGE_KEY] || null;
-          state.settings = { ...C.DEFAULT_SETTINGS, ...(result[C.SETTINGS_KEY] || {}) };
-          state.unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
-          resolve();
-        }
-      );
-    });
+    const result = await chrome.storage.local.get(
+      [C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY]
+    );
+    state.accounts = (result[C.ACCOUNTS_KEY] as Record<string, Record<string, unknown> | null>) || null;
+    state.activeAccountId = String(result[C.ACTIVE_ACCOUNT_KEY] || '1');
+    const activeWallet = state.accounts && state.accounts[state.activeAccountId]
+      ? state.accounts[state.activeAccountId]
+      : null;
+    state.wallet = activeWallet || (result[C.STORAGE_KEY] as Record<string, unknown>) || null;
+    state.settings = { ...C.DEFAULT_SETTINGS, ...(result[C.SETTINGS_KEY] || {}) };
+    state.unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
   }
 
   async function loadSessionPinState() {
     if (!chrome.storage?.session) return;
-    return new Promise((resolve) => {
-      chrome.storage.session.get(C.SESSION_PIN_KEY, (result) => {
-        state.sessionPin = state.unlockUntil > Date.now()
-          ? String(result[C.SESSION_PIN_KEY] || '')
-          : '';
-        resolve();
-      });
-    });
+    const result = await chrome.storage.session.get(C.SESSION_PIN_KEY);
+    state.sessionPin = state.unlockUntil > Date.now()
+      ? String(result[C.SESSION_PIN_KEY] || '')
+      : '';
   }
 
-  async function persistSessionPin(pin) {
+  async function persistSessionPin(pin: string) {
     state.sessionPin = pin || '';
     if (chrome.storage?.session) {
-      await new Promise((resolve) => {
-        if (state.sessionPin) {
-          chrome.storage.session.set({ [C.SESSION_PIN_KEY]: state.sessionPin }, resolve);
-        } else {
-          chrome.storage.session.remove(C.SESSION_PIN_KEY, resolve);
-        }
-      });
+      if (state.sessionPin) {
+        await chrome.storage.session.set({ [C.SESSION_PIN_KEY]: state.sessionPin });
+      } else {
+        await chrome.storage.session.remove(C.SESSION_PIN_KEY);
+      }
     }
     try {
       await chrome.runtime.sendMessage({
@@ -786,7 +788,7 @@
       closeUnlockModal();
       showSetupSection();
     } catch (error) {
-      elements.unlockResetMessage.textContent = error.message || 'Unable to reset addon data.';
+      elements.unlockResetMessage.textContent = (error as Error).message || 'Unable to reset addon data.';
     }
   }
 
@@ -798,19 +800,17 @@
     state.unlockUntil = 0;
     await persistSessionPin('');
 
-    await new Promise((resolve) => {
-      chrome.storage.local.set({
-        [C.ACCOUNTS_KEY]: state.accounts,
-        [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
-        [C.STORAGE_KEY]: null,
-        [C.SETTINGS_KEY]: state.settings,
-        [C.UNLOCK_UNTIL_KEY]: 0
-      }, resolve);
+    await chrome.storage.local.set({
+      [C.ACCOUNTS_KEY]: state.accounts,
+      [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
+      [C.STORAGE_KEY]: null,
+      [C.SETTINGS_KEY]: state.settings,
+      [C.UNLOCK_UNTIL_KEY]: 0
     });
   }
 
   function createDefaultAccounts() {
-    const accounts = {};
+    const accounts: Record<string, null> = {};
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) accounts[String(i)] = null;
     return accounts;
   }
@@ -818,9 +818,7 @@
   async function unlockForConfiguredTimeout() {
     const minutes = NEURAI_UTILS.normalizeLockTimeoutMinutes(state.settings?.lockTimeoutMinutes);
     state.unlockUntil = Date.now() + minutes * 60 * 1000;
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: state.unlockUntil }, resolve);
-    });
+    await chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: state.unlockUntil });
   }
 
   function touchUnlockSession(force = false) {
@@ -883,20 +881,18 @@
     }
   }
 
-  async function persistWallet(walletData) {
+  async function persistWallet(walletData: Record<string, unknown>) {
     // Update state
     state.wallet = walletData;
     if (!state.accounts || typeof state.accounts !== 'object') {
-      state.accounts = {};
+      state.accounts = {} as Record<string, Record<string, unknown> | null>;
     }
     state.accounts[state.activeAccountId] = walletData;
 
-    return new Promise((resolve) => {
-      chrome.storage.local.set({
-        [C.ACCOUNTS_KEY]: state.accounts,
-        [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
-        [C.STORAGE_KEY]: walletData
-      }, resolve);
+    await chrome.storage.local.set({
+      [C.ACCOUNTS_KEY]: state.accounts,
+      [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
+      [C.STORAGE_KEY]: walletData
     });
   }
 
@@ -957,8 +953,8 @@
       await reconnectHwDevice();
       alert('Hardware wallet reconnected');
     } catch (err) {
-      if (!isSerialPortSelectionCancelled(err)) {
-        alert('Reconnection failed: ' + err.message);
+      if (!isSerialPortSelectionCancelled(err as Error)) {
+        alert('Reconnection failed: ' + (err as Error).message);
       }
     } finally {
       elements.hwReconnectBtn.disabled = false;
@@ -1009,7 +1005,7 @@
     };
   }
 
-  function validateHardwareWalletNetwork(selectedNetwork, deviceNetwork) {
+  function validateHardwareWalletNetwork(selectedNetwork: string, deviceNetwork: string | null | undefined) {
     const expectedNetwork = selectedNetwork === 'xna-test' ? 'NeuraiTest' : 'Neurai';
     if (deviceNetwork && deviceNetwork !== expectedNetwork) {
       throw new Error(
@@ -1018,7 +1014,7 @@
     }
   }
 
-  function isSerialPortSelectionCancelled(error) {
+  function isSerialPortSelectionCancelled(error: Error) {
     return !!(error && (
       error.name === 'NotFoundError' ||
       String(error.message || '').includes('No port selected by the user')
@@ -1055,26 +1051,26 @@
     }
   });
 
-  async function handleHwSignMessage(message) {
+  async function handleHwSignMessage(message: Record<string, unknown>) {
     if (!hwDevice || !hwDevice.connected) {
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon.' };
     }
     try {
-      const result = await hwDevice.signMessage(message.message);
+      const result = await hwDevice.signMessage(message.message as string);
       return { success: true, signature: result.signature, address: result.address };
     } catch (err) {
       updateHwConnectionUI();
-      return { error: 'HW sign failed: ' + err.message };
+      return { error: 'HW sign failed: ' + (err as Error).message };
     }
   }
 
-  async function handleHwSignRawTx(message) {
+  async function handleHwSignRawTx(message: Record<string, unknown>) {
     if (!hwDevice || !hwDevice.connected) {
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon.' };
     }
     try {
       const wallet = state.wallet || {};
-      const network = wallet.network || 'xna';
+      const network = wallet.network as string || 'xna';
       const rpcUrl = network === 'xna-test'
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
@@ -1087,21 +1083,23 @@
         return { error: 'Hardware wallet metadata is incomplete. Reconnect the hardware wallet from the full wallet view.' };
       }
 
-      const utxos = message.utxos || [];
-      const txInputs = parseRawTransactionInputs(message.txHex);
+      const utxos = message.utxos as unknown[] || [];
+      const txInputs = parseRawTransactionInputs(message.txHex as string);
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
       const networkType = network === 'xna-test' ? 'xna-test' : 'xna';
-      const sighashType = parseSighashType(message.sighashType);
+      const sighashType = parseSighashType(message.sighashType as string);
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
         network: networkType,
-        rawUnsignedTransaction: message.txHex,
+        rawUnsignedTransaction: message.txHex as string,
         inputs: enrichedUtxos.map((utxo) => {
-          const signerUtxo = utxos.find((candidate) => candidate.txid === utxo.txid && Number(candidate.vout) === Number(utxo.vout));
+          const signerUtxo = (utxos as Array<Record<string, unknown>>).find(
+            (candidate) => candidate.txid === utxo.txid && Number(candidate.vout) === Number(utxo.vout)
+          );
           return {
             txid: utxo.txid,
             vout: utxo.vout,
             sequence: utxo.sequence,
-            rawTxHex: utxo.rawTxHex,
+            rawTxHex: utxo.rawTxHex ?? undefined,
             ...(signerUtxo ? {
               masterFingerprint,
               derivationPath,
@@ -1111,7 +1109,7 @@
           };
         })
       });
-      const feeSats = calculateRawTransactionFeeSats(message.txHex, enrichedUtxos);
+      const feeSats = calculateRawTransactionFeeSats(message.txHex as string, enrichedUtxos);
       const signingDisplay = feeSats !== null
         ? { feeAmount: formatSatoshisToXna(feeSats), baseCurrency: 'XNA' }
         : undefined;
@@ -1120,25 +1118,25 @@
       return { success: true, signedTxHex: finalized.txHex, complete: true };
     } catch (err) {
       updateHwConnectionUI();
-      return { error: 'HW sign failed: ' + err.message };
+      return { error: 'HW sign failed: ' + (err as Error).message };
     }
   }
 
-  async function ensureHardwareSigningMetadata(message) {
+  async function ensureHardwareSigningMetadata(message: Record<string, unknown>) {
     const wallet = state.wallet || {};
-    let publicKey = message.publicKey || wallet.publicKey || null;
-    let derivationPath = message.derivationPath || wallet.hardwareDerivationPath || null;
-    let masterFingerprint = message.masterFingerprint || wallet.hardwareMasterFingerprint || null;
+    let publicKey = message.publicKey as string || wallet.publicKey as string || null;
+    let derivationPath = message.derivationPath as string || wallet.hardwareDerivationPath as string || null;
+    let masterFingerprint = message.masterFingerprint as string || wallet.hardwareMasterFingerprint as string || null;
 
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
 
     if (needsInfo) {
-      const info = hwDevice.info || await hwDevice.getInfo();
+      const info = hwDevice!.info || await hwDevice!.getInfo();
       masterFingerprint = info?.master_fingerprint || masterFingerprint;
     }
     if (needsAddress) {
-      const addrResp = await hwDevice.getAddress();
+      const addrResp = await hwDevice!.getAddress();
       publicKey = addrResp?.pubkey || publicKey;
       derivationPath = addrResp?.path || derivationPath;
     }
@@ -1160,9 +1158,9 @@
     return { publicKey, derivationPath, masterFingerprint };
   }
 
-  async function fetchRawTxForUtxos(utxos, rpcUrl) {
+  async function fetchRawTxForUtxos(utxos: Array<{ txid: string; vout: number; sequence: number }>, rpcUrl: string) {
     const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
-    const rawTxMap = {};
+    const rawTxMap: Record<string, string> = {};
     for (const txid of txids) {
       try {
         const resp = await fetch(rpcUrl, {
@@ -1170,25 +1168,25 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jsonrpc: '1.0', id: 'hw-rawtx', method: 'getrawtransaction', params: [txid, 0] })
         });
-        const data = await resp.json();
+        const data = await resp.json() as { result?: string };
         if (data.result) rawTxMap[txid] = data.result;
       } catch (_) { }
     }
     return utxos.map(u => ({
       txid: u.txid, vout: u.vout,
       sequence: u.sequence,
-      value: Math.round((u.amount || 0) * 1e8),
+      value: Math.round(((u as unknown as Record<string, unknown>).amount as number || 0) * 1e8),
       rawTxHex: rawTxMap[u.txid] || null
     }));
   }
 
-  function parseRawTransactionInputs(txHex) {
+  function parseRawTransactionInputs(txHex: string) {
     const bytes = hexToBytes(txHex);
     let offset = 4;
     const inputVarInt = readVarInt(bytes, offset);
     offset += inputVarInt.size;
 
-    const inputs = [];
+    const inputs: Array<{ txid: string; vout: number; sequence: number }> = [];
     for (let i = 0; i < inputVarInt.value; i += 1) {
       const txidBytes = bytes.slice(offset, offset + 32);
       offset += 32;
@@ -1209,7 +1207,7 @@
     return inputs;
   }
 
-  function parseRawTransactionOutputs(txHex) {
+  function parseRawTransactionOutputs(txHex: string) {
     const bytes = hexToBytes(txHex);
     let offset = 4;
     const inputVarInt = readVarInt(bytes, offset);
@@ -1225,7 +1223,7 @@
 
     const outputVarInt = readVarInt(bytes, offset);
     offset += outputVarInt.size;
-    const outputs = [];
+    const outputs: Array<{ value: bigint }> = [];
 
     for (let i = 0; i < outputVarInt.value; i += 1) {
       const value = readUInt64LE(bytes, offset);
@@ -1239,7 +1237,7 @@
     return outputs;
   }
 
-  function calculateRawTransactionFeeSats(txHex, enrichedUtxos) {
+  function calculateRawTransactionFeeSats(txHex: string, enrichedUtxos: Array<{ txid: string; vout: number; rawTxHex: string | null }>) {
     try {
       const inputTotal = (enrichedUtxos || []).reduce((sum, utxo) => {
         const amount = getPrevoutAmountFromRawTx(utxo.rawTxHex, Number(utxo.vout));
@@ -1255,29 +1253,29 @@
     }
   }
 
-  function getPrevoutAmountFromRawTx(rawTxHex, vout) {
+  function getPrevoutAmountFromRawTx(rawTxHex: string | null, vout: number) {
     if (!rawTxHex) return null;
     const output = parseRawTransactionOutputs(rawTxHex)[vout];
     return output ? output.value : null;
   }
 
-  function hexToBytes(hex) {
+  function hexToBytes(hex: string) {
     const normalized = String(hex || '').trim();
     if (!normalized || normalized.length % 2 !== 0) {
       throw new Error('Invalid raw transaction hex');
     }
-    const bytes = [];
+    const bytes: number[] = [];
     for (let i = 0; i < normalized.length; i += 2) {
       bytes.push(parseInt(normalized.slice(i, i + 2), 16));
     }
     return bytes;
   }
 
-  function bytesToHex(bytes) {
+  function bytesToHex(bytes: number[]) {
     return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
   }
 
-  function readUInt32LE(bytes, offset) {
+  function readUInt32LE(bytes: number[], offset: number) {
     return (
       bytes[offset] |
       (bytes[offset + 1] << 8) |
@@ -1286,13 +1284,13 @@
     ) >>> 0;
   }
 
-  function readUInt64LE(bytes, offset) {
+  function readUInt64LE(bytes: number[], offset: number) {
     const low = BigInt(readUInt32LE(bytes, offset));
     const high = BigInt(readUInt32LE(bytes, offset + 4));
     return low + (high << 32n);
   }
 
-  function readVarInt(bytes, offset) {
+  function readVarInt(bytes: number[], offset: number) {
     const first = bytes[offset];
     if (first < 0xfd) return { value: first, size: 1 };
     if (first === 0xfd) {
@@ -1304,7 +1302,7 @@
     throw new Error('Unsupported varint in raw transaction');
   }
 
-  function parseSighashType(sighashType) {
+  function parseSighashType(sighashType: unknown) {
     const normalized = String(sighashType || 'ALL')
       .toUpperCase()
       .split('|')
@@ -1323,14 +1321,14 @@
     return value || 0x01;
   }
 
-  function estimateBase64Bytes(base64) {
+  function estimateBase64Bytes(base64: unknown) {
     const normalized = String(base64 || '');
     if (!normalized) return 0;
     const padding = normalized.endsWith('==') ? 2 : (normalized.endsWith('=') ? 1 : 0);
     return Math.floor((normalized.length * 3) / 4) - padding;
   }
 
-  function formatSatoshisToXna(satoshis) {
+  function formatSatoshisToXna(satoshis: bigint | number) {
     return (Number(satoshis) / 1e8).toFixed(8);
   }
 

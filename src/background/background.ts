@@ -1,38 +1,63 @@
 // Neurai Wallet — Background Service Worker
 // Handles balance polling, message signing approval, and RPC calls.
 
-// Some bundled libs assume a browser window global. In service workers, alias it.
-if (typeof globalThis.window === 'undefined') {
-  globalThis.window = globalThis;
+// Static imports are hoisted by the JS engine and do not depend on window.
+import { NEURAI_CONSTANTS } from '../shared/constants.js';
+import { NEURAI_UTILS } from '../shared/utils.js';
+import type {
+  WalletData,
+  WalletSettings,
+  AccountsRecord,
+  SignApprovalPayload,
+  SignApprovalResult,
+  HwSignPayload,
+  HwSignResult,
+  HwSignSuccess,
+  HwMessageSignResult,
+  HwRawTxSignResult,
+  PendingSignRequest,
+  PendingHwSignRequest,
+  BackgroundMessage,
+  BackgroundResponse,
+  WalletNetwork,
+  Utxo,
+  SignRequestDecisionMsg,
+  HwSignResultMsg,
+} from '../types/index.js';
+
+// Load UMD crypto libs lazily on first use — avoids top-level await, which causes
+// "Service worker registration failed. Status code: 3" in some Chrome versions.
+let _cryptoLibsLoaded = false;
+async function loadCryptoLibs(): Promise<void> {
+  if (_cryptoLibsLoaded) return;
+  // Alias window before the UMD bundles load — their internal code assumes window exists.
+  if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
+    (globalThis as Record<string, unknown>).window = globalThis;
+  }
+  await import('../lib/NeuraiKey.js');
+  await import('../lib/NeuraiMessage.js');
+  _cryptoLibsLoaded = true;
 }
 
-// Import libraries and shared modules (service workers cannot use ES module imports)
-try {
-  importScripts(
-    '../lib/NeuraiKey.js',
-    '../lib/NeuraiMessage.js',
-    '../shared/constants.js',
-    '../shared/utils.js'
-  );
-} catch (e) {
-  console.error('Failed to import scripts:', e);
-}
+// Local type for the Buffer polyfill marker that bitcoinjs-message's bundle expects.
+type BufferLike = Uint8Array & { _isBuffer: true };
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let pollingInterval = null;
-let walletData = null;
-let walletSettings = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
-let sessionPinCache = '';
-const pendingSignRequests = new Map();
-const pendingHwSignRequests = new Map();
-const keepAlivePorts = new Set();
+
+let pollingInterval: ReturnType<typeof setInterval> | null = null;
+let walletData: WalletData | null = null;
+let walletSettings: WalletSettings = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
+let sessionPinCache: string = '';
+const pendingSignRequests = new Map<string, PendingSignRequest>();
+const pendingHwSignRequests = new Map<string, PendingHwSignRequest>();
+const keepAlivePorts = new Set<chrome.runtime.Port>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
  * Convert a hex string to a Uint8Array marked as a Buffer (for bitcoinjs-message compat).
  */
-function hexToBufferLike(hex) {
+function hexToBufferLike(hex: string): BufferLike {
   if (typeof hex !== 'string' || hex.length % 2 !== 0) {
     throw new Error('Invalid private key format');
   }
@@ -43,93 +68,75 @@ function hexToBufferLike(hex) {
     bytes[i] = byte;
   }
   // bitcoinjs-message's bundled Buffer polyfill accepts objects marked like this.
-  bytes._isBuffer = true;
-  return bytes;
+  (bytes as BufferLike)._isBuffer = true;
+  return bytes as BufferLike;
 }
 
-function getRpcUrl(network = 'xna') {
+function getRpcUrl(network: WalletNetwork | string = 'xna'): string {
   if (network === 'xna-test') {
     return walletSettings.rpcTestnet || NEURAI_CONSTANTS.RPC_URL_TESTNET;
   }
   return walletSettings.rpcMainnet || NEURAI_CONSTANTS.RPC_URL;
 }
 
-function isHardwareWallet(wallet) {
+function isHardwareWallet(wallet: WalletData | null): wallet is WalletData & { walletType: 'hardware' } {
   return wallet?.walletType === 'hardware';
 }
 
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
-async function loadWalletData() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([
-      NEURAI_CONSTANTS.STORAGE_KEY,
-      NEURAI_CONSTANTS.ACCOUNTS_KEY,
-      NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY
-    ], (result) => {
-      const accounts = result[NEURAI_CONSTANTS.ACCOUNTS_KEY];
-      const activeId = String(result[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] || '1');
-      const activeWallet = accounts && accounts[activeId] ? accounts[activeId] : null;
-      walletData = activeWallet || result[NEURAI_CONSTANTS.STORAGE_KEY] || null;
-      resolve();
-    });
-  });
+async function loadWalletData(): Promise<void> {
+  const result = await chrome.storage.local.get([
+    NEURAI_CONSTANTS.STORAGE_KEY,
+    NEURAI_CONSTANTS.ACCOUNTS_KEY,
+    NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY
+  ]);
+  const accounts = result[NEURAI_CONSTANTS.ACCOUNTS_KEY] as AccountsRecord | undefined;
+  const activeId = String(result[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] || '1');
+  const activeWallet = accounts && accounts[activeId] ? accounts[activeId] : null;
+  walletData = activeWallet || (result[NEURAI_CONSTANTS.STORAGE_KEY] as WalletData | null) || null;
 }
 
-async function loadWalletSettings() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(NEURAI_CONSTANTS.SETTINGS_KEY, (result) => {
-      walletSettings = {
-        ...NEURAI_CONSTANTS.DEFAULT_SETTINGS,
-        ...(result[NEURAI_CONSTANTS.SETTINGS_KEY] || {})
-      };
-      resolve();
-    });
-  });
+async function loadWalletSettings(): Promise<void> {
+  const result = await chrome.storage.local.get(NEURAI_CONSTANTS.SETTINGS_KEY);
+  const stored = result[NEURAI_CONSTANTS.SETTINGS_KEY] as Partial<WalletSettings> | undefined;
+  walletSettings = {
+    ...NEURAI_CONSTANTS.DEFAULT_SETTINGS,
+    ...(stored || {})
+  };
 }
 
-async function loadSessionPinCache() {
-  if (!chrome.storage?.session) {
+async function loadSessionPinCache(): Promise<void> {
+  if (!chrome.storage.session) {
     sessionPinCache = '';
     return;
   }
-  return new Promise((resolve) => {
-    chrome.storage.session.get(NEURAI_CONSTANTS.SESSION_PIN_KEY, (result) => {
-      sessionPinCache = String(result[NEURAI_CONSTANTS.SESSION_PIN_KEY] || '');
-      resolve();
-    });
-  });
+  const result = await chrome.storage.session.get(NEURAI_CONSTANTS.SESSION_PIN_KEY);
+  sessionPinCache = String(result[NEURAI_CONSTANTS.SESSION_PIN_KEY] || '');
 }
 
-async function persistSessionPinCache(pin) {
+async function persistSessionPinCache(pin: string): Promise<void> {
   sessionPinCache = String(pin || '');
-  if (!chrome.storage?.session) return;
-  return new Promise((resolve) => {
-    if (sessionPinCache) {
-      chrome.storage.session.set({ [NEURAI_CONSTANTS.SESSION_PIN_KEY]: sessionPinCache }, resolve);
-    } else {
-      chrome.storage.session.remove(NEURAI_CONSTANTS.SESSION_PIN_KEY, resolve);
-    }
-  });
+  if (!chrome.storage.session) return;
+  if (sessionPinCache) {
+    await chrome.storage.session.set({ [NEURAI_CONSTANTS.SESSION_PIN_KEY]: sessionPinCache });
+  } else {
+    await chrome.storage.session.remove(NEURAI_CONSTANTS.SESSION_PIN_KEY);
+  }
 }
 
-async function getUnlockUntil() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY, (result) => {
-      resolve(Number(result[NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY] || 0));
-    });
-  });
+async function getUnlockUntil(): Promise<number> {
+  const result = await chrome.storage.local.get(NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY);
+  return Number(result[NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY] || 0);
 }
 
-async function setUnlockForConfiguredTimeout() {
+async function setUnlockForConfiguredTimeout(): Promise<void> {
   const minutes = NEURAI_UTILS.normalizeLockTimeoutMinutes(walletSettings.lockTimeoutMinutes);
   const unlockUntil = Date.now() + minutes * 60 * 1000;
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY]: unlockUntil }, resolve);
-  });
+  await chrome.storage.local.set({ [NEURAI_CONSTANTS.UNLOCK_UNTIL_KEY]: unlockUntil });
 }
 
-async function isUnlockedForSensitiveActions() {
+async function isUnlockedForSensitiveActions(): Promise<boolean> {
   if (!walletSettings.pinHash) return true;
   const unlockUntil = await getUnlockUntil();
   return unlockUntil > Date.now();
@@ -137,7 +144,7 @@ async function isUnlockedForSensitiveActions() {
 
 // ── Polling ───────────────────────────────────────────────────────────────────
 
-function startPolling() {
+function startPolling(): void {
   if (pollingInterval) clearInterval(pollingInterval);
 
   pollingInterval = setInterval(async () => {
@@ -152,14 +159,14 @@ function startPolling() {
   }, NEURAI_CONSTANTS.POLLING_INTERVAL_MS);
 }
 
-function stopPolling() {
+function stopPolling(): void {
   if (pollingInterval) {
     clearInterval(pollingInterval);
     pollingInterval = null;
   }
 }
 
-async function fetchBalance(address, network = 'xna') {
+async function fetchBalance(address: string, network: WalletNetwork | string = 'xna'): Promise<string> {
   const rpcUrl = getRpcUrl(network);
   const response = await fetch(rpcUrl, {
     method: 'POST',
@@ -171,15 +178,15 @@ async function fetchBalance(address, network = 'xna') {
       params: [{ addresses: [address] }, false]
     })
   });
-  const data = await response.json();
+  const data = await response.json() as { result: { balance: number }; error?: { message: string } };
   if (data.error) throw new Error(data.error.message);
   return (data.result.balance / 1e8).toFixed(8);
 }
 
 // ── Message routing ───────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleMessage(message, sender).then(sendResponse);
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  handleMessage(message as BackgroundMessage, sender).then(sendResponse);
   return true; // Keep channel open for async response
 });
 
@@ -195,7 +202,10 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-async function handleMessage(message, sender) {
+async function handleMessage(
+  message: BackgroundMessage,
+  sender: chrome.runtime.MessageSender
+): Promise<BackgroundResponse> {
   const { MSG } = NEURAI_CONSTANTS;
 
   switch (message.type) {
@@ -264,13 +274,16 @@ async function handleMessage(message, sender) {
       return { success: true };
 
     default:
-      return { error: 'Unknown message type: ' + message.type };
+      return { error: 'Unknown message type: ' + (message as { type: string }).type };
   }
 }
 
 // ── Signing ───────────────────────────────────────────────────────────────────
 
-async function signMessageForPage(messageText, sender) {
+async function signMessageForPage(
+  messageText: string,
+  sender: chrome.runtime.MessageSender
+): Promise<BackgroundResponse> {
   await loadWalletData();
   await loadWalletSettings();
 
@@ -299,7 +312,7 @@ async function signMessageForPage(messageText, sender) {
       return { error: approval?.error || 'User rejected signature request' };
     }
 
-    let privateKeyWif = walletData.privateKey || null;
+    let privateKeyWif: string | null = walletData.privateKey || null;
     if (!privateKeyWif && walletData.privateKeyEnc) {
       if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
       if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
@@ -307,14 +320,17 @@ async function signMessageForPage(messageText, sender) {
     }
     if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
 
+    await loadCryptoLibs();
     const addrData = NeuraiKey.getAddressByWIF(walletData.network || 'xna', privateKeyWif);
     const privateKeyBuffer = hexToBufferLike(addrData.privateKey);
-    const signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true);
+    const signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true) as string;
 
     // Save to history
     try {
-      const accountsObj = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY, r)))[NEURAI_CONSTANTS.ACCOUNTS_KEY] || {};
-      const activeId = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY, r)))[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY];
+      const accountsResult = await chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY);
+      const activeResult = await chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY);
+      const accountsObj = (accountsResult[NEURAI_CONSTANTS.ACCOUNTS_KEY] as AccountsRecord) || {};
+      const activeId = activeResult[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] as string | undefined;
 
       if (activeId && accountsObj[activeId]) {
         if (!Array.isArray(accountsObj[activeId].history)) {
@@ -323,20 +339,20 @@ async function signMessageForPage(messageText, sender) {
 
         const reqOrigin = sender?.url ? new URL(sender.url).origin : (sender?.origin || 'Unknown site');
 
-        accountsObj[activeId].history.unshift({
+        accountsObj[activeId].history!.unshift({
           type: 'message',
           timestamp: Date.now(),
           origin: reqOrigin,
           message: messageText,
-          signature: signature
+          signature
         });
 
         // Keep max 50 items
-        if (accountsObj[activeId].history.length > 50) {
-          accountsObj[activeId].history = accountsObj[activeId].history.slice(0, 50);
+        if (accountsObj[activeId].history!.length > 50) {
+          accountsObj[activeId].history = accountsObj[activeId].history!.slice(0, 50);
         }
 
-        await new Promise(r => chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj }, r));
+        await chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj });
       }
     } catch (err) {
       console.error('Failed to save signature history:', err);
@@ -344,7 +360,7 @@ async function signMessageForPage(messageText, sender) {
 
     return { success: true, signature, address: walletData.address };
   } catch (error) {
-    return { error: error.message };
+    return { error: (error as Error).message };
   }
 }
 
@@ -357,11 +373,16 @@ async function signMessageForPage(messageText, sender) {
  * This is an acceptable trade-off for a self-hosted deployment; native signing
  * (without sending the key) should be implemented in a future improvement.
  *
- * @param {string} txHex - The raw transaction hex to sign
- * @param {Array} utxos - [{txid, vout, scriptPubKey, amount}] for inputs being signed
- * @param {string} sighashType - 'ALL', 'SINGLE|ANYONECANPAY', etc.
+ * @param txHex - The raw transaction hex to sign
+ * @param utxos - [{txid, vout, scriptPubKey, amount}] for inputs being signed
+ * @param sighashType - 'ALL', 'SINGLE|ANYONECANPAY', etc.
  */
-async function signRawTxForPage(txHex, utxos, sighashType, sender) {
+async function signRawTxForPage(
+  txHex: string,
+  utxos: Utxo[],
+  sighashType: string,
+  sender: chrome.runtime.MessageSender
+): Promise<BackgroundResponse> {
   await loadWalletData();
   await loadWalletSettings();
 
@@ -401,7 +422,7 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
     return { error: approval?.error || 'User rejected raw transaction signing' };
   }
 
-  let privateKeyWif = walletData.privateKey || null;
+  let privateKeyWif: string | null = walletData.privateKey || null;
   if (!privateKeyWif && walletData.privateKeyEnc) {
     if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
     if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
@@ -427,18 +448,24 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
       })
     });
 
-    const data = await response.json();
-    if (data.error) return { error: data.error.message || JSON.stringify(data.error) };
+    const data = await response.json() as {
+      result: { hex: string; complete: boolean };
+      error?: { message: string } | string;
+    };
+    if (data.error) return { error: typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)) };
 
     // Save to history
     try {
-      const accountsObj = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY, r)))[NEURAI_CONSTANTS.ACCOUNTS_KEY] || {};
-      const activeId = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY, r)))[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY];
+      const accountsResult = await chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY);
+      const activeResult = await chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY);
+      const accountsObj = (accountsResult[NEURAI_CONSTANTS.ACCOUNTS_KEY] as AccountsRecord) || {};
+      const activeId = activeResult[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] as string | undefined;
+
       if (activeId && accountsObj[activeId]) {
         if (!Array.isArray(accountsObj[activeId].history)) {
           accountsObj[activeId].history = [];
         }
-        accountsObj[activeId].history.unshift({
+        accountsObj[activeId].history!.unshift({
           type: 'raw_tx',
           timestamp: Date.now(),
           origin,
@@ -448,10 +475,10 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
           signedTxHex: data.result.hex,
           complete: data.result.complete,
         });
-        if (accountsObj[activeId].history.length > 50) {
-          accountsObj[activeId].history = accountsObj[activeId].history.slice(0, 50);
+        if (accountsObj[activeId].history!.length > 50) {
+          accountsObj[activeId].history = accountsObj[activeId].history!.slice(0, 50);
         }
-        await new Promise(r => chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj }, r));
+        await chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj });
       }
     } catch (err) {
       console.error('Failed to save raw tx history:', err);
@@ -463,16 +490,16 @@ async function signRawTxForPage(txHex, utxos, sighashType, sender) {
       complete: data.result.complete,
     };
   } catch (error) {
-    return { error: error.message };
+    return { error: (error as Error).message };
   }
 }
 
-async function requestSignatureApproval(payload) {
+async function requestSignatureApproval(payload: SignApprovalPayload): Promise<SignApprovalResult> {
   const requestId = 'sign_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const approvalUrl = chrome.runtime.getURL('popup/sign-request.html') +
     '?requestId=' + encodeURIComponent(requestId);
 
-  return new Promise((resolve) => {
+  return new Promise<SignApprovalResult>((resolve) => {
     const timeout = setTimeout(() => {
       pendingSignRequests.delete(requestId);
       resolve({ approved: false, error: 'Signature request timed out' });
@@ -487,7 +514,7 @@ async function requestSignatureApproval(payload) {
   });
 }
 
-async function resolveSignRequestDecision(message) {
+async function resolveSignRequestDecision(message: SignRequestDecisionMsg): Promise<BackgroundResponse> {
   const pending = pendingSignRequests.get(message.requestId);
   if (!pending) return { error: 'Sign request not found or expired' };
 
@@ -511,7 +538,7 @@ async function resolveSignRequestDecision(message) {
   }
 }
 
-function finalizeSignRequest(requestId, result) {
+function finalizeSignRequest(requestId: string, result: SignApprovalResult): void {
   const pending = pendingSignRequests.get(requestId);
   if (!pending) return;
   clearTimeout(pending.timeout);
@@ -520,14 +547,14 @@ function finalizeSignRequest(requestId, result) {
   pending.resolve(result);
 }
 
-// ── Hardware wallet signing coordination ──────────────────────────────────
+// ── Hardware wallet signing coordination ──────────────────────────────────────
 
-async function requestHardwareSignature(payload) {
+async function requestHardwareSignature(payload: HwSignPayload): Promise<HwSignResult> {
   const requestId = 'hw_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const approvalUrl = chrome.runtime.getURL('popup/hw-sign.html') +
     '?requestId=' + encodeURIComponent(requestId);
 
-  return new Promise((resolve) => {
+  return new Promise<HwSignResult>((resolve) => {
     const timeout = setTimeout(() => {
       pendingHwSignRequests.delete(requestId);
       resolve({ error: 'Hardware signing request timed out' });
@@ -549,7 +576,7 @@ async function requestHardwareSignature(payload) {
   });
 }
 
-async function executeHardwareSignature(payload) {
+async function executeHardwareSignature(payload: HwSignPayload): Promise<HwSignResult> {
   const msgType = payload.type === 'message'
     ? NEURAI_CONSTANTS.MSG.HW_SIGN_MESSAGE
     : NEURAI_CONSTANTS.MSG.HW_SIGN_RAW_TX;
@@ -566,10 +593,10 @@ async function executeHardwareSignature(payload) {
       masterFingerprint: payload.masterFingerprint,
       derivationPath: payload.derivationPath,
       network: payload.network
-    });
+    }) as HwSignResult | null;
 
-    if (!result || result.error) {
-      return { error: result?.error || 'Hardware wallet is not connected. Open the full wallet view and reconnect your device.' };
+    if (!result || (result as { error?: string }).error) {
+      return { error: (result as { error?: string })?.error || 'Hardware wallet is not connected. Open the full wallet view and reconnect your device.' };
     }
 
     return result;
@@ -578,59 +605,76 @@ async function executeHardwareSignature(payload) {
   }
 }
 
-async function queryHardwareConnectionStatus() {
+async function queryHardwareConnectionStatus(): Promise<BackgroundResponse> {
   try {
-    const result = await chrome.runtime.sendMessage({ type: 'HW_CONNECTION_STATUS_PAGE' });
-    if (result && typeof result.connected === 'boolean') return result;
+    const result = await chrome.runtime.sendMessage({ type: 'HW_CONNECTION_STATUS_PAGE' }) as { connected?: boolean } | null;
+    if (result && typeof result.connected === 'boolean') return { success: true, connected: result.connected };
   } catch (_) { }
   return { success: true, connected: false };
 }
 
-async function executePendingHwSignRequest(requestId) {
+async function executePendingHwSignRequest(requestId: string): Promise<BackgroundResponse> {
   const pending = pendingHwSignRequests.get(requestId);
   if (!pending) return { error: 'Hardware sign request not found or expired' };
 
   const result = await executeHardwareSignature(pending.payload);
-  if (!result || result.error) {
-    pending.lastError = result?.error || 'Unable to sign with the connected hardware wallet.';
+  if (!result || (result as { error?: string }).error) {
+    pending.lastError = (result as { error?: string })?.error || 'Unable to sign with the connected hardware wallet.';
     return { error: pending.lastError };
   }
 
   finalizeHwSignRequest(requestId, result);
-  saveHwSignHistory(result, pending.payload).catch((err) => {
+  saveHwSignHistory(result as HwSignSuccess, pending.payload).catch((err) => {
     console.error('Failed to save HW sign history:', err);
   });
   return { success: true };
 }
 
-async function saveHwSignHistory(result, payload) {
+async function saveHwSignHistory(result: HwSignSuccess, payload: HwSignPayload): Promise<void> {
   try {
-    const accountsObj = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY, r)))[NEURAI_CONSTANTS.ACCOUNTS_KEY] || {};
-    const activeId = (await new Promise(r => chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY, r)))[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY];
+    const accountsResult = await chrome.storage.local.get(NEURAI_CONSTANTS.ACCOUNTS_KEY);
+    const activeResult = await chrome.storage.local.get(NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY);
+    const accountsObj = (accountsResult[NEURAI_CONSTANTS.ACCOUNTS_KEY] as AccountsRecord) || {};
+    const activeId = activeResult[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] as string | undefined;
+
     if (activeId && accountsObj[activeId]) {
       if (!Array.isArray(accountsObj[activeId].history)) {
         accountsObj[activeId].history = [];
       }
       const entry = payload.type === 'message'
-        ? { type: 'message', timestamp: Date.now(), origin: payload.origin, message: payload.message, signature: result.signature }
-        : { type: 'raw_tx', timestamp: Date.now(), origin: payload.origin, sighashType: payload.sighashType, inputCount: (payload.utxos || []).length, signedTxHex: result.signedTxHex, complete: result.complete };
-      accountsObj[activeId].history.unshift(entry);
-      if (accountsObj[activeId].history.length > 50) {
-        accountsObj[activeId].history = accountsObj[activeId].history.slice(0, 50);
+        ? {
+            type: 'message' as const,
+            timestamp: Date.now(),
+            origin: payload.origin,
+            message: payload.message ?? '',
+            signature: (result as HwMessageSignResult).signature
+          }
+        : {
+            type: 'raw_tx' as const,
+            timestamp: Date.now(),
+            origin: payload.origin,
+            sighashType: payload.sighashType ?? 'ALL',
+            inputCount: (payload.utxos || []).length,
+            signedTxHex: (result as HwRawTxSignResult).signedTxHex,
+            complete: (result as HwRawTxSignResult).complete
+          };
+      accountsObj[activeId].history!.unshift(entry);
+      if (accountsObj[activeId].history!.length > 50) {
+        accountsObj[activeId].history = accountsObj[activeId].history!.slice(0, 50);
       }
-      await new Promise(r => chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj }, r));
+      await chrome.storage.local.set({ [NEURAI_CONSTANTS.ACCOUNTS_KEY]: accountsObj });
     }
   } catch (err) {
     console.error('Failed to save HW sign history:', err);
   }
 }
 
-async function resolveHwSignResult(message) {
+async function resolveHwSignResult(message: HwSignResultMsg): Promise<BackgroundResponse> {
   const pending = pendingHwSignRequests.get(message.requestId);
   if (!pending) return { error: 'Hardware sign request not found or expired' };
   pending.settling = true;
 
-  const result = message.error
+  const result: HwSignResult = message.error
     ? { error: message.error }
     : {
         success: true,
@@ -638,12 +682,12 @@ async function resolveHwSignResult(message) {
         address: message.address,
         signedTxHex: message.signedTxHex,
         complete: message.complete
-      };
+      } as HwSignSuccess;
 
   finalizeHwSignRequest(message.requestId, result);
 
   if (!message.error) {
-    saveHwSignHistory(result, pending.payload).catch((err) => {
+    saveHwSignHistory(result as HwSignSuccess, pending.payload).catch((err) => {
       console.error('Failed to save HW sign history:', err);
     });
   }
@@ -651,7 +695,7 @@ async function resolveHwSignResult(message) {
   return { success: true };
 }
 
-function finalizeHwSignRequest(requestId, result) {
+function finalizeHwSignRequest(requestId: string, result: HwSignResult): void {
   const pending = pendingHwSignRequests.get(requestId);
   if (!pending) return;
   clearTimeout(pending.timeout);
@@ -662,8 +706,11 @@ function finalizeHwSignRequest(requestId, result) {
 
 // ── Verification ──────────────────────────────────────────────────────────────
 
-async function verifyOwnership(address, message, signature) {
+async function verifyOwnership(address: string, message: string, signature: string): Promise<BackgroundResponse> {
   try {
+    await loadCryptoLibs();
+    // NeuraiMessage is declared as a global via ambient .d.ts; the typeof guard
+    // is a runtime safety check in case the bundle didn't load.
     if (typeof NeuraiMessage !== 'undefined') {
       return { valid: !!NeuraiMessage.verifyMessage(message, address, signature) };
     }
@@ -685,11 +732,11 @@ async function verifyOwnership(address, message, signature) {
         params: [address, signature, message]
       })
     });
-    const data = await response.json();
+    const data = await response.json() as { result: boolean; error?: { message: string } };
     if (data.error) return { error: data.error.message || 'RPC verification error' };
     return { valid: data.result };
   } catch (error) {
-    return { error: error.message };
+    return { error: (error as Error).message };
   }
 }
 
@@ -726,7 +773,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
 
 // ── Initialization ────────────────────────────────────────────────────────────
 
-async function init() {
+async function init(): Promise<void> {
   await loadWalletData();
   await loadWalletSettings();
   await loadSessionPinCache();

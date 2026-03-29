@@ -10,8 +10,15 @@
 // 2. This content script listens for those DOM events and forwards them
 //    to the background service worker via chrome.runtime.sendMessage
 
-(function() {
+(function () {
   'use strict';
+
+  // Shape of the custom event payload sent from the injected page script
+  interface RequestDetail {
+    requestId: string;
+    action: string;
+    data: Record<string, unknown>;
+  }
 
   // === STEP 1: Inject the page-facing API into the MAIN world ===
   const pageScript = document.createElement('script');
@@ -22,8 +29,8 @@
   // === STEP 2: Bridge events from page to background ===
 
   // Listen for requests from the page (MAIN world)
-  document.addEventListener('neuraiWallet_request', async (event) => {
-    const { requestId, action, data } = event.detail;
+  document.addEventListener('neuraiWallet_request', async (event: Event) => {
+    const { requestId, action, data } = (event as CustomEvent<RequestDetail>).detail;
 
     try {
       // Detect stale content scripts (extension reloaded without page refresh)
@@ -34,7 +41,7 @@
         return;
       }
 
-      let result;
+      let result: unknown;
 
       switch (action) {
         case 'getAddress': {
@@ -58,7 +65,7 @@
         case 'signMessage': {
           const resp = await chrome.runtime.sendMessage({
             type: 'SIGN_MESSAGE',
-            message: data.message
+            message: data.message as string
           });
           if (resp && resp.success) {
             result = { signature: resp.signature, address: resp.address };
@@ -71,9 +78,9 @@
         case 'verifyMessage': {
           const resp = await chrome.runtime.sendMessage({
             type: 'VERIFY_OWNERSHIP',
-            address: data.address,
-            message: data.message,
-            signature: data.signature
+            address: data.address as string,
+            message: data.message as string,
+            signature: data.signature as string
           });
           result = !!(resp && resp.valid);
           break;
@@ -82,9 +89,9 @@
         case 'signRawTransaction': {
           const resp = await chrome.runtime.sendMessage({
             type: 'SIGN_RAW_TX',
-            txHex: data.txHex,
+            txHex: data.txHex as string,
             utxos: data.utxos,
-            sighashType: data.sighashType
+            sighashType: data.sighashType as string
           });
           if (resp && resp.success) {
             result = { signedTxHex: resp.signedTxHex, complete: resp.complete };
@@ -115,9 +122,11 @@
       }));
 
     } catch (error) {
-      const msg = (error.message || '').includes('Extension context invalidated')
-        ? 'Extension was reloaded — please refresh this page.'
-        : error.message;
+      const msg = error instanceof Error
+        ? ((error.message || '').includes('Extension context invalidated')
+            ? 'Extension was reloaded — please refresh this page.'
+            : error.message)
+        : 'Unknown error';
       document.dispatchEvent(new CustomEvent('neuraiWallet_response', {
         detail: { requestId, error: msg }
       }));

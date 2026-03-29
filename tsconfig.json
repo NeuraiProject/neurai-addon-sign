@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    // Target ES2020 — supported by all Chromium versions that support MV3
+    "target": "ES2020",
+    // ESNext module + Bundler resolution: supports top-level await and .js extensions
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // DOM covers both popup pages and service worker globals (fetch, crypto, etc.)
+    "lib": ["ES2020", "DOM"],
+    // Explicitly include chrome extension types
+    "types": ["chrome"],
+    "rootDir": "src",
+    "outDir": "dist/extension",
+    "strict": true,
+    // Avoids errors from pre-compiled @neuraiproject bundles and @types conflicts
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,7 +1,9 @@
 // Neurai Wallet Popup — Main Logic
 // Relies on globals loaded before this script:
-//   NeuraiKey, NeuraiMessage, NeuraiReader  (from ../lib/)
-//   NEURAI_CONSTANTS, NEURAI_UTILS          (from ../shared/)
+//   NeuraiKey, NeuraiMessage, NeuraiReader  (from ../lib/ via classic <script> tags)
+import { NEURAI_CONSTANTS } from '../shared/constants.js';
+import { NEURAI_UTILS } from '../shared/utils.js';
+import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
 (function () {
   'use strict';
@@ -11,90 +13,90 @@
   const MSG = C.MSG;
 
   // ── Persistent HW device connection ─────────────────────────────────────
-  let hwDevice = null; // NeuraiESP32 instance, kept alive while popup is open
-  let hwStatusInterval = null; // polling interval for connection status
+  let hwDevice: NeuraiESP32Instance | null = null; // NeuraiESP32 instance, kept alive while popup is open
+  let hwStatusInterval: ReturnType<typeof setInterval> | null = null; // polling interval for connection status
 
   // ── DOM Elements ──────────────────────────────────────────────────────────
   const elements = {
-    walletSection: document.getElementById('walletSection'),
-    networkBadge: document.getElementById('networkBadge'),
-    openExpandedBtn: document.getElementById('openExpandedBtn'),
-    openSettingsBtn: document.getElementById('openSettingsBtn'),
-    settingsModal: document.getElementById('settingsModal'),
-    accountModal: document.getElementById('accountModal'),
-    removeConfirmModal: document.getElementById('removeConfirmModal'),
-    closeSettingsBtn: document.getElementById('closeSettingsBtn'),
-    closeAccountModalBtn: document.getElementById('closeAccountModalBtn'),
-    saveSettingsBtn: document.getElementById('saveSettingsBtn'),
-    resetSettingsBtn: document.getElementById('resetSettingsBtn'),
-    confirmRemoveBtn: document.getElementById('confirmRemoveBtn'),
-    cancelRemoveBtn: document.getElementById('cancelRemoveBtn'),
-    removeConfirmText: document.getElementById('removeConfirmText'),
-    themeMode: document.getElementById('themeMode'),
-    rpcMainnet: document.getElementById('rpcMainnet'),
-    rpcTestnet: document.getElementById('rpcTestnet'),
-    lockTimeoutMinutes: document.getElementById('lockTimeoutMinutes'),
-    pinStatusText: document.getElementById('pinStatusText'),
-    settingsPinOld: document.getElementById('settingsPinOld'),
-    settingsPinNew: document.getElementById('settingsPinNew'),
-    settingsPinConfirm: document.getElementById('settingsPinConfirm'),
-    openBackupBtn: document.getElementById('openBackupBtn'),
-    unlockModal: document.getElementById('unlockModal'),
-    unlockPinInput: document.getElementById('unlockPinInput'),
-    unlockError: document.getElementById('unlockError'),
-    unlockConfirmBtn: document.getElementById('unlockConfirmBtn'),
-    unlockPrimaryView: document.getElementById('unlockPrimaryView'),
-    unlockForgotPinLink: document.getElementById('unlockForgotPinLink'),
-    unlockResetView: document.getElementById('unlockResetView'),
-    unlockResetInput: document.getElementById('unlockResetInput'),
-    unlockResetMessage: document.getElementById('unlockResetMessage'),
-    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn'),
-    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn'),
-    accountSelect: document.getElementById('accountSelect'),
-    accountCurrentLabel: document.getElementById('accountCurrentLabel'),
-    accountHint: document.getElementById('accountHint'),
-    switchAccountBtn: document.getElementById('switchAccountBtn'),
-    newAccountBtn: document.getElementById('newAccountBtn'),
-    currentAccountDisplay: document.getElementById('currentAccountDisplay'),
+    walletSection: document.getElementById('walletSection')!,
+    networkBadge: document.getElementById('networkBadge')!,
+    openExpandedBtn: document.getElementById('openExpandedBtn')!,
+    openSettingsBtn: document.getElementById('openSettingsBtn')!,
+    settingsModal: document.getElementById('settingsModal')!,
+    accountModal: document.getElementById('accountModal')!,
+    removeConfirmModal: document.getElementById('removeConfirmModal')!,
+    closeSettingsBtn: document.getElementById('closeSettingsBtn')!,
+    closeAccountModalBtn: document.getElementById('closeAccountModalBtn')!,
+    saveSettingsBtn: document.getElementById('saveSettingsBtn')!,
+    resetSettingsBtn: document.getElementById('resetSettingsBtn')!,
+    confirmRemoveBtn: document.getElementById('confirmRemoveBtn')!,
+    cancelRemoveBtn: document.getElementById('cancelRemoveBtn')!,
+    removeConfirmText: document.getElementById('removeConfirmText')!,
+    themeMode: document.getElementById('themeMode') as HTMLSelectElement | null,
+    rpcMainnet: document.getElementById('rpcMainnet') as HTMLInputElement | null,
+    rpcTestnet: document.getElementById('rpcTestnet') as HTMLInputElement | null,
+    lockTimeoutMinutes: document.getElementById('lockTimeoutMinutes') as HTMLInputElement | null,
+    pinStatusText: document.getElementById('pinStatusText')!,
+    settingsPinOld: document.getElementById('settingsPinOld') as HTMLInputElement | null,
+    settingsPinNew: document.getElementById('settingsPinNew') as HTMLInputElement | null,
+    settingsPinConfirm: document.getElementById('settingsPinConfirm') as HTMLInputElement | null,
+    openBackupBtn: document.getElementById('openBackupBtn') as HTMLButtonElement | null,
+    unlockModal: document.getElementById('unlockModal')!,
+    unlockPinInput: document.getElementById('unlockPinInput') as HTMLInputElement | null,
+    unlockError: document.getElementById('unlockError')!,
+    unlockConfirmBtn: document.getElementById('unlockConfirmBtn') as HTMLButtonElement | null,
+    unlockPrimaryView: document.getElementById('unlockPrimaryView')!,
+    unlockForgotPinLink: document.getElementById('unlockForgotPinLink')!,
+    unlockResetView: document.getElementById('unlockResetView')!,
+    unlockResetInput: document.getElementById('unlockResetInput') as HTMLInputElement | null,
+    unlockResetMessage: document.getElementById('unlockResetMessage')!,
+    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn')!,
+    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn') as HTMLButtonElement | null,
+    accountSelect: document.getElementById('accountSelect') as HTMLSelectElement | null,
+    accountCurrentLabel: document.getElementById('accountCurrentLabel')!,
+    accountHint: document.getElementById('accountHint')!,
+    switchAccountBtn: document.getElementById('switchAccountBtn') as HTMLButtonElement | null,
+    newAccountBtn: document.getElementById('newAccountBtn') as HTMLButtonElement | null,
+    currentAccountDisplay: document.getElementById('currentAccountDisplay')!,
     lastUpdatedDisplay: document.getElementById('lastUpdatedDisplay'),
-    hwIcon: document.getElementById('hwIcon'),
-    addressDisplay: document.getElementById('addressDisplay'),
-    copyAddressBtn: document.getElementById('copyAddressBtn'),
-    xnaBalance: document.getElementById('xnaBalance'),
-    pendingBalance: document.getElementById('pendingBalance'),
-    balanceTabGeneral: document.getElementById('balanceTabGeneral'),
-    balanceTabAssets: document.getElementById('balanceTabAssets'),
-    balancePanelGeneral: document.getElementById('balancePanelGeneral'),
-    balancePanelAssets: document.getElementById('balancePanelAssets'),
-    assetsList: document.getElementById('assetsList'),
-    assetsEmpty: document.getElementById('assetsEmpty'),
-    refreshBtn: document.getElementById('refreshBtn'),
-    changeWalletBtn: document.getElementById('changeWalletBtn'),
-    toggleHistoryBtn: document.getElementById('toggleHistoryBtn'),
+    hwIcon: document.getElementById('hwIcon')!,
+    addressDisplay: document.getElementById('addressDisplay')!,
+    copyAddressBtn: document.getElementById('copyAddressBtn')!,
+    xnaBalance: document.getElementById('xnaBalance')!,
+    pendingBalance: document.getElementById('pendingBalance')!,
+    balanceTabGeneral: document.getElementById('balanceTabGeneral')!,
+    balanceTabAssets: document.getElementById('balanceTabAssets')!,
+    balancePanelGeneral: document.getElementById('balancePanelGeneral')!,
+    balancePanelAssets: document.getElementById('balancePanelAssets')!,
+    assetsList: document.getElementById('assetsList')!,
+    assetsEmpty: document.getElementById('assetsEmpty')!,
+    refreshBtn: document.getElementById('refreshBtn')!,
+    changeWalletBtn: document.getElementById('changeWalletBtn')!,
+    toggleHistoryBtn: document.getElementById('toggleHistoryBtn')!,
     toggleHistoryBtnText: document.getElementById('toggleHistoryBtnText'),
     historyCard: document.getElementById('historyCard'),
-    historyList: document.getElementById('historyList'),
-    historyEmpty: document.getElementById('historyEmpty'),
-    lockNowBtn: document.getElementById('lockNowBtn'),
-    removeWalletBtn: document.getElementById('removeWalletBtn'),
-    toast: document.getElementById('toast'),
-    toastMessage: document.getElementById('toastMessage'),
-    loadingOverlay: document.getElementById('loadingOverlay'),
-    backupModal: document.getElementById('backupModal'),
-    closeBackupBtn: document.getElementById('closeBackupBtn'),
-    backupAuthSection: document.getElementById('backupAuthSection'),
-    backupPinInput: document.getElementById('backupPinInput'),
-    backupError: document.getElementById('backupError'),
-    backupUnlockBtn: document.getElementById('backupUnlockBtn'),
-    backupDataSection: document.getElementById('backupDataSection'),
-    backupMnemonicGroup: document.getElementById('backupMnemonicGroup'),
-    backupMnemonicWords: document.getElementById('backupMnemonicWords'),
-    backupCopyMnemonicBtn: document.getElementById('backupCopyMnemonicBtn'),
-    backupPassphraseGroup: document.getElementById('backupPassphraseGroup'),
-    backupPassphraseText: document.getElementById('backupPassphraseText'),
-    backupWifText: document.getElementById('backupWifText'),
+    historyList: document.getElementById('historyList')!,
+    historyEmpty: document.getElementById('historyEmpty')!,
+    lockNowBtn: document.getElementById('lockNowBtn')!,
+    removeWalletBtn: document.getElementById('removeWalletBtn')!,
+    toast: document.getElementById('toast')!,
+    toastMessage: document.getElementById('toastMessage')!,
+    loadingOverlay: document.getElementById('loadingOverlay')!,
+    backupModal: document.getElementById('backupModal')!,
+    closeBackupBtn: document.getElementById('closeBackupBtn')!,
+    backupAuthSection: document.getElementById('backupAuthSection')!,
+    backupPinInput: document.getElementById('backupPinInput') as HTMLInputElement | null,
+    backupError: document.getElementById('backupError')!,
+    backupUnlockBtn: document.getElementById('backupUnlockBtn')!,
+    backupDataSection: document.getElementById('backupDataSection')!,
+    backupMnemonicGroup: document.getElementById('backupMnemonicGroup')!,
+    backupMnemonicWords: document.getElementById('backupMnemonicWords')!,
+    backupCopyMnemonicBtn: document.getElementById('backupCopyMnemonicBtn')!,
+    backupPassphraseGroup: document.getElementById('backupPassphraseGroup')!,
+    backupPassphraseText: document.getElementById('backupPassphraseText')!,
+    backupWifText: document.getElementById('backupWifText') as HTMLInputElement | null,
     toggleBackupWifBtn: document.getElementById('toggleBackupWifBtn'),
-    backupCopyWifBtn: document.getElementById('backupCopyWifBtn')
+    backupCopyWifBtn: document.getElementById('backupCopyWifBtn')!
   };
 
   // ── History ───────────────────────────────────────────────────────────────
@@ -115,16 +117,16 @@
       balanceCardMain.classList.remove('hidden');
       addressCard.classList.remove('hidden');
       elements.toggleHistoryBtnText.textContent = 'History';
-      iconClock.style.display = '';
-      iconBalance.style.display = 'none';
+      (iconClock as HTMLElement).style.display = '';
+      (iconBalance as HTMLElement).style.display = 'none';
     } else {
       // Show History
       balanceCardMain.classList.add('hidden');
       addressCard.classList.add('hidden');
       elements.historyCard.classList.remove('hidden');
       elements.toggleHistoryBtnText.textContent = 'Balance';
-      iconClock.style.display = 'none';
-      iconBalance.style.display = '';
+      (iconClock as HTMLElement).style.display = 'none';
+      (iconBalance as HTMLElement).style.display = '';
       renderHistory();
     }
   }
@@ -132,16 +134,16 @@
   function renderHistory() {
     elements.historyList.innerHTML = '';
     const activeAccount = state.accounts[state.activeAccountId];
-    const history = activeAccount?.history || [];
+    const history = (activeAccount as Record<string, unknown> | null)?.history as unknown[] || [];
 
     if (history.length === 0) {
       elements.historyEmpty.classList.remove('hidden');
-      elements.historyList.appendChild(elements.historyEmpty);
+      elements.historyList.appendChild(elements.historyEmpty as Node);
       return;
     }
 
     elements.historyEmpty.classList.add('hidden');
-    history.forEach(item => {
+    (history as Record<string, unknown>[]).forEach(item => {
       const el = document.createElement('div');
       el.className = 'history-item';
 
@@ -150,7 +152,7 @@
       // Header: origin + date
       const header = document.createElement('div');
       header.className = 'history-item-header';
-      const dateStr = new Date(item.timestamp).toLocaleString();
+      const dateStr = new Date(item.timestamp as number).toLocaleString();
       header.innerHTML = `
         <span class="history-item-origin">${item.origin}</span>
         <span>${dateStr}</span>
@@ -187,7 +189,7 @@
 
         const txHex = document.createElement('div');
         txHex.className = 'history-item-sig history-item-txhex';
-        txHex.textContent = item.signedTxHex || item.txHex || '';
+        txHex.textContent = (item.signedTxHex || item.txHex || '') as string;
 
         details.appendChild(txLabel);
         details.appendChild(txHex);
@@ -204,12 +206,12 @@
       } else {
         const msg = document.createElement('div');
         msg.className = 'history-item-msg';
-        msg.title = item.message;
-        msg.textContent = item.message;
+        msg.title = item.message as string;
+        msg.textContent = item.message as string;
 
         const sig = document.createElement('div');
         sig.className = 'history-item-sig';
-        sig.textContent = item.signature;
+        sig.textContent = item.signature as string;
 
         el.appendChild(msg);
         el.appendChild(sig);
@@ -221,25 +223,25 @@
 
   // ── State ─────────────────────────────────────────────────────────────────
   let state = {
-    privateKey: null,
-    mnemonic: null,
-    passphrase: null,
-    address: null,
-    publicKey: null,
-    walletType: 'software',
+    privateKey: null as string | null,
+    mnemonic: null as string | null,
+    passphrase: null as string | null,
+    address: null as string | null,
+    publicKey: null as string | null,
+    walletType: 'software' as string,
     network: 'xna',
-    balance: null,
-    pendingBalance: null,
+    balance: null as string | null,
+    pendingBalance: null as string | null,
     lastPortfolioUpdatedAt: 0,
-    assets: [],
-    pollingInterval: null,
+    assets: [] as unknown[],
+    pollingInterval: null as ReturnType<typeof setInterval> | null,
     isConnected: false,
-    settings: null,
-    accounts: {},
+    settings: null as Record<string, unknown> | null,
+    accounts: {} as Record<string, Record<string, unknown> | null>,
     activeAccountId: '1',
     unlockUntil: 0,
     sessionPin: '',
-    lockWatchInterval: null,
+    lockWatchInterval: null as ReturnType<typeof setInterval> | null,
     lastUnlockTouchAt: 0
   };
 
@@ -250,7 +252,7 @@
     await loadWalletData();
     await loadUnlockState();
     await loadSessionPinState();
-    NEURAI_UTILS.applyTheme(state.settings);
+    NEURAI_UTILS.applyTheme(state.settings as Partial<WalletSettings>);
     setupEventListeners();
     syncSettingsForm();
     startLockWatch();
@@ -285,15 +287,15 @@
     elements.saveSettingsBtn.addEventListener('click', handleSaveSettings);
     elements.resetSettingsBtn.addEventListener('click', handleResetSettings);
 
-    elements.openBackupBtn.addEventListener('click', openBackupModal);
+    elements.openBackupBtn!.addEventListener('click', openBackupModal);
     elements.closeBackupBtn.addEventListener('click', closeBackupModal);
     elements.backupUnlockBtn.addEventListener('click', handleBackupUnlock);
     elements.backupCopyMnemonicBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(state.accounts[state.activeAccountId]?.__decryptedMnemonic || '');
+      navigator.clipboard.writeText((state.accounts[state.activeAccountId] as Record<string, unknown>)?.__decryptedMnemonic as string || '');
       showToast('Recovery phrase copied!', 'success');
     });
     elements.backupCopyWifBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(elements.backupWifText.value);
+      navigator.clipboard.writeText(elements.backupWifText!.value);
       showToast('WIF copied!', 'success');
     });
 
@@ -313,31 +315,31 @@
     elements.toggleHistoryBtn.addEventListener('click', handleToggleHistory);
     elements.lockNowBtn.addEventListener('click', handleLockNow);
     elements.removeWalletBtn.addEventListener('click', handleRemoveWallet);
-    elements.switchAccountBtn.addEventListener('click', handleSwitchAccount);
-    elements.newAccountBtn.addEventListener('click', handleCreateNewAccount);
+    elements.switchAccountBtn!.addEventListener('click', handleSwitchAccount);
+    elements.newAccountBtn!.addEventListener('click', handleCreateNewAccount);
     elements.cancelRemoveBtn.addEventListener('click', closeRemoveConfirmModal);
     elements.confirmRemoveBtn.addEventListener('click', handleConfirmRemoveAccount);
     elements.unlockForgotPinLink.addEventListener('click', openUnlockResetView);
     elements.unlockForgotPinLink.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
+      if ((e as KeyboardEvent).key === 'Enter' || (e as KeyboardEvent).key === ' ') {
         e.preventDefault();
         openUnlockResetView();
       }
     });
-    elements.unlockConfirmBtn.addEventListener('click', handleUnlock);
-    elements.unlockResetInput.addEventListener('input', () => {
+    elements.unlockConfirmBtn!.addEventListener('click', handleUnlock);
+    elements.unlockResetInput!.addEventListener('input', () => {
       elements.unlockResetMessage.textContent = '';
     });
-    elements.unlockResetInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
+    elements.unlockResetInput!.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') {
         handleResetAddonDataAndClose();
       }
     });
     elements.unlockResetCancelBtn.addEventListener('click', showUnlockMainView);
-    elements.unlockResetConfirmBtn.addEventListener('click', handleResetAddonDataAndClose);
-    elements.backupPinInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleBackupUnlock(); });
+    elements.unlockResetConfirmBtn!.addEventListener('click', handleResetAddonDataAndClose);
+    elements.backupPinInput!.addEventListener('keypress', (e) => { if ((e as KeyboardEvent).key === 'Enter') handleBackupUnlock(); });
 
-    if (elements.network) elements.network.addEventListener('change', applyReaderRpcForCurrentContext);
+    if ((elements as Record<string, HTMLElement | null>).network) (elements as Record<string, HTMLElement | null>).network!.addEventListener('change', applyReaderRpcForCurrentContext);
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -355,17 +357,17 @@
     });
 
     const toggleBtns = [
-      { btn: elements.toggleBackupWifBtn, input: elements.backupWifText }
+      { btn: elements.toggleBackupWifBtn, input: elements.backupWifText as HTMLInputElement | null }
     ];
 
     toggleBtns.forEach(({ btn, input }) => {
       if (btn && input) {
         btn.addEventListener('click', () => {
-          if (input.type === 'password') {
-            input.type = 'text';
+          if ((input as HTMLInputElement).type === 'password') {
+            (input as HTMLInputElement).type = 'text';
             if (input.tagName === 'TEXTAREA') input.classList.add('visible');
           } else {
-            input.type = 'password';
+            (input as HTMLInputElement).type = 'password';
             if (input.tagName === 'TEXTAREA') input.classList.remove('visible');
           }
         });
@@ -406,7 +408,7 @@
     state.privateKey = null;
     const active = state.accounts[state.activeAccountId];
     if (active) active.privateKey = null;
-    await new Promise((resolve) => chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 }, resolve));
+    await chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 });
     stopPolling();
     openUnlockModal(true);
     showToast('Addon locked', 'success');
@@ -432,7 +434,7 @@
     clearActiveWalletData();
     await saveAccountsData();
     await saveSettings();
-    await new Promise((r) => chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 }, r));
+    await chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 });
   }
 
   async function handleConfirmRemoveAccount() {
@@ -476,7 +478,7 @@
       state.assets = [];
       renderAssetsList();
       setConnectionStatus(false);
-      showToast('Error fetching balance: ' + error.message, 'error');
+      showToast('Error fetching balance: ' + (error as Error).message, 'error');
     } finally {
       setLoadingStatus(false);
     }
@@ -497,18 +499,18 @@
   // ── UI helpers ────────────────────────────────────────────────────────────
 
   function showWalletSection() {
-    if (elements.setupSection) elements.setupSection.classList.add('hidden');
+    if ((elements as Record<string, HTMLElement | null>).setupSection) (elements as Record<string, HTMLElement | null>).setupSection!.classList.add('hidden');
     elements.walletSection.classList.remove('hidden');
     elements.addressDisplay.textContent = state.address;
     elements.addressDisplay.title = state.address || '';
-    elements.openBackupBtn.disabled = state.walletType === 'hardware';
-    elements.openBackupBtn.title = state.walletType === 'hardware'
+    elements.openBackupBtn!.disabled = state.walletType === 'hardware';
+    elements.openBackupBtn!.title = state.walletType === 'hardware'
       ? 'Hardware wallet secrets stay on the device'
       : 'Back up wallet secrets';
     updateAccountLabels();
 
     const isTestnet = state.network === 'xna-test';
-    elements.networkBadge.querySelector('span:last-child').textContent = isTestnet ? 'Testnet' : 'Mainnet';
+    elements.networkBadge.querySelector('span:last-child')!.textContent = isTestnet ? 'Testnet' : 'Mainnet';
 
     if (isTestnet) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     applyReaderRpcForCurrentContext();
@@ -530,25 +532,25 @@
     touchUnlockSession(true);
   }
 
-  function showToast(message, type = 'success') {
+  function showToast(message: string, type = 'success') {
     elements.toastMessage.textContent = message;
     elements.toast.className = 'toast ' + type;
     setTimeout(() => elements.toast.classList.add('hidden'), 3000);
   }
 
-  function showLoading(show) {
+  function showLoading(show: boolean) {
     elements.loadingOverlay.classList.toggle('hidden', !show);
   }
 
-  function setConnectionStatus() {
+  function setConnectionStatus(_connected?: boolean) {
     elements.hwIcon.title = 'Hardware wallet';
   }
 
-  function setLoadingStatus(loading) {
+  function setLoadingStatus(loading: boolean) {
     elements.refreshBtn.classList.toggle('loading', loading);
   }
 
-  function formatAmountParts(value, fallback = '0') {
+  function formatAmountParts(value: unknown, fallback = '0') {
     const raw = String(value ?? '').trim();
     if (!raw || raw === '--') return { integer: '--', decimals: '' };
     const normalized = raw.replace(/,/g, '');
@@ -560,7 +562,7 @@
     return { integer: intPart, decimals: trimmedDecimals };
   }
 
-  function renderAmount(element, value, fallback = '0') {
+  function renderAmount(element: HTMLElement, value: unknown, fallback = '0') {
     const { integer, decimals } = formatAmountParts(value, fallback);
     element.textContent = '';
     const intNode = document.createElement('span');
@@ -575,23 +577,23 @@
     }
   }
 
-  function formatAssetAmount(amount, decimals) {
+  function formatAssetAmount(amount: unknown, decimals: number) {
     const fixed = Number(amount || 0).toFixed(decimals);
     const trimmed = fixed.replace(/\.?0+$/, '');
     return trimmed || '0';
   }
 
-  function normalizeAssetsFromRpc(assetBalance) {
-    let rows = [];
+  function normalizeAssetsFromRpc(assetBalance: unknown) {
+    let rows: Record<string, unknown>[] = [];
     if (Array.isArray(assetBalance)) {
-      rows = assetBalance;
-    } else if (assetBalance && Array.isArray(assetBalance.assets)) {
-      rows = assetBalance.assets;
+      rows = assetBalance as Record<string, unknown>[];
+    } else if (assetBalance && Array.isArray((assetBalance as Record<string, unknown>).assets)) {
+      rows = (assetBalance as Record<string, unknown[]>).assets as Record<string, unknown>[];
     } else if (assetBalance && typeof assetBalance === 'object') {
       // Compatibility with endpoints returning { ASSET: balance, ... }.
-      rows = Object.keys(assetBalance).map((assetName) => ({
+      rows = Object.keys(assetBalance as object).map((assetName) => ({
         assetName,
-        balance: assetBalance[assetName]
+        balance: (assetBalance as Record<string, unknown>)[assetName]
       }));
     }
 
@@ -606,7 +608,7 @@
         return { name, amountText: formatAssetAmount(amount, decimals) };
       })
       .filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+      .sort((a, b) => a!.name.localeCompare(b!.name, undefined, { sensitivity: 'base' }));
   }
 
   function renderAssetsList() {
@@ -616,12 +618,12 @@
       return;
     }
     elements.assetsEmpty.classList.add('hidden');
-    elements.assetsList.innerHTML = state.assets.map((asset) =>
+    elements.assetsList.innerHTML = (state.assets as { name: string; amountText: string }[]).map((asset) =>
       `<div class="asset-item"><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span><span class="asset-balance">${escapeHtml(asset.amountText)}</span></div>`
     ).join('');
   }
 
-  function switchBalanceTab(tab) {
+  function switchBalanceTab(tab: string) {
     const showAssets = tab === 'assets';
     elements.balanceTabGeneral.classList.toggle('is-active', !showAssets);
     elements.balanceTabGeneral.setAttribute('aria-selected', showAssets ? 'false' : 'true');
@@ -631,7 +633,7 @@
     elements.balancePanelAssets.classList.toggle('hidden', !showAssets);
   }
 
-  function escapeHtml(value) {
+  function escapeHtml(value: unknown) {
     return String(value)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -640,64 +642,61 @@
       .replace(/'/g, '&#39;');
   }
 
-  function getRawTxHistoryLabel(item) {
+  function getRawTxHistoryLabel(item: Record<string, unknown>) {
     const sighash = String(item?.sighashType || 'ALL').trim().toUpperCase();
     if (sighash === 'SINGLE|ANYONECANPAY') return 'Offer';
     if (isSwapUtxoConsolidation(item)) return 'UTXO Consolidation';
-    if (isSwapHistoryOrigin(item?.origin)) return 'Purchase';
+    if (isSwapHistoryOrigin(item?.origin as string)) return 'Purchase';
     return 'Transaction';
   }
 
-  function isSwapUtxoConsolidation(item) {
-    return isSwapHistoryOrigin(item?.origin) && Number(item?.inputCount || 0) > 1;
+  function isSwapUtxoConsolidation(item: Record<string, unknown>) {
+    return isSwapHistoryOrigin(item?.origin as string) && Number(item?.inputCount || 0) > 1;
   }
 
-  function isSwapHistoryOrigin(origin) {
+  function isSwapHistoryOrigin(origin: string) {
     return /swap\.neurai\.org/i.test(String(origin || ''));
   }
 
   // ── Storage ───────────────────────────────────────────────────────────────
 
   async function loadWalletData() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get([C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY], async (result) => {
-        const legacyWallet = result[C.STORAGE_KEY] || null;
-        state.accounts = normalizeAccounts(result[C.ACCOUNTS_KEY]);
-        state.activeAccountId = normalizeAccountId(result[C.ACTIVE_ACCOUNT_KEY], '1');
+    const result = await chrome.storage.local.get([C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY]);
+    const legacyWallet = result[C.STORAGE_KEY] || null;
+    state.accounts = normalizeAccounts(result[C.ACCOUNTS_KEY]);
+    state.activeAccountId = normalizeAccountId(result[C.ACTIVE_ACCOUNT_KEY], '1');
 
-        const hasAny = getConfiguredAccountIds(state.accounts).length > 0;
-        if (!hasAny && legacyWallet && (legacyWallet.privateKey || legacyWallet.privateKeyEnc)) {
-          state.accounts['1'] = {
-            privateKey: legacyWallet.privateKey || null,
-            privateKeyEnc: legacyWallet.privateKeyEnc || null,
-            mnemonic: legacyWallet.mnemonic || null,
-            mnemonicEnc: legacyWallet.mnemonicEnc || null,
-            passphrase: legacyWallet.passphrase || null,
-            passphraseEnc: legacyWallet.passphraseEnc || null,
-            address: legacyWallet.address || null,
-            publicKey: legacyWallet.publicKey || null,
-            network: legacyWallet.network || 'xna'
-          };
-          state.activeAccountId = '1';
-          await saveAccountsData();
-        }
+    const hasAny = getConfiguredAccountIds(state.accounts).length > 0;
+    const legacyWalletData = legacyWallet as Record<string, unknown> | null;
+    if (!hasAny && legacyWalletData && (legacyWalletData.privateKey || legacyWalletData.privateKeyEnc)) {
+      state.accounts['1'] = {
+        privateKey: legacyWalletData.privateKey || null,
+        privateKeyEnc: legacyWalletData.privateKeyEnc || null,
+        mnemonic: legacyWalletData.mnemonic || null,
+        mnemonicEnc: legacyWalletData.mnemonicEnc || null,
+        passphrase: legacyWalletData.passphrase || null,
+        passphraseEnc: legacyWalletData.passphraseEnc || null,
+        address: legacyWalletData.address || null,
+        publicKey: legacyWalletData.publicKey || null,
+        network: legacyWalletData.network || 'xna'
+      };
+      state.activeAccountId = '1';
+      await saveAccountsData();
+    }
 
-        const activeWallet = getActiveWalletData();
-        if (activeWallet) {
-          state.address = activeWallet.address || null;
-          state.publicKey = activeWallet.publicKey || null;
-          state.walletType = activeWallet.walletType || 'software';
-          state.network = activeWallet.network || 'xna';
-          state.privateKey = (!state.settings?.pinHash && activeWallet.privateKey) ? activeWallet.privateKey : null;
-          state.mnemonic = (!state.settings?.pinHash && activeWallet.mnemonic) ? activeWallet.mnemonic : null;
-          state.passphrase = (!state.settings?.pinHash && activeWallet.passphrase) ? activeWallet.passphrase : null;
-        } else {
-          clearActiveWalletData();
-        }
-        updateAccountLabels();
-        resolve();
-      });
-    });
+    const activeWallet = getActiveWalletData();
+    if (activeWallet) {
+      state.address = activeWallet.address as string || null;
+      state.publicKey = activeWallet.publicKey as string || null;
+      state.walletType = activeWallet.walletType as string || 'software';
+      state.network = activeWallet.network as string || 'xna';
+      state.privateKey = (!state.settings?.pinHash && activeWallet.privateKey) ? activeWallet.privateKey as string : null;
+      state.mnemonic = (!state.settings?.pinHash && activeWallet.mnemonic) ? activeWallet.mnemonic as string : null;
+      state.passphrase = (!state.settings?.pinHash && activeWallet.passphrase) ? activeWallet.passphrase as string : null;
+    } else {
+      clearActiveWalletData();
+    }
+    updateAccountLabels();
   }
 
   async function saveAccountsData(pinOverride = '') {
@@ -706,54 +705,40 @@
     }
     const storedAccounts = buildAccountsForStorage();
     const activeWallet = storedAccounts[state.activeAccountId] || null;
-    return new Promise((resolve) => {
-      chrome.storage.local.set({
-        [C.ACCOUNTS_KEY]: storedAccounts,
-        [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
-        [C.STORAGE_KEY]: activeWallet
-      }, resolve);
+    await chrome.storage.local.set({
+      [C.ACCOUNTS_KEY]: storedAccounts,
+      [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
+      [C.STORAGE_KEY]: activeWallet
     });
   }
 
   async function loadSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(C.SETTINGS_KEY, (result) => {
-        state.settings = {
-          ...C.DEFAULT_SETTINGS,
-          ...(result[C.SETTINGS_KEY] || {})
-        };
-        state.settings.lockTimeoutMinutes =
-          NEURAI_UTILS.normalizeLockTimeoutMinutes(state.settings.lockTimeoutMinutes);
-        resolve();
-      });
-    });
+    const result = await chrome.storage.local.get(C.SETTINGS_KEY);
+    state.settings = {
+      ...C.DEFAULT_SETTINGS,
+      ...(result[C.SETTINGS_KEY] || {})
+    };
+    state.settings.lockTimeoutMinutes =
+      NEURAI_UTILS.normalizeLockTimeoutMinutes(state.settings.lockTimeoutMinutes as number);
   }
 
   async function loadUnlockState() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(C.UNLOCK_UNTIL_KEY, (result) => {
-        state.unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
-        resolve();
-      });
-    });
+    const result = await chrome.storage.local.get(C.UNLOCK_UNTIL_KEY);
+    state.unlockUntil = Number(result[C.UNLOCK_UNTIL_KEY] || 0);
   }
 
   async function loadSessionPinState() {
     if (!chrome.storage?.session) return;
-    return new Promise((resolve) => {
-      chrome.storage.session.get(C.SESSION_PIN_KEY, (result) => {
-        state.sessionPin = state.unlockUntil > Date.now()
-          ? String(result[C.SESSION_PIN_KEY] || '')
-          : '';
-        resolve();
-      });
-    });
+    const result = await chrome.storage.session.get(C.SESSION_PIN_KEY);
+    state.sessionPin = state.unlockUntil > Date.now()
+      ? String(result[C.SESSION_PIN_KEY] || '')
+      : '';
   }
 
-  async function persistSessionPin(pin) {
+  async function persistSessionPin(pin: string) {
     state.sessionPin = pin || '';
     if (chrome.storage?.session) {
-      await new Promise((resolve) => {
+      await new Promise<void>((resolve) => {
         if (state.sessionPin) {
           chrome.storage.session.set({ [C.SESSION_PIN_KEY]: state.sessionPin }, resolve);
         } else {
@@ -770,9 +755,7 @@
   }
 
   async function saveSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ [C.SETTINGS_KEY]: state.settings }, resolve);
-    });
+    await chrome.storage.local.set({ [C.SETTINGS_KEY]: state.settings });
   }
 
   function ensureCanPersistPrivateKey() {
@@ -791,136 +774,136 @@
       const entry = state.accounts[id];
       if (!isConfiguredAccount(entry)) continue;
       stored[id] = {
-        privateKey: (!state.settings?.pinHash && entry.privateKey) ? entry.privateKey : null,
-        privateKeyEnc: entry.privateKeyEnc || null,
-        mnemonic: (!state.settings?.pinHash && entry.mnemonic) ? entry.mnemonic : null,
-        mnemonicEnc: entry.mnemonicEnc || null,
-        passphrase: (!state.settings?.pinHash && entry.passphrase) ? entry.passphrase : null,
-        passphraseEnc: entry.passphraseEnc || null,
-        address: entry.address || null,
-        publicKey: entry.publicKey || null,
-        walletType: entry.walletType || 'software',
-        hardwareDeviceName: entry.hardwareDeviceName || null,
-        hardwareDeviceNetwork: entry.hardwareDeviceNetwork || null,
-        hardwareFirmwareVersion: entry.hardwareFirmwareVersion || null,
-        hardwareDerivationPath: entry.hardwareDerivationPath || null,
-        hardwareMasterFingerprint: entry.hardwareMasterFingerprint || null,
-        network: entry.network || 'xna',
-        history: Array.isArray(entry.history) ? entry.history : []
+        privateKey: (!state.settings?.pinHash && entry!.privateKey) ? entry!.privateKey : null,
+        privateKeyEnc: entry!.privateKeyEnc || null,
+        mnemonic: (!state.settings?.pinHash && entry!.mnemonic) ? entry!.mnemonic : null,
+        mnemonicEnc: entry!.mnemonicEnc || null,
+        passphrase: (!state.settings?.pinHash && entry!.passphrase) ? entry!.passphrase : null,
+        passphraseEnc: entry!.passphraseEnc || null,
+        address: entry!.address || null,
+        publicKey: entry!.publicKey || null,
+        walletType: entry!.walletType || 'software',
+        hardwareDeviceName: entry!.hardwareDeviceName || null,
+        hardwareDeviceNetwork: entry!.hardwareDeviceNetwork || null,
+        hardwareFirmwareVersion: entry!.hardwareFirmwareVersion || null,
+        hardwareDerivationPath: entry!.hardwareDerivationPath || null,
+        hardwareMasterFingerprint: entry!.hardwareMasterFingerprint || null,
+        network: entry!.network || 'xna',
+        history: Array.isArray(entry!.history) ? entry!.history : []
       };
     }
     return stored;
   }
 
-  async function ensureAccountsEncryptedWithPin(pin) {
+  async function ensureAccountsEncryptedWithPin(pin: string) {
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
       const entry = state.accounts[id];
       if (!isConfiguredAccount(entry)) continue;
-      if (!entry.privateKey && !entry.privateKeyEnc) continue;
+      if (!entry!.privateKey && !entry!.privateKeyEnc) continue;
 
-      let plain = entry.privateKey || null;
+      let plain = entry!.privateKey as string || null;
       if (plain) {
         if (!pin) throw new Error('PIN is required to encrypt wallet keys');
-        entry.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plain, pin);
-        if (id !== state.activeAccountId) entry.privateKey = null;
+        entry!.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plain, pin);
+        if (id !== state.activeAccountId) entry!.privateKey = null;
       }
 
-      let plainMnemonic = entry.mnemonic || null;
+      let plainMnemonic = entry!.mnemonic as string || null;
       if (plainMnemonic) {
         if (!pin) throw new Error('PIN is required to encrypt wallet keys');
-        entry.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(plainMnemonic, pin);
-        if (id !== state.activeAccountId) entry.mnemonic = null;
+        entry!.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(plainMnemonic, pin);
+        if (id !== state.activeAccountId) entry!.mnemonic = null;
       }
 
-      let plainPassphrase = entry.passphrase || null;
+      let plainPassphrase = entry!.passphrase as string || null;
       if (plainPassphrase) {
         if (!pin) throw new Error('PIN is required to encrypt wallet keys');
-        entry.passphraseEnc = await NEURAI_UTILS.encryptTextWithPin(plainPassphrase, pin);
-        if (id !== state.activeAccountId) entry.passphrase = null;
+        entry!.passphraseEnc = await NEURAI_UTILS.encryptTextWithPin(plainPassphrase, pin);
+        if (id !== state.activeAccountId) entry!.passphrase = null;
       }
     }
   }
 
-  async function unlockActiveWalletPrivateKey(pin) {
+  async function unlockActiveWalletPrivateKey(pin: string) {
     const active = getActiveWalletData();
     if (!active) return;
 
     if (!active.privateKey && active.privateKeyEnc) {
-      active.privateKey = await NEURAI_UTILS.decryptTextWithPin(active.privateKeyEnc, pin);
+      active.privateKey = await NEURAI_UTILS.decryptTextWithPin(active.privateKeyEnc as EncryptedSecret, pin);
     }
-    state.privateKey = active.privateKey || null;
+    state.privateKey = active.privateKey as string || null;
 
     if (!active.mnemonic && active.mnemonicEnc) {
-      active.mnemonic = await NEURAI_UTILS.decryptTextWithPin(active.mnemonicEnc, pin);
+      active.mnemonic = await NEURAI_UTILS.decryptTextWithPin(active.mnemonicEnc as EncryptedSecret, pin);
     }
-    state.mnemonic = active.mnemonic || null;
+    state.mnemonic = active.mnemonic as string || null;
 
     if (!active.passphrase && active.passphraseEnc) {
-      active.passphrase = await NEURAI_UTILS.decryptTextWithPin(active.passphraseEnc, pin);
+      active.passphrase = await NEURAI_UTILS.decryptTextWithPin(active.passphraseEnc as EncryptedSecret, pin);
     }
-    state.passphrase = active.passphrase || null;
+    state.passphrase = active.passphrase as string || null;
   }
 
-  async function decryptAllWalletKeysWithPin(pin) {
+  async function decryptAllWalletKeysWithPin(pin: string) {
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
       const entry = state.accounts[id];
       if (!hasAccountSecret(entry)) continue;
-      if (!entry.privateKey && entry.privateKeyEnc) {
-        const plain = await NEURAI_UTILS.decryptTextWithPin(entry.privateKeyEnc, pin);
-        entry.privateKey = plain;
-        entry.privateKeyEnc = null;
-        if (id === state.activeAccountId) state.privateKey = plain;
+      if (!entry!.privateKey && entry!.privateKeyEnc) {
+        const plain = await NEURAI_UTILS.decryptTextWithPin(entry!.privateKeyEnc as EncryptedSecret, pin);
+        entry!.privateKey = plain;
+        entry!.privateKeyEnc = null;
+        if (id === state.activeAccountId) state.privateKey = plain as string;
       }
-      if (!entry.mnemonic && entry.mnemonicEnc) {
-        const plain = await NEURAI_UTILS.decryptTextWithPin(entry.mnemonicEnc, pin);
-        entry.mnemonic = plain;
-        entry.mnemonicEnc = null;
-        if (id === state.activeAccountId) state.mnemonic = plain;
+      if (!entry!.mnemonic && entry!.mnemonicEnc) {
+        const plain = await NEURAI_UTILS.decryptTextWithPin(entry!.mnemonicEnc as EncryptedSecret, pin);
+        entry!.mnemonic = plain;
+        entry!.mnemonicEnc = null;
+        if (id === state.activeAccountId) state.mnemonic = plain as string;
       }
-      if (!entry.passphrase && entry.passphraseEnc) {
-        const plain = await NEURAI_UTILS.decryptTextWithPin(entry.passphraseEnc, pin);
-        entry.passphrase = plain;
-        entry.passphraseEnc = null;
-        if (id === state.activeAccountId) state.passphrase = plain;
+      if (!entry!.passphrase && entry!.passphraseEnc) {
+        const plain = await NEURAI_UTILS.decryptTextWithPin(entry!.passphraseEnc as EncryptedSecret, pin);
+        entry!.passphrase = plain;
+        entry!.passphraseEnc = null;
+        if (id === state.activeAccountId) state.passphrase = plain as string;
       }
     }
   }
 
-  async function reencryptAllWalletKeys(oldPin, newPin) {
+  async function reencryptAllWalletKeys(oldPin: string | null, newPin: string) {
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
       const entry = state.accounts[id];
       if (!hasAccountSecret(entry)) continue;
 
-      let plain = entry.privateKey || null;
-      if (!plain && entry.privateKeyEnc && oldPin) {
-        plain = await NEURAI_UTILS.decryptTextWithPin(entry.privateKeyEnc, oldPin);
+      let plain = entry!.privateKey as string || null;
+      if (!plain && entry!.privateKeyEnc && oldPin) {
+        plain = await NEURAI_UTILS.decryptTextWithPin(entry!.privateKeyEnc as EncryptedSecret, oldPin);
       }
       if (plain) {
-        entry.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plain, newPin);
-        if (id !== state.activeAccountId) entry.privateKey = null;
+        entry!.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plain, newPin);
+        if (id !== state.activeAccountId) entry!.privateKey = null;
         if (id === state.activeAccountId) state.privateKey = plain;
       }
 
-      let mPlain = entry.mnemonic || null;
-      if (!mPlain && entry.mnemonicEnc && oldPin) {
-        mPlain = await NEURAI_UTILS.decryptTextWithPin(entry.mnemonicEnc, oldPin);
+      let mPlain = entry!.mnemonic as string || null;
+      if (!mPlain && entry!.mnemonicEnc && oldPin) {
+        mPlain = await NEURAI_UTILS.decryptTextWithPin(entry!.mnemonicEnc as EncryptedSecret, oldPin);
       }
       if (mPlain) {
-        entry.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(mPlain, newPin);
-        if (id !== state.activeAccountId) entry.mnemonic = null;
+        entry!.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(mPlain, newPin);
+        if (id !== state.activeAccountId) entry!.mnemonic = null;
         if (id === state.activeAccountId) state.mnemonic = mPlain;
       }
 
-      let pPlain = entry.passphrase || null;
-      if (!pPlain && entry.passphraseEnc && oldPin) {
-        pPlain = await NEURAI_UTILS.decryptTextWithPin(entry.passphraseEnc, oldPin);
+      let pPlain = entry!.passphrase as string || null;
+      if (!pPlain && entry!.passphraseEnc && oldPin) {
+        pPlain = await NEURAI_UTILS.decryptTextWithPin(entry!.passphraseEnc as EncryptedSecret, oldPin);
       }
       if (pPlain) {
-        entry.passphraseEnc = await NEURAI_UTILS.encryptTextWithPin(pPlain, newPin);
-        if (id !== state.activeAccountId) entry.passphrase = null;
+        entry!.passphraseEnc = await NEURAI_UTILS.encryptTextWithPin(pPlain, newPin);
+        if (id !== state.activeAccountId) entry!.passphrase = null;
         if (id === state.activeAccountId) state.passphrase = pPlain;
       }
     }
@@ -928,58 +911,59 @@
 
   // ── Account helpers ───────────────────────────────────────────────────────
 
-  function createDefaultAccounts() {
-    const accounts = {};
+  function createDefaultAccounts(): Record<string, Record<string, unknown> | null> {
+    const accounts: Record<string, Record<string, unknown> | null> = {};
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) accounts[String(i)] = null;
     return accounts;
   }
 
-  function normalizeAccountId(value, fallback) {
+  function normalizeAccountId(value: unknown, fallback: string) {
     const id = String(value || '');
     return /^(10|[1-9])$/.test(id) ? id : fallback;
   }
 
-  function normalizeAccounts(rawAccounts) {
+  function normalizeAccounts(rawAccounts: unknown) {
     const normalized = createDefaultAccounts();
     if (!rawAccounts || typeof rawAccounts !== 'object') return normalized;
     for (let i = 1; i <= C.MAX_ACCOUNTS; i++) {
       const id = String(i);
-      const entry = rawAccounts[id];
-      if (entry && typeof entry === 'object' && isStoredAccountConfigured(entry)) {
+      const entry = (rawAccounts as Record<string, unknown>)[id];
+      if (entry && typeof entry === 'object' && isStoredAccountConfigured(entry as Record<string, unknown>)) {
+        const e = entry as Record<string, unknown>;
         normalized[id] = {
-          privateKey: entry.privateKey || null,
-          privateKeyEnc: NEURAI_UTILS.isEncryptedSecret(entry.privateKeyEnc) ? entry.privateKeyEnc : null,
-          mnemonic: entry.mnemonic || null,
-          mnemonicEnc: NEURAI_UTILS.isEncryptedSecret(entry.mnemonicEnc) ? entry.mnemonicEnc : null,
-          passphrase: entry.passphrase || null,
-          passphraseEnc: NEURAI_UTILS.isEncryptedSecret(entry.passphraseEnc) ? entry.passphraseEnc : null,
-          address: entry.address || null,
-          publicKey: entry.publicKey || null,
-          walletType: entry.walletType || 'software',
-          hardwareDeviceName: entry.hardwareDeviceName || null,
-          hardwareDeviceNetwork: entry.hardwareDeviceNetwork || null,
-          hardwareFirmwareVersion: entry.hardwareFirmwareVersion || null,
-          hardwareDerivationPath: entry.hardwareDerivationPath || null,
-          hardwareMasterFingerprint: entry.hardwareMasterFingerprint || null,
-          network: entry.network || 'xna',
-          history: Array.isArray(entry.history) ? entry.history : []
+          privateKey: e.privateKey || null,
+          privateKeyEnc: NEURAI_UTILS.isEncryptedSecret(e.privateKeyEnc) ? e.privateKeyEnc : null,
+          mnemonic: e.mnemonic || null,
+          mnemonicEnc: NEURAI_UTILS.isEncryptedSecret(e.mnemonicEnc) ? e.mnemonicEnc : null,
+          passphrase: e.passphrase || null,
+          passphraseEnc: NEURAI_UTILS.isEncryptedSecret(e.passphraseEnc) ? e.passphraseEnc : null,
+          address: e.address || null,
+          publicKey: e.publicKey || null,
+          walletType: e.walletType || 'software',
+          hardwareDeviceName: e.hardwareDeviceName || null,
+          hardwareDeviceNetwork: e.hardwareDeviceNetwork || null,
+          hardwareFirmwareVersion: e.hardwareFirmwareVersion || null,
+          hardwareDerivationPath: e.hardwareDerivationPath || null,
+          hardwareMasterFingerprint: e.hardwareMasterFingerprint || null,
+          network: e.network || 'xna',
+          history: Array.isArray(e.history) ? e.history : []
         };
       }
     }
     return normalized;
   }
 
-  function getAccountLabel(accountId) { return 'Neurai_' + accountId; }
+  function getAccountLabel(accountId: string) { return 'Neurai_' + accountId; }
   function getActiveWalletData() { return state.accounts[state.activeAccountId] || null; }
-  function hasAccountSecret(entry) { return !!(entry && (entry.privateKey || entry.privateKeyEnc)); }
-  function isConfiguredAccount(entry) {
+  function hasAccountSecret(entry: Record<string, unknown> | null) { return !!(entry && (entry.privateKey || entry.privateKeyEnc)); }
+  function isConfiguredAccount(entry: Record<string, unknown> | null) {
     return !!(entry && (
       entry.privateKey ||
       entry.privateKeyEnc ||
       (entry.walletType === 'hardware' && entry.address && entry.publicKey)
     ));
   }
-  function isStoredAccountConfigured(entry) {
+  function isStoredAccountConfigured(entry: Record<string, unknown>) {
     return !!(entry && (
       entry.privateKey ||
       NEURAI_UTILS.isEncryptedSecret(entry.privateKeyEnc) ||
@@ -992,30 +976,30 @@
     return Object.keys(accountsData).filter((id) => isConfiguredAccount(accountsData[id]));
   }
 
-  function setActiveWalletData(walletData) {
-    const previous = state.accounts[state.activeAccountId] || {};
-    state.privateKey = walletData.privateKey || null;
-    state.mnemonic = walletData.mnemonic || null;
-    state.passphrase = walletData.passphrase || null;
-    state.address = walletData.address || null;
-    state.publicKey = walletData.publicKey || null;
-    state.walletType = walletData.walletType || 'software';
-    state.network = walletData.network || 'xna';
+  function setActiveWalletData(walletData: Record<string, unknown>) {
+    const previous: Record<string, unknown> = state.accounts[state.activeAccountId] || {};
+    state.privateKey = walletData.privateKey as string || null;
+    state.mnemonic = walletData.mnemonic as string || null;
+    state.passphrase = walletData.passphrase as string || null;
+    state.address = walletData.address as string || null;
+    state.publicKey = walletData.publicKey as string || null;
+    state.walletType = walletData.walletType as string || 'software';
+    state.network = walletData.network as string || 'xna';
     state.accounts[state.activeAccountId] = {
       privateKey: state.privateKey,
-      privateKeyEnc: walletData.privateKeyEnc || previous.privateKeyEnc || null,
+      privateKeyEnc: walletData.privateKeyEnc as string || previous.privateKeyEnc || null,
       mnemonic: state.mnemonic,
-      mnemonicEnc: walletData.mnemonicEnc || previous.mnemonicEnc || null,
+      mnemonicEnc: walletData.mnemonicEnc as string || previous.mnemonicEnc || null,
       passphrase: state.passphrase,
-      passphraseEnc: walletData.passphraseEnc || previous.passphraseEnc || null,
+      passphraseEnc: walletData.passphraseEnc as string || previous.passphraseEnc || null,
       address: state.address,
       publicKey: state.publicKey,
       walletType: state.walletType,
-      hardwareDeviceName: walletData.hardwareDeviceName || previous.hardwareDeviceName || null,
-      hardwareDeviceNetwork: walletData.hardwareDeviceNetwork || previous.hardwareDeviceNetwork || null,
-      hardwareFirmwareVersion: walletData.hardwareFirmwareVersion || previous.hardwareFirmwareVersion || null,
-      hardwareDerivationPath: walletData.hardwareDerivationPath || previous.hardwareDerivationPath || null,
-      hardwareMasterFingerprint: walletData.hardwareMasterFingerprint || previous.hardwareMasterFingerprint || null,
+      hardwareDeviceName: walletData.hardwareDeviceName as string || previous.hardwareDeviceName || null,
+      hardwareDeviceNetwork: walletData.hardwareDeviceNetwork as string || previous.hardwareDeviceNetwork || null,
+      hardwareFirmwareVersion: walletData.hardwareFirmwareVersion as string || previous.hardwareFirmwareVersion || null,
+      hardwareDerivationPath: walletData.hardwareDerivationPath as string || previous.hardwareDerivationPath || null,
+      hardwareMasterFingerprint: walletData.hardwareMasterFingerprint as string || previous.hardwareMasterFingerprint || null,
       network: state.network,
       history: Array.isArray(walletData.history) ? walletData.history : (Array.isArray(previous.history) ? previous.history : [])
     };
@@ -1043,7 +1027,7 @@
 
   function updateAccountLabels() {
     const label = getAccountLabel(state.activeAccountId);
-    if (elements.setupAccountLabel) elements.setupAccountLabel.textContent = 'Account: ' + label;
+    if ((elements as Record<string, HTMLElement | null>).setupAccountLabel) (elements as Record<string, HTMLElement | null>).setupAccountLabel!.textContent = 'Account: ' + label;
     elements.currentAccountDisplay.textContent = label;
   }
 
@@ -1054,7 +1038,7 @@
       : 'Never updated';
   }
 
-  function formatLastUpdated(timestamp) {
+  function formatLastUpdated(timestamp: number) {
     const date = new Date(timestamp);
     return date.toLocaleString();
   }
@@ -1076,24 +1060,24 @@
     const configuredIds = getConfiguredAccountIds();
 
     if (!configuredIds.length) {
-      elements.accountSelect.innerHTML = '<option value="">No configured account</option>';
-      elements.accountSelect.disabled = true;
-      elements.switchAccountBtn.disabled = true;
+      elements.accountSelect!.innerHTML = '<option value="">No configured account</option>';
+      elements.accountSelect!.disabled = true;
+      elements.switchAccountBtn!.disabled = true;
     } else {
-      elements.accountSelect.innerHTML = configuredIds.map((id) =>
+      elements.accountSelect!.innerHTML = configuredIds.map((id) =>
         `<option value="${id}">${getAccountLabel(id)}</option>`).join('');
-      elements.accountSelect.disabled = false;
-      elements.switchAccountBtn.disabled = false;
-      elements.accountSelect.value = configuredIds.includes(state.activeAccountId)
+      elements.accountSelect!.disabled = false;
+      elements.switchAccountBtn!.disabled = false;
+      elements.accountSelect!.value = configuredIds.includes(state.activeAccountId)
         ? state.activeAccountId : configuredIds[0];
     }
 
     const nextAccount = findNextEmptyAccountId();
     if (nextAccount) {
-      elements.newAccountBtn.disabled = false;
+      elements.newAccountBtn!.disabled = false;
       elements.accountHint.textContent = 'You can create ' + getAccountLabel(nextAccount) + '.';
     } else {
-      elements.newAccountBtn.disabled = true;
+      elements.newAccountBtn!.disabled = true;
       elements.accountHint.textContent = 'Maximum reached: 10 configured accounts.';
     }
   }
@@ -1109,14 +1093,14 @@
   }
 
   async function handleSwitchAccount() {
-    const targetId = normalizeAccountId(elements.accountSelect.value, state.activeAccountId);
+    const targetId = normalizeAccountId(elements.accountSelect!.value, state.activeAccountId);
     const targetWallet = state.accounts[targetId];
     if (!isConfiguredAccount(targetWallet)) {
       showToast('Selected account is not configured', 'error');
       return;
     }
     state.activeAccountId = targetId;
-    setActiveWalletData(targetWallet);
+    setActiveWalletData(targetWallet!);
     if (state.settings?.pinHash && state.sessionPin) {
       try { await unlockActiveWalletPrivateKey(state.sessionPin); } catch (_) { }
     }
@@ -1146,10 +1130,10 @@
 
   function syncSettingsForm() {
     const s = state.settings || C.DEFAULT_SETTINGS;
-    elements.themeMode.value = s.theme || C.DEFAULT_SETTINGS.theme;
-    elements.rpcMainnet.value = s.rpcMainnet || '';
-    elements.rpcTestnet.value = s.rpcTestnet || '';
-    elements.lockTimeoutMinutes.value = NEURAI_UTILS.normalizeLockTimeoutMinutes(s.lockTimeoutMinutes);
+    elements.themeMode!.value = s.theme as string || C.DEFAULT_SETTINGS.theme;
+    elements.rpcMainnet!.value = s.rpcMainnet as string || '';
+    elements.rpcTestnet!.value = s.rpcTestnet as string || '';
+    elements.lockTimeoutMinutes!.value = String(NEURAI_UTILS.normalizeLockTimeoutMinutes(s.lockTimeoutMinutes as number));
     syncPinSettingsUI();
   }
 
@@ -1157,19 +1141,19 @@
     const hasPin = !!state.settings?.pinHash;
     elements.pinStatusText.textContent = hasPin ? 'Active' : 'Not configured';
     elements.pinStatusText.classList.toggle('active', hasPin);
-    elements.settingsPinOld.value = '';
-    elements.settingsPinNew.value = '';
-    elements.settingsPinConfirm.value = '';
+    elements.settingsPinOld!.value = '';
+    elements.settingsPinNew!.value = '';
+    elements.settingsPinConfirm!.value = '';
   }
 
   async function handleSaveSettings() {
     try {
-      const currentPin = (elements.settingsPinOld.value || '').trim();
-      const newPin = (elements.settingsPinNew.value || '').trim();
-      const confirmPin = (elements.settingsPinConfirm.value || '').trim();
+      const currentPin = (elements.settingsPinOld!.value || '').trim();
+      const newPin = (elements.settingsPinNew!.value || '').trim();
+      const confirmPin = (elements.settingsPinConfirm!.value || '').trim();
       const hasExistingPin = !!state.settings?.pinHash;
 
-      let pinHash = state.settings?.pinHash || '';
+      let pinHash = state.settings?.pinHash as string || '';
 
       if (newPin) {
         if (newPin.length < 4 || newPin.length > 20) throw new Error('PIN must be 4 to 20 characters');
@@ -1177,7 +1161,7 @@
         if (hasExistingPin) {
           if (!currentPin) throw new Error('Current PIN is required to change PIN');
           const currentHash = await NEURAI_UTILS.hashText(currentPin);
-          if (currentHash !== state.settings.pinHash) throw new Error('Current PIN is invalid');
+          if (currentHash !== state.settings!.pinHash) throw new Error('Current PIN is invalid');
         }
         await reencryptAllWalletKeys(hasExistingPin ? currentPin : null, newPin);
         await persistSessionPin(newPin);
@@ -1185,11 +1169,11 @@
       }
 
       state.settings = {
-        theme: elements.themeMode.value || C.DEFAULT_SETTINGS.theme,
-        rpcMainnet: normalizeOptionalUrl(elements.rpcMainnet.value),
-        rpcTestnet: normalizeOptionalUrl(elements.rpcTestnet.value),
+        theme: elements.themeMode!.value || C.DEFAULT_SETTINGS.theme,
+        rpcMainnet: normalizeOptionalUrl(elements.rpcMainnet!.value),
+        rpcTestnet: normalizeOptionalUrl(elements.rpcTestnet!.value),
         pinHash,
-        lockTimeoutMinutes: NEURAI_UTILS.normalizeLockTimeoutMinutes(elements.lockTimeoutMinutes.value)
+        lockTimeoutMinutes: NEURAI_UTILS.normalizeLockTimeoutMinutes(elements.lockTimeoutMinutes!.value as unknown as number)
       };
       await ensureRpcPermissions(state.settings);
 
@@ -1198,7 +1182,7 @@
       await saveAccountsData();
       await saveSettings();
       syncPinSettingsUI();
-      NEURAI_UTILS.applyTheme(state.settings);
+      NEURAI_UTILS.applyTheme(state.settings as Partial<WalletSettings>);
       applyReaderRpcForCurrentContext();
       await notifySettingsUpdated();
       closeSettingsModal();
@@ -1208,16 +1192,16 @@
         updateBalance();
       }
     } catch (error) {
-      showToast('Invalid settings: ' + error.message, 'error');
+      showToast('Invalid settings: ' + (error as Error).message, 'error');
     }
   }
 
 
   async function handleResetSettings() {
-    state.settings = { ...C.DEFAULT_SETTINGS, pinHash: state.settings?.pinHash || '' };
+    state.settings = { ...C.DEFAULT_SETTINGS, pinHash: state.settings?.pinHash as string || '' };
     syncSettingsForm();
     await saveSettings();
-    NEURAI_UTILS.applyTheme(state.settings);
+    NEURAI_UTILS.applyTheme(state.settings as Partial<WalletSettings>);
     applyReaderRpcForCurrentContext();
     await notifySettingsUpdated();
     showToast('Settings restored to defaults', 'success');
@@ -1258,12 +1242,12 @@
     const active = state.accounts[state.activeAccountId];
     if (active) active.privateKey = null;
     elements.unlockError.textContent = '';
-    elements.unlockPinInput.value = '';
-    elements.unlockResetInput.value = '';
+    elements.unlockPinInput!.value = '';
+    elements.unlockResetInput!.value = '';
     elements.unlockResetMessage.textContent = '';
     showUnlockMainView();
     elements.unlockModal.classList.remove('hidden');
-    elements.unlockPinInput.focus();
+    elements.unlockPinInput!.focus();
   }
 
   function closeUnlockModal() {
@@ -1276,21 +1260,21 @@
     elements.unlockPrimaryView.classList.remove('hidden');
     elements.unlockResetView.classList.add('hidden');
     elements.unlockError.textContent = '';
-    elements.unlockPinInput.value = '';
-    elements.unlockResetInput.value = '';
+    elements.unlockPinInput!.value = '';
+    elements.unlockResetInput!.value = '';
     elements.unlockResetMessage.textContent = '';
   }
 
   function openUnlockResetView() {
     elements.unlockPrimaryView.classList.add('hidden');
     elements.unlockResetView.classList.remove('hidden');
-    elements.unlockResetInput.value = '';
+    elements.unlockResetInput!.value = '';
     elements.unlockResetMessage.textContent = '';
-    elements.unlockResetInput.focus();
+    elements.unlockResetInput!.focus();
   }
 
   async function handleResetAddonDataAndClose() {
-    if ((elements.unlockResetInput.value || '').trim() !== 'RESET') {
+    if ((elements.unlockResetInput!.value || '').trim() !== 'RESET') {
       elements.unlockResetMessage.textContent = 'Incorrect word. Please type RESET to confirm account restore.';
       return;
     }
@@ -1301,7 +1285,7 @@
       window.close();
       return;
     } catch (error) {
-      elements.unlockResetMessage.textContent = error.message || 'Unable to reset addon data.';
+      elements.unlockResetMessage.textContent = (error as Error).message || 'Unable to reset addon data.';
     }
   }
 
@@ -1331,25 +1315,23 @@
   }
 
   async function unlockForConfiguredTimeout() {
-    const minutes = NEURAI_UTILS.normalizeLockTimeoutMinutes(state.settings?.lockTimeoutMinutes);
+    const minutes = NEURAI_UTILS.normalizeLockTimeoutMinutes(state.settings?.lockTimeoutMinutes as number);
     state.unlockUntil = Date.now() + minutes * 60 * 1000;
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: state.unlockUntil }, resolve);
-    });
+    await chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: state.unlockUntil });
   }
 
   async function handleUnlock() {
-    const entered = (elements.unlockPinInput.value || '').trim();
+    const entered = (elements.unlockPinInput!.value || '').trim();
     if (!entered) { elements.unlockError.textContent = 'PIN is required.'; return; }
     const hash = await NEURAI_UTILS.hashText(entered);
-    if (hash !== state.settings.pinHash) { elements.unlockError.textContent = 'Invalid PIN.'; return; }
+    if (hash !== state.settings!.pinHash) { elements.unlockError.textContent = 'Invalid PIN.'; return; }
     try {
       await unlockActiveWalletPrivateKey(entered);
       await ensureAccountsEncryptedWithPin(entered);
       await persistSessionPin(entered);
       await saveAccountsData(entered);
     } catch (error) {
-      elements.unlockError.textContent = 'Unable to unlock wallet keys: ' + error.message;
+      elements.unlockError.textContent = 'Unable to unlock wallet keys: ' + (error as Error).message;
       return;
     }
     await unlockForConfiguredTimeout();
@@ -1372,54 +1354,54 @@
     elements.backupModal.classList.remove('hidden');
     elements.backupAuthSection.classList.remove('hidden');
     elements.backupDataSection.classList.add('hidden');
-    elements.backupPinInput.value = '';
+    elements.backupPinInput!.value = '';
     elements.backupError.textContent = '';
-    elements.backupPinInput.focus();
+    elements.backupPinInput!.focus();
   }
 
   function closeBackupModal() {
     elements.backupModal.classList.add('hidden');
     elements.backupAuthSection.classList.remove('hidden');
     elements.backupDataSection.classList.add('hidden');
-    elements.backupPinInput.value = '';
+    elements.backupPinInput!.value = '';
     elements.backupError.textContent = '';
-    elements.backupWifText.value = '';
+    elements.backupWifText!.value = '';
     elements.backupMnemonicWords.innerHTML = '';
-    elements.backupWifText.type = 'password';
+    elements.backupWifText!.type = 'password';
   }
 
   async function handleBackupUnlock() {
-    const entered = (elements.backupPinInput.value || '').trim();
+    const entered = (elements.backupPinInput!.value || '').trim();
     if (!entered) { elements.backupError.textContent = 'PIN is required.'; return; }
 
     const hash = await NEURAI_UTILS.hashText(entered);
-    if (hash !== state.settings.pinHash) { elements.backupError.textContent = 'Invalid PIN.'; return; }
+    if (hash !== state.settings!.pinHash) { elements.backupError.textContent = 'Invalid PIN.'; return; }
 
     elements.backupError.textContent = '';
     try {
       const active = getActiveWalletData();
       if (!active) throw new Error('No active wallet to backup');
 
-      let wif = active.privateKey;
+      let wif = active.privateKey as string;
       if (!wif && active.privateKeyEnc) {
-        wif = await NEURAI_UTILS.decryptTextWithPin(active.privateKeyEnc, entered);
+        wif = await NEURAI_UTILS.decryptTextWithPin(active.privateKeyEnc as EncryptedSecret, entered);
       }
 
-      let mnemonicStr = active.mnemonic;
+      let mnemonicStr = active.mnemonic as string;
       if (!mnemonicStr && active.mnemonicEnc) {
-        mnemonicStr = await NEURAI_UTILS.decryptTextWithPin(active.mnemonicEnc, entered);
+        mnemonicStr = await NEURAI_UTILS.decryptTextWithPin(active.mnemonicEnc as EncryptedSecret, entered);
       }
 
-      let passphraseStr = active.passphrase;
+      let passphraseStr = active.passphrase as string;
       if (!passphraseStr && active.passphraseEnc) {
-        passphraseStr = await NEURAI_UTILS.decryptTextWithPin(active.passphraseEnc, entered);
+        passphraseStr = await NEURAI_UTILS.decryptTextWithPin(active.passphraseEnc as EncryptedSecret, entered);
       }
 
       // Store temporarily on the account object just for the copy button if needed,
       // though better to just construct it.
-      if (active) active.__decryptedMnemonic = mnemonicStr;
+      if (active) (active as Record<string, unknown>).__decryptedMnemonic = mnemonicStr;
 
-      elements.backupWifText.value = wif || '';
+      elements.backupWifText!.value = wif || '';
 
       if (mnemonicStr) {
         const words = mnemonicStr.trim().split(/\s+/);
@@ -1442,13 +1424,13 @@
       elements.backupDataSection.classList.remove('hidden');
 
     } catch (error) {
-      elements.backupError.textContent = 'Decryption failed: ' + error.message;
+      elements.backupError.textContent = 'Decryption failed: ' + (error as Error).message;
     }
   }
 
   // ── RPC / settings helpers ────────────────────────────────────────────────
 
-  function normalizeOptionalUrl(value) {
+  function normalizeOptionalUrl(value: string) {
     const trimmed = (value || '').trim();
     if (!trimmed) return '';
     const parsed = new URL(trimmed);
@@ -1458,22 +1440,22 @@
     throw new Error('RPC URL must use https:// (http:// only allowed for localhost/127.0.0.1)');
   }
 
-  function toOriginPattern(url) {
+  function toOriginPattern(url: string) {
     if (!url) return null;
     const p = new URL(url);
     return `${p.protocol}//${p.host}/*`;
   }
 
-  async function ensureRpcPermissions(settings) {
+  async function ensureRpcPermissions(settings: Record<string, unknown>) {
     if (!chrome.permissions) return;
-    const origins = [settings.rpcMainnet, settings.rpcTestnet]
+    const origins = [settings.rpcMainnet as string, settings.rpcTestnet as string]
       .filter(Boolean).map(toOriginPattern)
-      .filter((v, i, arr) => v && arr.indexOf(v) === i);
+      .filter((v, i, arr) => v && arr.indexOf(v) === i) as string[];
     if (!origins.length) return;
-    const has = await new Promise((r) => chrome.permissions.contains({ origins }, r));
+    const has = await new Promise<boolean>((r) => chrome.permissions.contains({ origins }, r));
     if (has) return;
     try {
-      const granted = await new Promise((r) => chrome.permissions.request({ origins }, r));
+      const granted = await new Promise<boolean>((r) => chrome.permissions.request({ origins }, r));
       if (!granted) throw new Error('Permission denied for custom RPC host');
     } catch (err) {
       console.warn('Failed to auto-request RPC permissions. Ensure you clicked Save Settings directly:', err);
@@ -1560,7 +1542,7 @@
     };
   }
 
-  function validateHardwareWalletNetwork(selectedNetwork, deviceNetwork) {
+  function validateHardwareWalletNetwork(selectedNetwork: string, deviceNetwork: string | undefined) {
     const expectedNetwork = selectedNetwork === 'xna-test' ? 'NeuraiTest' : 'Neurai';
     if (deviceNetwork && deviceNetwork !== expectedNetwork) {
       throw new Error(
@@ -1569,22 +1551,22 @@
     }
   }
 
-  function isSerialPortSelectionCancelled(error) {
+  function isSerialPortSelectionCancelled(error: unknown) {
     return !!(error && (
-      error.name === 'NotFoundError' ||
-      String(error.message || '').includes('No port selected by the user')
+      (error as Error).name === 'NotFoundError' ||
+      String((error as Error).message || '').includes('No port selected by the user')
     ));
   }
 
-  function getRpcUrlForNetwork(network) {
+  function getRpcUrlForNetwork(network: string) {
     const s = state.settings || C.DEFAULT_SETTINGS;
     return network === 'xna-test'
-      ? (s.rpcTestnet || NeuraiReader.URL_TESTNET)
-      : (s.rpcMainnet || NeuraiReader.URL_MAINNET);
+      ? (s.rpcTestnet as string || NeuraiReader.URL_TESTNET)
+      : (s.rpcMainnet as string || NeuraiReader.URL_MAINNET);
   }
 
   function applyReaderRpcForCurrentContext() {
-    const network = hasActiveWallet() ? state.network : ((elements.network && elements.network.value) || 'xna');
+    const network = hasActiveWallet() ? state.network : (((elements as Record<string, HTMLElement | null>).network && (elements as unknown as Record<string, HTMLInputElement | null>).network?.value) || 'xna');
     if (network === 'xna-test') NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     const url = getRpcUrlForNetwork(network);
     if (url) NeuraiReader.setURL(url);
@@ -1599,7 +1581,7 @@
     }
     if (message.type === MSG.SETTINGS_SYNCED) {
       loadSettings().then(() => {
-        NEURAI_UTILS.applyTheme(state.settings);
+        NEURAI_UTILS.applyTheme(state.settings as Partial<WalletSettings>);
         applyReaderRpcForCurrentContext();
       });
     }
@@ -1625,23 +1607,23 @@
     }
   });
 
-  async function handleHwSignMessage(message) {
+  async function handleHwSignMessage(message: Record<string, unknown>) {
     if (!hwDevice || !hwDevice.connected) {
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
       showToast('Confirm message signing on your device...', 'success');
-      const result = await hwDevice.signMessage(message.message);
+      const result = await hwDevice.signMessage(message.message as string);
       showToast('Message signed', 'success');
       return { success: true, signature: result.signature, address: result.address };
     } catch (err) {
       showToast('Signing failed', 'error');
       updateHwConnectionUI();
-      return { error: 'HW sign failed: ' + err.message };
+      return { error: 'HW sign failed: ' + (err as Error).message };
     }
   }
 
-  async function handleHwSignRawTx(message) {
+  async function handleHwSignRawTx(message: Record<string, unknown>) {
     if (!hwDevice || !hwDevice.connected) {
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
@@ -1656,24 +1638,24 @@
       }
 
       // Fetch full raw transactions for each UTXO (needed for nonWitnessUtxo)
-      const utxos = message.utxos || [];
+      const utxos = (message.utxos || []) as Record<string, unknown>[];
       const rpcUrl = getRpcUrlForNetwork(state.network);
-      const txInputs = parseRawTransactionInputs(message.txHex);
+      const txInputs = parseRawTransactionInputs(message.txHex as string);
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
 
       // Build PSBT from raw transaction
       const networkType = state.network === 'xna-test' ? 'xna-test' : 'xna';
-      const sighashType = parseSighashType(message.sighashType);
+      const sighashType = parseSighashType(message.sighashType as string);
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
         network: networkType,
-        rawUnsignedTransaction: message.txHex,
+        rawUnsignedTransaction: message.txHex as string,
         inputs: enrichedUtxos.map((utxo) => {
           const signerUtxo = utxos.find((candidate) => candidate.txid === utxo.txid && Number(candidate.vout) === Number(utxo.vout));
           return {
             txid: utxo.txid,
             vout: utxo.vout,
             sequence: utxo.sequence,
-            rawTxHex: utxo.rawTxHex,
+            rawTxHex: utxo.rawTxHex ?? undefined,
             ...(signerUtxo ? {
               masterFingerprint,
               derivationPath,
@@ -1683,7 +1665,7 @@
           };
         })
       });
-      const feeSats = calculateRawTransactionFeeSats(message.txHex, enrichedUtxos);
+      const feeSats = calculateRawTransactionFeeSats(message.txHex as string, enrichedUtxos);
       const signingDisplay = feeSats !== null
         ? { feeAmount: formatSatoshisToXna(feeSats), baseCurrency: 'XNA' }
         : undefined;
@@ -1697,25 +1679,25 @@
       return { success: true, signedTxHex: finalized.txHex, complete: true };
     } catch (err) {
       updateHwConnectionUI();
-      return { error: 'HW sign failed: ' + err.message };
+      return { error: 'HW sign failed: ' + (err as Error).message };
     }
   }
 
-  async function ensureHardwareSigningMetadata(message) {
-    const activeWallet = getActiveWalletData() || {};
-    let publicKey = message.publicKey || state.publicKey || null;
-    let derivationPath = message.derivationPath || activeWallet.hardwareDerivationPath || null;
-    let masterFingerprint = message.masterFingerprint || activeWallet.hardwareMasterFingerprint || null;
+  async function ensureHardwareSigningMetadata(message: Record<string, unknown>) {
+    const activeWallet: Record<string, unknown> = getActiveWalletData() || {};
+    let publicKey = message.publicKey as string || state.publicKey || null;
+    let derivationPath = message.derivationPath as string || activeWallet.hardwareDerivationPath as string || null;
+    let masterFingerprint = message.masterFingerprint as string || activeWallet.hardwareMasterFingerprint as string || null;
 
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
 
     if (needsInfo) {
-      const info = hwDevice.info || await hwDevice.getInfo();
+      const info = (hwDevice as NeuraiESP32Instance).info || await (hwDevice as NeuraiESP32Instance).getInfo();
       masterFingerprint = info?.master_fingerprint || masterFingerprint;
     }
     if (needsAddress) {
-      const addrResp = await hwDevice.getAddress();
+      const addrResp = await (hwDevice as NeuraiESP32Instance).getAddress();
       publicKey = addrResp?.pubkey || publicKey;
       derivationPath = addrResp?.path || derivationPath;
     }
@@ -1737,9 +1719,9 @@
     return { publicKey, derivationPath, masterFingerprint };
   }
 
-  async function fetchRawTxForUtxos(utxos, rpcUrl) {
+  async function fetchRawTxForUtxos(utxos: { txid: string; vout: number; sequence: number }[], rpcUrl: string) {
     const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
-    const rawTxMap = {};
+    const rawTxMap: Record<string, string> = {};
     for (const txid of txids) {
       try {
         const resp = await fetch(rpcUrl, {
@@ -1754,18 +1736,18 @@
     return utxos.map(u => ({
       txid: u.txid, vout: u.vout,
       sequence: u.sequence,
-      value: Math.round((u.amount || 0) * 1e8),
+      value: Math.round(((u as unknown as Record<string, unknown>).amount as number || 0) * 1e8),
       rawTxHex: rawTxMap[u.txid] || null
     }));
   }
 
-  function parseRawTransactionInputs(txHex) {
+  function parseRawTransactionInputs(txHex: string) {
     const bytes = hexToBytes(txHex);
     let offset = 4;
     const inputVarInt = readVarInt(bytes, offset);
     offset += inputVarInt.size;
 
-    const inputs = [];
+    const inputs: { txid: string; vout: number; sequence: number }[] = [];
     for (let i = 0; i < inputVarInt.value; i += 1) {
       const txidBytes = bytes.slice(offset, offset + 32);
       offset += 32;
@@ -1786,7 +1768,7 @@
     return inputs;
   }
 
-  function parseRawTransactionOutputs(txHex) {
+  function parseRawTransactionOutputs(txHex: string) {
     const bytes = hexToBytes(txHex);
     let offset = 4;
     const inputVarInt = readVarInt(bytes, offset);
@@ -1802,7 +1784,7 @@
 
     const outputVarInt = readVarInt(bytes, offset);
     offset += outputVarInt.size;
-    const outputs = [];
+    const outputs: { value: bigint }[] = [];
 
     for (let i = 0; i < outputVarInt.value; i += 1) {
       const value = readUInt64LE(bytes, offset);
@@ -1816,7 +1798,7 @@
     return outputs;
   }
 
-  function calculateRawTransactionFeeSats(txHex, enrichedUtxos) {
+  function calculateRawTransactionFeeSats(txHex: string, enrichedUtxos: { txid: string; vout: number; rawTxHex: string | null }[]) {
     try {
       const inputTotal = (enrichedUtxos || []).reduce((sum, utxo) => {
         const amount = getPrevoutAmountFromRawTx(utxo.rawTxHex, Number(utxo.vout));
@@ -1832,29 +1814,29 @@
     }
   }
 
-  function getPrevoutAmountFromRawTx(rawTxHex, vout) {
+  function getPrevoutAmountFromRawTx(rawTxHex: string | null, vout: number) {
     if (!rawTxHex) return null;
     const output = parseRawTransactionOutputs(rawTxHex)[vout];
     return output ? output.value : null;
   }
 
-  function hexToBytes(hex) {
+  function hexToBytes(hex: string) {
     const normalized = String(hex || '').trim();
     if (!normalized || normalized.length % 2 !== 0) {
       throw new Error('Invalid raw transaction hex');
     }
-    const bytes = [];
+    const bytes: number[] = [];
     for (let i = 0; i < normalized.length; i += 2) {
       bytes.push(parseInt(normalized.slice(i, i + 2), 16));
     }
     return bytes;
   }
 
-  function bytesToHex(bytes) {
+  function bytesToHex(bytes: number[]) {
     return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
   }
 
-  function readUInt32LE(bytes, offset) {
+  function readUInt32LE(bytes: number[], offset: number) {
     return (
       bytes[offset] |
       (bytes[offset + 1] << 8) |
@@ -1863,13 +1845,13 @@
     ) >>> 0;
   }
 
-  function readUInt64LE(bytes, offset) {
+  function readUInt64LE(bytes: number[], offset: number) {
     const low = BigInt(readUInt32LE(bytes, offset));
     const high = BigInt(readUInt32LE(bytes, offset + 4));
     return low + (high << 32n);
   }
 
-  function readVarInt(bytes, offset) {
+  function readVarInt(bytes: number[], offset: number) {
     const first = bytes[offset];
     if (first < 0xfd) return { value: first, size: 1 };
     if (first === 0xfd) {
@@ -1881,7 +1863,7 @@
     throw new Error('Unsupported varint in raw transaction');
   }
 
-  function parseSighashType(sighashType) {
+  function parseSighashType(sighashType: string) {
     const normalized = String(sighashType || 'ALL')
       .toUpperCase()
       .split('|')
@@ -1900,14 +1882,14 @@
     return value || 0x01;
   }
 
-  function estimateBase64Bytes(base64) {
+  function estimateBase64Bytes(base64: string) {
     const normalized = String(base64 || '');
     if (!normalized) return 0;
     const padding = normalized.endsWith('==') ? 2 : (normalized.endsWith('=') ? 1 : 0);
     return Math.floor((normalized.length * 3) / 4) - padding;
   }
 
-  function formatSatoshisToXna(satoshis) {
+  function formatSatoshisToXna(satoshis: bigint | number) {
     return (Number(satoshis) / 1e8).toFixed(8);
   }
 

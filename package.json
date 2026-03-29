@@ -10,7 +10,8 @@
     "build:ext": "node build-ext.js",
     "build:test": "vite build --config vite.config.test.js",
     "sync-libs": "node sync-libs.js",
-    "pack": "node build-ext.js && node pack.js"
+    "pack": "node build-ext.js && node pack.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@neuraiproject/neurai-key": "^2.8.7",
@@ -19,7 +20,9 @@
     "@neuraiproject/neurai-sign-esp32": "0.3.2"
   },
   "devDependencies": {
+    "@types/chrome": "^0.1.38",
     "browserify": "^17.0.1",
+    "typescript": "^6.0.2",
     "vite": "^6.1.0"
   }
 }

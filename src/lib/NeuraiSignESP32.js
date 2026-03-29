@@ -1,3 +1,4 @@
+"use strict";
 var NeuraiSignESP32 = (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
