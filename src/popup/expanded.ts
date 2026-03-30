@@ -1486,7 +1486,7 @@ import type { WalletSettings } from '../types/index.js';
   async function getDecryptedWif(): Promise<string | null> {
     const wallet = state.wallet as Record<string, unknown> | null;
     if (!wallet) return null;
-    if (wallet.walletType === 'hardware') return null; // HW wallets not supported for asset creation yet
+    if (wallet.walletType === 'hardware') return null;
     if (wallet.privateKey) return wallet.privateKey as string;
     if (wallet.privateKeyEnc) {
       const pin = state.sessionPin;
@@ -1512,10 +1512,6 @@ import type { WalletSettings } from '../types/index.js';
     try {
       const wallet = state.wallet as Record<string, unknown> | null;
       if (!wallet || !wallet.address) throw new Error('No wallet loaded. Please unlock first.');
-      if (wallet.walletType === 'hardware') throw new Error('Asset creation is not yet supported for hardware wallets.');
-
-      const wif = await getDecryptedWif();
-      if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
 
       const network = (wallet.network as string) || 'xna';
       const address = wallet.address as string;
@@ -1615,27 +1611,68 @@ import type { WalletSettings } from '../types/index.js';
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
 
-      const signResp = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '1.0', id: 'sign-asset-tx', method: 'signrawtransaction',
-          params: [result.rawTx, [], [wif], 'ALL']
-        })
-      });
-      const signData = await signResp.json() as {
-        result?: { hex: string; complete: boolean };
-        error?: { message: string } | string;
-      };
-      if (signData.error) {
-        const msg = typeof signData.error === 'string' ? signData.error : signData.error.message;
-        throw new Error('Signing failed: ' + msg);
+      let signedHex: string;
+
+      if (wallet.walletType === 'hardware') {
+        // Hardware wallet: PSBT flow via ESP32
+        if (!hwDevice || !hwDevice.connected) {
+          throw new Error('Hardware wallet not connected. Reconnect it from the wallet view.');
+        }
+        const metadata = await ensureHardwareSigningMetadata({});
+        if (!metadata.publicKey || !metadata.derivationPath || !metadata.masterFingerprint) {
+          throw new Error('Hardware wallet metadata incomplete. Reconnect the device.');
+        }
+        const networkType = network === 'xna-test' ? 'xna-test' : 'xna';
+        const txInputs = parseRawTransactionInputs(result.rawTx);
+        const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
+        const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
+          network: networkType,
+          rawUnsignedTransaction: result.rawTx,
+          inputs: enrichedUtxos.map(utxo => ({
+            txid: utxo.txid,
+            vout: utxo.vout,
+            sequence: utxo.sequence,
+            rawTxHex: utxo.rawTxHex ?? undefined,
+            masterFingerprint: metadata.masterFingerprint,
+            derivationPath: metadata.derivationPath,
+            pubkey: metadata.publicKey,
+            sighashType: 1 // ALL
+          }))
+        });
+        const feeSats = calculateRawTransactionFeeSats(result.rawTx, enrichedUtxos);
+        const signingDisplay = feeSats !== null
+          ? { feeAmount: formatSatoshisToXna(feeSats), baseCurrency: 'XNA' }
+          : undefined;
+        const signResult = await hwDevice.signPsbt(psbtBase64, signingDisplay);
+        const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
+        signedHex = finalized.txHex;
+      } else {
+        // Software wallet: sign via node RPC
+        const wif = await getDecryptedWif();
+        if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
+        const signResp = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '1.0', id: 'sign-asset-tx', method: 'signrawtransaction',
+            params: [result.rawTx, [], [wif], 'ALL']
+          })
+        });
+        const signData = await signResp.json() as {
+          result?: { hex: string; complete: boolean };
+          error?: { message: string } | string;
+        };
+        if (signData.error) {
+          const msg = typeof signData.error === 'string' ? signData.error : signData.error.message;
+          throw new Error('Signing failed: ' + msg);
+        }
+        if (!signData.result?.complete) throw new Error('Transaction signing incomplete. Check your UTXOs.');
+        signedHex = signData.result.hex;
       }
-      if (!signData.result?.complete) throw new Error('Transaction signing incomplete. Check your UTXOs.');
 
       // Store signed TX and show confirm modal instead of broadcasting immediately
-      state.pendingSignedTx = { hex: signData.result.hex, rpcUrl, buildResult: result };
-      showTxConfirmModal(result, signData.result.hex);
+      state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result };
+      showTxConfirmModal(result, signedHex);
 
     } catch (err) {
       const msg = (err as Error).message || 'Unknown error';
