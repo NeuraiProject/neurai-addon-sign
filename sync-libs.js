@@ -90,7 +90,37 @@ try {
   console.warn('  The existing src/lib/NeuraiSignESP32.js will be kept (if any).');
 }
 
-// 4. NeuraiReader - local file, just verify it exists
+// 4. NeuraiAssets - build with browserify (CommonJS library, no browser bundle in npm)
+const neuraiAssetsDest = path.join(DEST, 'NeuraiAssets.js');
+try {
+  const entryFile = path.join(__dirname, '.tmp-assets-entry.js');
+  fs.writeFileSync(entryFile, `
+    var NeuraiAssets = require('@neuraiproject/neurai-assets');
+    var root =
+      typeof globalThis !== 'undefined' ? globalThis :
+      typeof self !== 'undefined' ? self :
+      typeof window !== 'undefined' ? window :
+      this;
+    root.NeuraiAssets = NeuraiAssets;
+    if (typeof module !== 'undefined') module.exports = NeuraiAssets;
+  `);
+
+  execSync(
+    `npx browserify "${entryFile}" --standalone NeuraiAssets -o "${neuraiAssetsDest}"`,
+    { cwd: __dirname, stdio: 'pipe' }
+  );
+
+  fs.unlinkSync(entryFile);
+
+  const size = (fs.statSync(neuraiAssetsDest).size / 1024).toFixed(1);
+  console.log(`  NeuraiAssets.js (${size} KB) - built with browserify`);
+} catch (err) {
+  console.warn('  WARNING: Failed to build NeuraiAssets.js browser bundle');
+  console.warn('  Error:', err.message);
+  console.warn('  The existing src/lib/NeuraiAssets.js will be kept (if any).');
+}
+
+// 5. NeuraiReader - local file, just verify it exists
 const readerPath = path.join(DEST, 'NeuraiReader.js');
 if (fs.existsSync(readerPath)) {
   const size = (fs.statSync(readerPath).size / 1024).toFixed(1);

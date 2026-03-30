@@ -14,7 +14,7 @@
     "http://127.0.0.1/*"
   ],
   "host_permissions": [
-    "https://rpc-main.neurai.org/*",
+    "https://rpc-depin.neurai.org/*",
     "https://rpc-testnet.neurai.org/*"
   ],
   "action": {

@@ -19,7 +19,7 @@ export const NEURAI_CONSTANTS = Object.freeze({
   POLLING_INTERVAL_MS: 10000, // 10 s
 
   // ── Default RPC endpoints ─────────────────────────────────────────────────
-  RPC_URL:         'https://rpc-main.neurai.org/rpc',
+  RPC_URL:         'https://rpc-depin.neurai.org/rpc',
   RPC_URL_TESTNET: 'https://rpc-testnet.neurai.org/rpc',
 
   // ── Default settings (frozen so callers must spread before mutating) ──────

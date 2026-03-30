@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@neuraiproject/neurai-assets": "^1.0.1",
     "@neuraiproject/neurai-key": "^2.8.7",
     "@neuraiproject/neurai-message": "^0.7.1",
     "@neuraiproject/neurai-reader": "^0.0.9",

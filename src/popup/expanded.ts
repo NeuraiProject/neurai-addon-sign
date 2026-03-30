@@ -16,6 +16,15 @@ import type { WalletSettings } from '../types/index.js';
   let copyAddressFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
   const PAGE_SIZE = 5;
 
+  const ASSET_FEES: Record<string, number> = {
+    ROOT: 1000,
+    SUB: 200,
+    UNIQUE: 10,
+    QUALIFIER: 2000,
+    RESTRICTED: 3000,
+    REISSUE: 200,
+  };
+
   const elements = {
     // Header
     refreshBtn: document.getElementById('refreshBtn')!,
@@ -70,7 +79,45 @@ import type { WalletSettings } from '../types/index.js';
     historyPager: document.getElementById('historyPager'),
     historyPrevBtn: document.getElementById('historyPrevBtn') as HTMLButtonElement | null,
     historyNextBtn: document.getElementById('historyNextBtn') as HTMLButtonElement | null,
-    historyPageLabel: document.getElementById('historyPageLabel')
+    historyPageLabel: document.getElementById('historyPageLabel'),
+    createAssetCard: document.getElementById('createAssetCard'),
+    assetTypeTabs: document.getElementById('assetTypeTabs'),
+    caAssetNameGroup: document.getElementById('caAssetNameGroup'),
+    caAssetName: document.getElementById('caAssetName') as HTMLInputElement | null,
+    caAssetNameHint: document.getElementById('caAssetNameHint'),
+    caParentSelectGroup: document.getElementById('caParentSelectGroup'),
+    caParentSelectLabel: document.getElementById('caParentSelectLabel'),
+    caParentSelect: document.getElementById('caParentSelect') as HTMLSelectElement | null,
+    caLoadParentsBtn: document.getElementById('caLoadParentsBtn') as HTMLButtonElement | null,
+    caParentSelectHint: document.getElementById('caParentSelectHint'),
+    caSubNameGroup: document.getElementById('caSubNameGroup'),
+    caSubName: document.getElementById('caSubName') as HTMLInputElement | null,
+    caTagGroup: document.getElementById('caTagGroup'),
+    caTag: document.getElementById('caTag') as HTMLInputElement | null,
+    caQuantityGroup: document.getElementById('caQuantityGroup'),
+    caQuantityLabel: document.getElementById('caQuantityLabel'),
+    caQuantity: document.getElementById('caQuantity') as HTMLInputElement | null,
+    caUnitsGroup: document.getElementById('caUnitsGroup'),
+    caUnits: document.getElementById('caUnits') as HTMLSelectElement | null,
+    caReissuableGroup: document.getElementById('caReissuableGroup'),
+    caReissuable: document.getElementById('caReissuable') as HTMLInputElement | null,
+    caReissuableLabel: document.getElementById('caReissuableLabel'),
+    caVerifierGroup: document.getElementById('caVerifierGroup'),
+    caVerifier: document.getElementById('caVerifier') as HTMLInputElement | null,
+    caIpfsHash: document.getElementById('caIpfsHash') as HTMLInputElement | null,
+    caFeeValue: document.getElementById('caFeeValue'),
+    caError: document.getElementById('caError'),
+    caCreateBtn: document.getElementById('caCreateBtn') as HTMLButtonElement | null,
+    caResult: document.getElementById('caResult'),
+    caTxid: document.getElementById('caTxid'),
+    caNewBtn: document.getElementById('caNewBtn') as HTMLButtonElement | null,
+    caTxConfirmModal: document.getElementById('caTxConfirmModal'),
+    caTxOutputsList: document.getElementById('caTxOutputsList'),
+    caTxRawToggle: document.getElementById('caTxRawToggle') as HTMLButtonElement | null,
+    caTxRawHex: document.getElementById('caTxRawHex'),
+    caTxConfirmError: document.getElementById('caTxConfirmError'),
+    caTxCancelBtn: document.getElementById('caTxCancelBtn') as HTMLButtonElement | null,
+    caTxBroadcastBtn: document.getElementById('caTxBroadcastBtn') as HTMLButtonElement | null,
   };
 
   let state = {
@@ -88,7 +135,9 @@ import type { WalletSettings } from '../types/index.js';
     autoRefreshInterval: null as ReturnType<typeof setInterval> | null,
     isRefreshingBalance: false,
     lockWatchInterval: null as ReturnType<typeof setInterval> | null,
-    lastUnlockTouchAt: 0
+    lastUnlockTouchAt: 0,
+    createAssetType: 'ROOT' as string,
+    pendingSignedTx: null as { hex: string; rpcUrl: string; buildResult: NeuraiAssetsBuildResult } | null,
   };
 
   // ── Initialization ─────────────────────────────────────────────────────────
@@ -153,6 +202,7 @@ import type { WalletSettings } from '../types/index.js';
     sessionActivityEvents.forEach((eventName) => {
       document.addEventListener(eventName, () => { touchUnlockSession(); }, { passive: true });
     });
+    bindCreateAsset();
   }
 
   // ── Section visibility ─────────────────────────────────────────────────────
@@ -1330,6 +1380,526 @@ import type { WalletSettings } from '../types/index.js';
 
   function formatSatoshisToXna(satoshis: bigint | number) {
     return (Number(satoshis) / 1e8).toFixed(8);
+  }
+
+  // ── Create Asset ───────────────────────────────────────────────────────────
+
+  function buildRpcFn(network: string): (method: string, params: unknown[]) => Promise<unknown> {
+    const url = network === 'xna-test'
+      ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
+      : (state.settings.rpcMainnet || C.RPC_URL);
+    return async (method: string, params: unknown[]): Promise<unknown> => {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '1.0', id: 'neurai-assets', method, params })
+      });
+      const data = await resp.json() as { result?: unknown; error?: { message: string } | string };
+      if (data.error) {
+        const msg = typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error));
+        throw new Error(msg);
+      }
+      return data.result;
+    };
+  }
+
+  function updateCreateAssetUI() {
+    const type = state.createAssetType;
+    const isSub = type === 'SUB';
+    const isUnique = type === 'UNIQUE';
+    const isQualifier = type === 'QUALIFIER';
+    const isRestricted = type === 'RESTRICTED';
+    const isReissue = type === 'REISSUE';
+    const needsParent = isSub || isUnique || isReissue;
+
+    // Tab active state
+    elements.assetTypeTabs!.querySelectorAll('.asset-type-tab').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.type === type);
+    });
+
+    // Asset name field: hidden when type uses parent selector instead
+    elements.caAssetNameGroup!.classList.toggle('hidden', needsParent);
+
+    // Parent selector: shown for SUB, UNIQUE, and REISSUE
+    elements.caParentSelectGroup!.classList.toggle('hidden', !needsParent);
+    elements.caSubNameGroup!.classList.toggle('hidden', !isSub);
+    elements.caTagGroup!.classList.toggle('hidden', !isUnique);
+
+    if (isSub) {
+      elements.caParentSelectLabel!.textContent = 'Parent Asset';
+      elements.caParentSelectHint!.textContent = 'Select the owner token (ASSET!) you control';
+    } else if (isUnique) {
+      elements.caParentSelectLabel!.textContent = 'Root Asset';
+      elements.caParentSelectHint!.textContent = 'Select the root asset (ASSET!) you control';
+    } else if (isReissue) {
+      elements.caParentSelectLabel!.textContent = 'Asset to Reissue';
+      elements.caParentSelectHint!.textContent = 'Select the owner token of the asset to mint more';
+    }
+
+    // Quantity: hidden for UNIQUE
+    elements.caQuantityGroup!.classList.toggle('hidden', isUnique);
+    elements.caQuantityLabel!.textContent = isReissue ? 'Additional Quantity' : 'Quantity';
+
+    // Units: hidden for QUALIFIER, UNIQUE, REISSUE (units can't change on reissue)
+    elements.caUnitsGroup!.classList.toggle('hidden', isQualifier || isUnique || isReissue);
+
+    // Reissuable: hidden for QUALIFIER and UNIQUE; label changes for REISSUE
+    elements.caReissuableGroup!.classList.toggle('hidden', isQualifier || isUnique);
+    if (isReissue) {
+      elements.caReissuable!.checked = true; // default: keep reissuable
+      elements.caReissuableLabel!.textContent = 'Keep reissuable (uncheck to lock supply permanently)';
+    } else {
+      elements.caReissuableLabel!.textContent = 'Reissuable — can mint more supply later';
+    }
+
+    // Verifier: only for RESTRICTED
+    elements.caVerifierGroup!.classList.toggle('hidden', !isRestricted);
+
+    // Button label
+    elements.caCreateBtn!.textContent = isReissue ? 'Reissue Asset' : 'Create Asset';
+
+    // Placeholders and hints per type
+    if (type === 'ROOT') {
+      elements.caAssetName!.placeholder = 'MYTOKEN';
+      elements.caAssetNameHint!.textContent = '3–30 uppercase letters, numbers, _ or .';
+    } else if (type === 'QUALIFIER') {
+      elements.caAssetName!.placeholder = 'MYKYCTOKEN';
+      elements.caAssetNameHint!.textContent = 'Name without # prefix — e.g. KYC_VERIFIED';
+      elements.caQuantity!.max = '10';
+      elements.caQuantity!.placeholder = '1';
+    } else if (type === 'RESTRICTED') {
+      elements.caAssetName!.placeholder = 'MYSECURITYTOKEN';
+      elements.caAssetNameHint!.textContent = 'Name without $ prefix — e.g. SECURITY';
+    }
+
+    // Reset quantity limits when leaving QUALIFIER
+    if (!isQualifier) {
+      elements.caQuantity!.max = '21000000000';
+      elements.caQuantity!.placeholder = '1000000';
+    }
+
+    // Fee display
+    const fee = ASSET_FEES[type] ?? 1000;
+    elements.caFeeValue!.textContent = `${fee} XNA`;
+  }
+
+  async function getDecryptedWif(): Promise<string | null> {
+    const wallet = state.wallet as Record<string, unknown> | null;
+    if (!wallet) return null;
+    if (wallet.walletType === 'hardware') return null; // HW wallets not supported for asset creation yet
+    if (wallet.privateKey) return wallet.privateKey as string;
+    if (wallet.privateKeyEnc) {
+      const pin = state.sessionPin;
+      if (!pin) return null;
+      try {
+        return await NEURAI_UTILS.decryptTextWithPin(
+          wallet.privateKeyEnc as Parameters<typeof NEURAI_UTILS.decryptTextWithPin>[0],
+          pin
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async function handleCreateAsset() {
+    elements.caError!.textContent = '';
+    elements.caError!.classList.add('hidden');
+    elements.caCreateBtn!.disabled = true;
+    elements.caCreateBtn!.textContent = 'Creating…';
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet || !wallet.address) throw new Error('No wallet loaded. Please unlock first.');
+      if (wallet.walletType === 'hardware') throw new Error('Asset creation is not yet supported for hardware wallets.');
+
+      const wif = await getDecryptedWif();
+      if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
+
+      const network = (wallet.network as string) || 'xna';
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+
+      const neuraiAssets = new NeuraiAssets(rpc, {
+        network,
+        addresses: [address],
+        changeAddress: address,
+        toAddress: address,
+      });
+
+      const type = state.createAssetType;
+      let result: NeuraiAssetsBuildResult;
+
+      if (type === 'ROOT') {
+        const assetName = elements.caAssetName!.value.trim().toUpperCase();
+        if (!assetName) throw new Error('Asset name is required.');
+        result = await neuraiAssets.createRootAsset({
+          assetName,
+          quantity: Number(elements.caQuantity!.value) || 1,
+          units: Number(elements.caUnits!.value) || 0,
+          reissuable: elements.caReissuable!.checked,
+          hasIpfs: !!elements.caIpfsHash!.value.trim(),
+          ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
+        });
+      } else if (type === 'SUB') {
+        const parentOwnerToken = elements.caParentSelect!.value;
+        if (!parentOwnerToken) throw new Error('Select a parent asset from the dropdown.');
+        const parentName = parentOwnerToken.endsWith('!') ? parentOwnerToken.slice(0, -1) : parentOwnerToken;
+        const subPart = elements.caSubName!.value.trim().toUpperCase();
+        if (!subPart) throw new Error('Sub name is required.');
+        const assetName = `${parentName}/${subPart}`;
+        result = await neuraiAssets.createSubAsset({
+          assetName,
+          quantity: Number(elements.caQuantity!.value) || 1,
+          units: Number(elements.caUnits!.value) || 0,
+          reissuable: elements.caReissuable!.checked,
+          hasIpfs: !!elements.caIpfsHash!.value.trim(),
+          ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
+        });
+      } else if (type === 'UNIQUE') {
+        const parentOwnerToken = elements.caParentSelect!.value;
+        if (!parentOwnerToken) throw new Error('Select a root asset from the dropdown.');
+        const rootName = parentOwnerToken.endsWith('!') ? parentOwnerToken.slice(0, -1) : parentOwnerToken;
+        const tag = elements.caTag!.value.trim().toUpperCase();
+        if (!tag) throw new Error('NFT tag is required.');
+        result = await neuraiAssets.createUniqueAssets({
+          rootAssetName: rootName,
+          assetTags: [{
+            tag,
+            hasIpfs: !!elements.caIpfsHash!.value.trim(),
+            ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
+          }],
+        });
+      } else if (type === 'QUALIFIER') {
+        const qualifierName = elements.caAssetName!.value.trim().toUpperCase();
+        if (!qualifierName) throw new Error('Qualifier name is required (starts with #).');
+        result = await neuraiAssets.createQualifier({
+          qualifierName,
+          quantity: Number(elements.caQuantity!.value) || 1,
+          hasIpfs: !!elements.caIpfsHash!.value.trim(),
+          ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
+        });
+      } else if (type === 'RESTRICTED') {
+        const assetName = elements.caAssetName!.value.trim().toUpperCase();
+        const verifierString = elements.caVerifier!.value.trim();
+        if (!assetName) throw new Error('Asset name is required (starts with $).');
+        if (!verifierString) throw new Error('Verifier string is required for restricted assets.');
+        result = await neuraiAssets.createRestrictedAsset({
+          assetName,
+          quantity: Number(elements.caQuantity!.value) || 1,
+          verifierString,
+          units: Number(elements.caUnits!.value) || 0,
+          reissuable: elements.caReissuable!.checked,
+          hasIpfs: !!elements.caIpfsHash!.value.trim(),
+          ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
+        });
+      } else if (type === 'REISSUE') {
+        const parentOwnerToken = elements.caParentSelect!.value;
+        if (!parentOwnerToken) throw new Error('Select an asset from the dropdown.');
+        const assetName = parentOwnerToken.endsWith('!') ? parentOwnerToken.slice(0, -1) : parentOwnerToken;
+        const addQty = Number(elements.caQuantity!.value);
+        if (!addQty || addQty <= 0) throw new Error('Additional quantity must be greater than 0.');
+        result = await neuraiAssets.reissueAsset({
+          assetName,
+          quantity: addQty,
+          reissuable: elements.caReissuable!.checked,
+          newIpfs: elements.caIpfsHash!.value.trim() || undefined,
+        });
+      } else {
+        throw new Error('Unknown asset type: ' + type);
+      }
+
+      // Sign the raw transaction
+      const rpcUrl = network === 'xna-test'
+        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
+        : (state.settings.rpcMainnet || C.RPC_URL);
+
+      const signResp = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '1.0', id: 'sign-asset-tx', method: 'signrawtransaction',
+          params: [result.rawTx, [], [wif], 'ALL']
+        })
+      });
+      const signData = await signResp.json() as {
+        result?: { hex: string; complete: boolean };
+        error?: { message: string } | string;
+      };
+      if (signData.error) {
+        const msg = typeof signData.error === 'string' ? signData.error : signData.error.message;
+        throw new Error('Signing failed: ' + msg);
+      }
+      if (!signData.result?.complete) throw new Error('Transaction signing incomplete. Check your UTXOs.');
+
+      // Store signed TX and show confirm modal instead of broadcasting immediately
+      state.pendingSignedTx = { hex: signData.result.hex, rpcUrl, buildResult: result };
+      showTxConfirmModal(result, signData.result.hex);
+
+    } catch (err) {
+      const msg = (err as Error).message || 'Unknown error';
+      elements.caError!.textContent = msg;
+      elements.caError!.classList.remove('hidden');
+      elements.caCreateBtn!.disabled = false;
+      elements.caCreateBtn!.textContent = 'Create Asset';
+    }
+  }
+
+  function showTxConfirmModal(buildResult: NeuraiAssetsBuildResult, signedHex: string) {
+    // Build outputs display
+    const list = elements.caTxOutputsList!;
+    list.innerHTML = '';
+
+    const outputs: Array<Record<string, unknown>> = Array.isArray(buildResult.outputs)
+      ? buildResult.outputs as Array<Record<string, unknown>>
+      : Object.entries(buildResult.outputs as Record<string, unknown>).map(([k, v]) => ({ [k]: v }));
+
+    outputs.forEach(outputObj => {
+      const [addr, value] = Object.entries(outputObj)[0];
+      const row = document.createElement('div');
+      row.className = 'ca-output-row';
+
+      let badgeClass = 'ca-output-badge--asset';
+      let badgeLabel = 'Asset';
+      let valueStr = '';
+
+      if (typeof value === 'number') {
+        // XNA output — determine if burn or change
+        const isBurn = /^N[bB]/.test(addr) || addr.includes('BURN') ||
+          // known burn address pattern: NbURN...
+          /^Nb/.test(addr);
+        badgeClass = isBurn ? 'ca-output-badge--burn' : 'ca-output-badge--change';
+        badgeLabel = isBurn ? 'Burn' : 'Change';
+        valueStr = `${value} XNA`;
+      } else if (typeof value === 'object' && value !== null) {
+        const v = value as Record<string, unknown>;
+        if (v.transfer) {
+          const assetName = Object.keys(v.transfer as Record<string, unknown>)[0] || '';
+          const amount = (v.transfer as Record<string, unknown>)[assetName];
+          badgeClass = assetName.endsWith('!') ? 'ca-output-badge--owner' : 'ca-output-badge--asset';
+          badgeLabel = assetName.endsWith('!') ? 'Owner token' : 'Transfer';
+          valueStr = `${amount} ${assetName}`;
+        } else if (v.issue) {
+          const i = v.issue as Record<string, unknown>;
+          badgeLabel = 'Issue';
+          const units = Number(i.units ?? 0);
+          const qty = Number(i.asset_quantity) / Math.pow(10, units);
+          valueStr = `${i.asset_name} × ${qty}`;
+        } else if (v.issue_unique) {
+          badgeLabel = 'NFT';
+          valueStr = String((v.issue_unique as Record<string, unknown>).root_name || '');
+        } else if (v.issue_restricted) {
+          badgeLabel = 'Restricted';
+          valueStr = String((v.issue_restricted as Record<string, unknown>).asset_name || '');
+        } else if (v.issue_qualifier) {
+          badgeLabel = 'Qualifier';
+          valueStr = String((v.issue_qualifier as Record<string, unknown>).asset_name || '');
+        } else if (v.reissue) {
+          badgeLabel = 'Reissue';
+          valueStr = String((v.reissue as Record<string, unknown>).asset_name || '');
+        } else {
+          valueStr = JSON.stringify(value).slice(0, 60);
+        }
+      }
+
+      row.innerHTML = `
+        <span class="ca-output-badge ${badgeClass}">${badgeLabel}</span>
+        <span class="ca-output-addr">${addr}</span>
+        <span class="ca-output-value">${valueStr}</span>`;
+      list.appendChild(row);
+    });
+
+    // Show miner fee row
+    if (buildResult.fee != null) {
+      const feeRow = document.createElement('div');
+      feeRow.className = 'ca-output-row';
+      feeRow.innerHTML = `
+        <span class="ca-output-badge" style="background:rgba(148,163,184,.12);color:var(--text-muted)">Fee</span>
+        <span class="ca-output-addr">Miner fee (estimated)</span>
+        <span class="ca-output-value">${buildResult.fee.toFixed(8)} XNA</span>`;
+      list.appendChild(feeRow);
+    }
+
+    // Raw hex
+    elements.caTxRawHex!.textContent = signedHex;
+    elements.caTxRawHex!.classList.add('hidden');
+    elements.caTxRawToggle!.textContent = ' Show raw hex';
+
+    elements.caTxConfirmError!.textContent = '';
+    elements.caTxConfirmError!.classList.add('hidden');
+    elements.caTxBroadcastBtn!.disabled = false;
+    elements.caTxBroadcastBtn!.textContent = 'Broadcast';
+
+    elements.caTxConfirmModal!.classList.remove('hidden');
+  }
+
+  async function handleBroadcast() {
+    const pending = state.pendingSignedTx;
+    if (!pending) return;
+
+    elements.caTxBroadcastBtn!.disabled = true;
+    elements.caTxBroadcastBtn!.textContent = 'Broadcasting…';
+    elements.caTxConfirmError!.classList.add('hidden');
+
+    try {
+      const broadcastResp = await fetch(pending.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '1.0', id: 'broadcast-asset-tx', method: 'sendrawtransaction',
+          params: [pending.hex]
+        })
+      });
+      const broadcastData = await broadcastResp.json() as {
+        result?: string;
+        error?: { message: string } | string;
+      };
+      if (broadcastData.error) {
+        const msg = typeof broadcastData.error === 'string' ? broadcastData.error : broadcastData.error.message;
+        throw new Error(msg);
+      }
+
+      const txid = broadcastData.result || 'unknown';
+      state.pendingSignedTx = null;
+      elements.caTxConfirmModal!.classList.add('hidden');
+      elements.caTxid!.textContent = txid;
+      elements.caResult!.classList.remove('hidden');
+      elements.caCreateBtn!.classList.add('hidden');
+
+    } catch (err) {
+      const msg = (err as Error).message || 'Broadcast failed';
+      elements.caTxConfirmError!.textContent = msg;
+      elements.caTxConfirmError!.classList.remove('hidden');
+      elements.caTxBroadcastBtn!.disabled = false;
+      elements.caTxBroadcastBtn!.textContent = 'Broadcast';
+    }
+  }
+
+  // Restrict input to allowed chars for each field type, auto-uppercase
+  function bindAssetNameInput(
+    input: HTMLInputElement,
+    allowed: RegExp,  // chars to KEEP (single char test)
+    prefix?: string   // fixed prefix like '#' or '$' (non-removable)
+  ) {
+    input.addEventListener('input', () => {
+      const sel = input.selectionStart ?? input.value.length;
+      let v = input.value.toUpperCase();
+      // Keep only allowed chars (plus the prefix if present)
+      const prefixPart = prefix && v.startsWith(prefix) ? prefix : (prefix ? prefix : '');
+      const rest = v.slice(prefixPart.length);
+      const cleaned = prefixPart + rest.split('').filter(c => allowed.test(c)).join('');
+      if (cleaned !== input.value) {
+        input.value = cleaned;
+        const newSel = Math.min(sel, cleaned.length);
+        input.setSelectionRange(newSel, newSel);
+      }
+    });
+  }
+
+  async function loadOwnerTokensIntoSelect() {
+    const select = elements.caParentSelect!;
+    const hint = elements.caParentSelectHint!;
+    select.innerHTML = '<option value="">-- Select owner token --</option>';
+    hint.textContent = 'Loading…';
+    elements.caLoadParentsBtn!.disabled = true;
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet?.address) { hint.textContent = 'No wallet loaded.'; return; }
+      const network = (wallet.network as string) || 'xna';
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+
+      // listassetbalancesbyaddress returns {assetName: amount, ...}
+      const balances = await rpc('listassetbalancesbyaddress', [address]) as Record<string, number> | null;
+      const ownerTokens = balances
+        ? Object.keys(balances).filter(name => name.endsWith('!') && balances[name] > 0)
+        : [];
+
+      if (ownerTokens.length === 0) {
+        hint.textContent = 'No owner tokens found. You need a ROOT asset first.';
+      } else {
+        ownerTokens.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+        hint.textContent = `${ownerTokens.length} owner token${ownerTokens.length !== 1 ? 's' : ''} found`;
+      }
+    } catch (err) {
+      hint.textContent = 'Failed to load: ' + (err as Error).message;
+    } finally {
+      elements.caLoadParentsBtn!.disabled = false;
+    }
+  }
+
+  function bindCreateAsset() {
+    if (!elements.createAssetCard) return;
+
+    // Allowed chars per field: A-Z 0-9 _ .  (separator / or # not needed — handled by parent selector)
+    const alphaNumDotUnderscore = /[A-Z0-9_.]/;
+
+    bindAssetNameInput(elements.caAssetName!, alphaNumDotUnderscore);
+    bindAssetNameInput(elements.caSubName!, alphaNumDotUnderscore);
+    bindAssetNameInput(elements.caTag!, alphaNumDotUnderscore);
+
+    // QUALIFIER and RESTRICTED: free-type prefix fields (no separator, underscore only)
+    // We handle prefix forcing in updateCreateAssetUI via placeholder hints,
+    // and the actual prefix (#/$) is added programmatically in handleCreateAsset.
+    // For verifier, allow #, &, |, !, (, ), space, A-Z, 0-9, _
+    elements.caVerifier!.addEventListener('input', () => {
+      const allowed = /[A-Z0-9_#&|!()\s/]/i;
+      const v = elements.caVerifier!.value.toUpperCase();
+      const cleaned = v.split('').filter(c => allowed.test(c)).join('');
+      if (cleaned !== elements.caVerifier!.value) elements.caVerifier!.value = cleaned;
+    });
+
+    // Type tab clicks
+    elements.assetTypeTabs!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.asset-type-tab') as HTMLElement | null;
+      if (!btn || !btn.dataset.type) return;
+      state.createAssetType = btn.dataset.type;
+      updateCreateAssetUI();
+      // Auto-load owner tokens when switching to types that need them
+      if (btn.dataset.type === 'SUB' || btn.dataset.type === 'UNIQUE' || btn.dataset.type === 'REISSUE') {
+        loadOwnerTokensIntoSelect();
+      }
+    });
+
+    elements.caLoadParentsBtn!.addEventListener('click', loadOwnerTokensIntoSelect);
+    elements.caCreateBtn!.addEventListener('click', handleCreateAsset);
+
+    // Confirm modal
+    elements.caTxBroadcastBtn!.addEventListener('click', handleBroadcast);
+    elements.caTxCancelBtn!.addEventListener('click', () => {
+      state.pendingSignedTx = null;
+      elements.caTxConfirmModal!.classList.add('hidden');
+      elements.caCreateBtn!.disabled = false;
+      elements.caCreateBtn!.textContent = 'Create Asset';
+    });
+    elements.caTxRawToggle!.addEventListener('click', () => {
+      const hidden = elements.caTxRawHex!.classList.toggle('hidden');
+      elements.caTxRawToggle!.textContent = hidden ? ' Show raw hex' : ' Hide raw hex';
+    });
+
+    elements.caNewBtn!.addEventListener('click', () => {
+      elements.caResult!.classList.add('hidden');
+      elements.caCreateBtn!.classList.remove('hidden');
+      elements.caCreateBtn!.disabled = false;
+      elements.caCreateBtn!.textContent = 'Create Asset';
+      elements.caError!.classList.add('hidden');
+      elements.caAssetName!.value = '';
+      elements.caSubName!.value = '';
+      elements.caTag!.value = '';
+      elements.caParentSelect!.value = '';
+      elements.caQuantity!.value = '';
+      elements.caIpfsHash!.value = '';
+      elements.caVerifier!.value = '';
+    });
+
+    updateCreateAssetUI();
   }
 
   // ── Boot ───────────────────────────────────────────────────────────────────
