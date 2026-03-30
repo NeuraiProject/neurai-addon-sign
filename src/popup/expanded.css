@@ -708,6 +708,26 @@ textarea {
   color: var(--danger);
 }
 
+.movement-direction--issue {
+  background: rgba(139, 92, 246, 0.14);
+  color: #a78bfa;
+}
+
+.movement-direction--reissue {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+}
+
+.movement-direction--asset-sent {
+  background: rgba(239, 68, 68, 0.10);
+  color: #f87171;
+}
+
+.movement-direction--asset-recv {
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
+}
+
 .movement-txid {
   font-family: var(--font-mono);
   font-size: 11px;

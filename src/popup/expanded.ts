@@ -513,21 +513,60 @@ import type { WalletSettings } from '../types/index.js';
     }
   }
 
+  function detectAssetOp(tx: unknown, address: string) {
+    const vout = ((tx as Record<string, unknown>).vout as Array<Record<string, unknown>>) || [];
+    // Priority: new_asset(3) > reissue_asset(2) > transfer_asset(1)
+    // A single tx can have owner token (transfer_asset) + new_asset outputs to the same address.
+    // We scan all outputs for our address and keep the highest-priority match.
+    const priority: Record<string, number> = { new_asset: 3, reissue_asset: 2, transfer_asset: 1 };
+    let best: { opType: string; assetName: string; amount: number } | null = null;
+    for (const output of vout) {
+      const script = (output.scriptPubKey || {}) as Record<string, unknown>;
+      const addrs = (script.addresses as string[]) || [];
+      if (!addrs.includes(address)) continue;
+      const type = script.type as string;
+      if (!(type in priority)) continue;
+      if (best && priority[type] <= priority[best.opType]) continue;
+      const asset = (script.asset || {}) as Record<string, unknown>;
+      const assetName = (asset.name as string) || '';
+      const amount = Number(asset.amount ?? 0);
+      const opType = type === 'new_asset' ? 'Issue' : type === 'reissue_asset' ? 'Reissue' : 'Transfer';
+      best = { opType, assetName, amount };
+    }
+    return best;
+  }
+
   function normalizeMovement(tx: unknown, movement: { txid: string; netSatoshis: number; height: number } | undefined) {
     if (!tx || !movement || !movement.txid) return null;
 
     const netSatoshis = Number(movement.netSatoshis || 0);
     if (!Number.isFinite(netSatoshis) || netSatoshis === 0) return null;
 
-    const direction = netSatoshis < 0 ? 'Sent' : 'Received';
-    const rawAmount = Math.abs(netSatoshis) / 1e8;
-    const amount = rawAmount > 0 ? Number(rawAmount).toFixed(8).replace(/\.?0+$/, '') : '0';
     const timestamp = Number((tx as Record<string, unknown>).blocktime || (tx as Record<string, unknown>).time || 0);
+    const assetOp = detectAssetOp(tx, (state.wallet as Record<string, unknown>)?.address as string || '');
+
+    let direction: string;
+    let amountText: string;
+
+    if (assetOp) {
+      if (assetOp.opType === 'Issue' || assetOp.opType === 'Reissue') {
+        direction = assetOp.opType;
+      } else {
+        direction = netSatoshis < 0 ? 'Asset Sent' : 'Asset Recv';
+      }
+      const qty = assetOp.amount ? assetOp.amount.toFixed(8).replace(/\.?0+$/, '') : '';
+      amountText = qty ? `${assetOp.assetName} × ${qty}` : (assetOp.assetName || 'Asset');
+    } else {
+      direction = netSatoshis < 0 ? 'Sent' : 'Received';
+      const rawAmount = Math.abs(netSatoshis) / 1e8;
+      const amount = rawAmount > 0 ? Number(rawAmount).toFixed(8).replace(/\.?0+$/, '') : '0';
+      amountText = amount + ' XNA';
+    }
 
     return {
       txid: movement.txid,
       direction,
-      amountText: amount + ' XNA',
+      amountText,
       timestamp: timestamp ? new Date(timestamp * 1000).toLocaleString() : 'Pending',
       confirmations: Number((tx as Record<string, unknown>).confirmations || 0),
       sortTime: timestamp || 0
@@ -553,7 +592,7 @@ import type { WalletSettings } from '../types/index.js';
       return `
       <div class="movement-item">
         <div class="movement-head">
-          <span class="movement-direction movement-direction--${i.direction.toLowerCase()}">${escapeHtml(i.direction)}</span>
+          <span class="movement-direction movement-direction--${i.direction.toLowerCase().replace(/\s+/g, '-')}">${escapeHtml(i.direction)}</span>
           <strong>${escapeHtml(i.amountText)}</strong>
         </div>
         <div class="movement-meta">
