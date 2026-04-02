@@ -205,6 +205,17 @@
                 <span class="form-hint" id="caParentSelectHint">Loading your owner tokens…</span>
               </div>
 
+              <div class="form-group hidden" id="caRestrictedBaseGroup">
+                <label for="caRestrictedBaseSelect">Base Asset</label>
+                <div class="ca-parent-select-row">
+                  <select id="caRestrictedBaseSelect">
+                    <option value="">-- Select root asset --</option>
+                  </select>
+                  <button class="btn btn-secondary btn-small" id="caLoadRestrictedBasesBtn" type="button">Refresh</button>
+                </div>
+                <span class="form-hint" id="caRestrictedBaseHint">Select the root asset you control to issue its restricted version.</span>
+              </div>
+
               <div class="form-group hidden" id="caSubNameGroup">
                 <label for="caSubName">Sub Name</label>
                 <input type="text" id="caSubName" placeholder="SUBTOKEN" autocomplete="off" spellcheck="false">
@@ -246,8 +257,22 @@
 
               <div class="form-group hidden" id="caVerifierGroup">
                 <label for="caVerifier">Verifier String</label>
-                <input type="text" id="caVerifier" placeholder="#KYC &amp; #ACCREDITED" autocomplete="off" spellcheck="false">
-                <span class="form-hint">Boolean expression using qualifier tags (e.g. #KYC | #INSTITUTION)</span>
+                <input type="hidden" id="caVerifier" value="">
+                <div class="ca-verifier-picker-row">
+                  <select id="caVerifierSelect">
+                    <option value="">-- Select qualifier tag --</option>
+                  </select>
+                  <button class="btn btn-secondary btn-small" id="caLoadVerifiersBtn" type="button">Refresh</button>
+                </div>
+                <div class="ca-verifier-actions">
+                  <button class="btn btn-secondary btn-small" id="caVerifierAddBtn" type="button">Add</button>
+                  <button class="btn btn-secondary btn-small" id="caVerifierNegateBtn" type="button">NOT</button>
+                  <button class="btn btn-secondary btn-small" id="caVerifierAndBtn" type="button">AND</button>
+                  <button class="btn btn-secondary btn-small" id="caVerifierOrBtn" type="button">OR</button>
+                  <button class="btn btn-secondary btn-small" id="caVerifierClearBtn" type="button">Clear</button>
+                </div>
+                <div class="ca-verifier-preview" id="caVerifierPreview">No verifier selected</div>
+                <span class="form-hint" id="caVerifierHint">Load qualifier tags linked to this account to build the verifier expression.</span>
               </div>
 
               <div class="form-group">

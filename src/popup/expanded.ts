@@ -119,6 +119,10 @@ import type { WalletSettings } from '../types/index.js';
     caParentSelect: document.getElementById('caParentSelect') as HTMLSelectElement | null,
     caLoadParentsBtn: document.getElementById('caLoadParentsBtn') as HTMLButtonElement | null,
     caParentSelectHint: document.getElementById('caParentSelectHint'),
+    caRestrictedBaseGroup: document.getElementById('caRestrictedBaseGroup'),
+    caRestrictedBaseSelect: document.getElementById('caRestrictedBaseSelect') as HTMLSelectElement | null,
+    caLoadRestrictedBasesBtn: document.getElementById('caLoadRestrictedBasesBtn') as HTMLButtonElement | null,
+    caRestrictedBaseHint: document.getElementById('caRestrictedBaseHint'),
     caSubNameGroup: document.getElementById('caSubNameGroup'),
     caSubName: document.getElementById('caSubName') as HTMLInputElement | null,
     caTagGroup: document.getElementById('caTagGroup'),
@@ -133,6 +137,15 @@ import type { WalletSettings } from '../types/index.js';
     caReissuableLabel: document.getElementById('caReissuableLabel'),
     caVerifierGroup: document.getElementById('caVerifierGroup'),
     caVerifier: document.getElementById('caVerifier') as HTMLInputElement | null,
+    caVerifierSelect: document.getElementById('caVerifierSelect') as HTMLSelectElement | null,
+    caLoadVerifiersBtn: document.getElementById('caLoadVerifiersBtn') as HTMLButtonElement | null,
+    caVerifierAddBtn: document.getElementById('caVerifierAddBtn') as HTMLButtonElement | null,
+    caVerifierNegateBtn: document.getElementById('caVerifierNegateBtn') as HTMLButtonElement | null,
+    caVerifierAndBtn: document.getElementById('caVerifierAndBtn') as HTMLButtonElement | null,
+    caVerifierOrBtn: document.getElementById('caVerifierOrBtn') as HTMLButtonElement | null,
+    caVerifierClearBtn: document.getElementById('caVerifierClearBtn') as HTMLButtonElement | null,
+    caVerifierPreview: document.getElementById('caVerifierPreview'),
+    caVerifierHint: document.getElementById('caVerifierHint'),
     caIpfsHash: document.getElementById('caIpfsHash') as HTMLInputElement | null,
     caFeeValue: document.getElementById('caFeeValue'),
     caError: document.getElementById('caError'),
@@ -1536,6 +1549,233 @@ import type { WalletSettings } from '../types/index.js';
     };
   }
 
+  function renderVerifierPreview() {
+    const value = elements.caVerifier!.value.trim();
+    elements.caVerifierPreview!.textContent = value || 'No verifier selected';
+    elements.caVerifierPreview!.classList.toggle('is-empty', !value);
+  }
+
+  function appendVerifierToken(token: string) {
+    const normalizedToken = token.trim().toUpperCase();
+    if (!normalizedToken) return;
+
+    const current = elements.caVerifier!.value.trim();
+    const endsWithOperator = /(?:^|[\s(])(?:&|\|)$/.test(current) || /!$/.test(current);
+    const nextValue = current
+      ? (endsWithOperator ? `${current} ${normalizedToken}` : `${current} & ${normalizedToken}`)
+      : normalizedToken;
+
+    elements.caVerifier!.value = nextValue.trim();
+    renderVerifierPreview();
+  }
+
+  function appendVerifierOperator(operator: '&' | '|') {
+    const current = elements.caVerifier!.value.trim();
+    if (!current || /(?:&|\||!)$/.test(current)) return;
+    elements.caVerifier!.value = `${current} ${operator}`;
+    renderVerifierPreview();
+  }
+
+  function appendSelectedVerifier(negated = false) {
+    const selected = elements.caVerifierSelect!.value.trim().toUpperCase();
+    if (!selected) return;
+    appendVerifierToken(negated ? `!${selected}` : selected);
+  }
+
+  async function loadAvailableVerifierTags() {
+    const select = elements.caVerifierSelect!;
+    const hint = elements.caVerifierHint!;
+    select.innerHTML = '<option value="">-- Select qualifier tag --</option>';
+    hint.textContent = 'Loading qualifier tags…';
+    elements.caLoadVerifiersBtn!.disabled = true;
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet?.address) {
+        hint.textContent = 'No wallet loaded.';
+        return;
+      }
+
+      const network = (wallet.network as string) || 'xna';
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+
+      const [linkedTagsRaw, balances] = await Promise.all([
+        rpc('listtagsforaddress', [address]).catch(() => []),
+        rpc('listassetbalancesbyaddress', [address]).catch(() => ({})),
+      ]);
+
+      const linkedTags = Array.isArray(linkedTagsRaw)
+        ? linkedTagsRaw.map(tag => String(tag || '').toUpperCase()).filter(tag => tag.startsWith('#'))
+        : [];
+      const ownedQualifierAssets = Object.entries((balances || {}) as Record<string, number>)
+        .filter(([name, amount]) => name.startsWith('#') && !name.endsWith('!') && Number(amount) > 0)
+        .map(([name]) => name.toUpperCase());
+
+      const availableTags = [...new Set([...linkedTags, ...ownedQualifierAssets])].sort();
+
+      if (availableTags.length === 0) {
+        hint.textContent = 'No qualifier assets or linked tags found for this account.';
+        return;
+      }
+
+      availableTags.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+
+      const linkedCount = linkedTags.length;
+      const ownedCount = ownedQualifierAssets.filter(name => !linkedTags.includes(name)).length;
+      hint.textContent = `${availableTags.length} qualifier tag${availableTags.length !== 1 ? 's' : ''} available`
+        + (linkedCount || ownedCount ? ` (${linkedCount} linked${ownedCount ? `, ${ownedCount} owned` : ''})` : '');
+    } catch (err) {
+      hint.textContent = 'Failed to load: ' + (err as Error).message;
+    } finally {
+      elements.caLoadVerifiersBtn!.disabled = false;
+    }
+  }
+
+  async function loadRestrictedBaseAssets() {
+    const select = elements.caRestrictedBaseSelect!;
+    const hint = elements.caRestrictedBaseHint!;
+    select.innerHTML = '<option value="">-- Select root asset --</option>';
+    hint.textContent = 'Loading root assets…';
+    elements.caLoadRestrictedBasesBtn!.disabled = true;
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet?.address) {
+        hint.textContent = 'No wallet loaded.';
+        return;
+      }
+
+      const network = (wallet.network as string) || 'xna';
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+      const balances = await rpc('listassetbalancesbyaddress', [address]) as Record<string, number> | null;
+
+      const baseAssets = balances
+        ? Object.keys(balances)
+            .filter(name => name.endsWith('!') && balances[name] > 0)
+            .map(name => name.slice(0, -1))
+            .filter(name => !name.startsWith('#') && !name.startsWith('$') && !name.includes('/') && !name.includes('#'))
+        : [];
+
+      const selectableAssets = [...new Set(baseAssets)].sort();
+
+      if (selectableAssets.length === 0) {
+        hint.textContent = 'No root assets found that you can convert to restricted.';
+        return;
+      }
+
+      selectableAssets.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `${name} -> $${name}`;
+        select.appendChild(opt);
+      });
+
+      hint.textContent = `${selectableAssets.length} root asset${selectableAssets.length !== 1 ? 's' : ''} available for restricted issuance`;
+    } catch (err) {
+      hint.textContent = 'Failed to load: ' + (err as Error).message;
+    } finally {
+      elements.caLoadRestrictedBasesBtn!.disabled = false;
+    }
+  }
+
+  function tokenizeVerifier(verifierString: string) {
+    const normalized = verifierString.trim().toUpperCase();
+    const tokenPattern = /\s*(!?#[A-Z0-9_/]+|[()&|])\s*/gy;
+    const tokens: string[] = [];
+    let lastIndex = 0;
+
+    while (lastIndex < normalized.length) {
+      tokenPattern.lastIndex = lastIndex;
+      const match = tokenPattern.exec(normalized);
+      if (!match) {
+        throw new Error(`Invalid verifier token near: "${normalized.slice(lastIndex)}"`);
+      }
+      tokens.push(match[1]);
+      lastIndex = tokenPattern.lastIndex;
+    }
+
+    return tokens;
+  }
+
+  function evaluateVerifierAgainstTags(verifierString: string, addressTags: string[]) {
+    const tags = new Set(addressTags.map(tag => String(tag || '').trim().toUpperCase()).filter(Boolean));
+    const tokens = tokenizeVerifier(verifierString);
+    let index = 0;
+
+    function parseExpression(): boolean {
+      let value = parseTerm();
+      while (tokens[index] === '|') {
+        index += 1;
+        value = value || parseTerm();
+      }
+      return value;
+    }
+
+    function parseTerm(): boolean {
+      let value = parseFactor();
+      while (tokens[index] === '&') {
+        index += 1;
+        value = value && parseFactor();
+      }
+      return value;
+    }
+
+    function parseFactor(): boolean {
+      const token = tokens[index];
+      if (!token) throw new Error('Unexpected end of verifier expression');
+
+      if (token === '(') {
+        index += 1;
+        const value = parseExpression();
+        if (tokens[index] !== ')') throw new Error('Unbalanced parentheses in verifier expression');
+        index += 1;
+        return value;
+      }
+
+      if (token.startsWith('!#')) {
+        index += 1;
+        return !tags.has(token.slice(1));
+      }
+
+      if (token.startsWith('#')) {
+        index += 1;
+        return tags.has(token);
+      }
+
+      throw new Error(`Unsupported verifier token: ${token}`);
+    }
+
+    const result = parseExpression();
+    if (index !== tokens.length) {
+      throw new Error(`Unexpected verifier token: ${tokens[index]}`);
+    }
+    return result;
+  }
+
+  function explainSimpleVerifierFailure(verifierString: string, addressTags: string[]) {
+    const normalized = verifierString.trim().toUpperCase();
+    const tags = new Set(addressTags.map(tag => String(tag || '').trim().toUpperCase()).filter(Boolean));
+
+    if (/^#[A-Z0-9_/]+$/.test(normalized)) {
+      return tags.has(normalized) ? null : `Missing tag: ${normalized}`;
+    }
+
+    const negated = normalized.match(/^!#([A-Z0-9_/]+)$/);
+    if (negated) {
+      const tag = `#${negated[1]}`;
+      return tags.has(tag) ? `Address has forbidden tag: ${tag}` : null;
+    }
+
+    return null;
+  }
+
   function updateCreateAssetUI() {
     const type = state.createAssetType;
     const isSub = type === 'SUB';
@@ -1544,6 +1784,7 @@ import type { WalletSettings } from '../types/index.js';
     const isRestricted = type === 'RESTRICTED';
     const isReissue = type === 'REISSUE';
     const needsParent = isSub || isUnique || isReissue;
+    const usesAssetNameInput = !needsParent && !isRestricted;
 
     // Tab active state
     elements.assetTypeTabs!.querySelectorAll('.asset-type-tab').forEach(btn => {
@@ -1551,10 +1792,11 @@ import type { WalletSettings } from '../types/index.js';
     });
 
     // Asset name field: hidden when type uses parent selector instead
-    elements.caAssetNameGroup!.classList.toggle('hidden', needsParent);
+    elements.caAssetNameGroup!.classList.toggle('hidden', !usesAssetNameInput);
 
     // Parent selector: shown for SUB, UNIQUE, and REISSUE
     elements.caParentSelectGroup!.classList.toggle('hidden', !needsParent);
+    elements.caRestrictedBaseGroup!.classList.toggle('hidden', !isRestricted);
     elements.caSubNameGroup!.classList.toggle('hidden', !isSub);
     elements.caTagGroup!.classList.toggle('hidden', !isUnique);
 
@@ -1587,6 +1829,12 @@ import type { WalletSettings } from '../types/index.js';
 
     // Verifier: only for RESTRICTED
     elements.caVerifierGroup!.classList.toggle('hidden', !isRestricted);
+    if (isRestricted && elements.caVerifierSelect!.options.length <= 1) {
+      loadAvailableVerifierTags();
+    }
+    if (isRestricted && elements.caRestrictedBaseSelect!.options.length <= 1) {
+      loadRestrictedBaseAssets();
+    }
 
     // Button label
     elements.caCreateBtn!.textContent = isReissue ? 'Reissue Asset' : 'Create Asset';
@@ -1601,8 +1849,7 @@ import type { WalletSettings } from '../types/index.js';
       elements.caQuantity!.max = '10';
       elements.caQuantity!.placeholder = '1';
     } else if (type === 'RESTRICTED') {
-      elements.caAssetName!.placeholder = 'MYSECURITYTOKEN';
-      elements.caAssetNameHint!.textContent = 'Name without $ prefix — e.g. SECURITY';
+      elements.caRestrictedBaseHint!.textContent = 'Select the root asset you control; the addon will issue its restricted form as $ASSET.';
     }
 
     // Reset quantity limits when leaving QUALIFIER
@@ -1709,13 +1956,26 @@ import type { WalletSettings } from '../types/index.js';
           ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
         });
       } else if (type === 'RESTRICTED') {
-        const raw = elements.caAssetName!.value.trim().toUpperCase();
+        const baseAssetName = elements.caRestrictedBaseSelect!.value.trim().toUpperCase();
         const rawVerifier = elements.caVerifier!.value.trim().toUpperCase();
-        if (!raw) throw new Error('Asset name is required.');
+        if (!baseAssetName) throw new Error('Select the base asset you want to convert to restricted.');
         if (!rawVerifier) throw new Error('Verifier string is required for restricted assets.');
-        const assetName = raw.startsWith('$') ? raw : `$${raw}`;
+        const assetName = `$${baseAssetName}`;
         // Auto-add # prefix to bare qualifier names (e.g. "KYC" → "#KYC", "KYC & ACCREDITED" → "#KYC & #ACCREDITED")
         const verifierString = rawVerifier.replace(/(?<!#)(?<![A-Z0-9_])([A-Z][A-Z0-9_]*)/g, '#$1');
+        const linkedTagsRaw = await rpc('listtagsforaddress', [address]).catch(() => []);
+        const linkedTags = Array.isArray(linkedTagsRaw)
+          ? linkedTagsRaw.map(tag => String(tag || '').toUpperCase()).filter(tag => tag.startsWith('#'))
+          : [];
+        const passesVerifier = evaluateVerifierAgainstTags(verifierString, linkedTags);
+        if (!passesVerifier) {
+          const detail = explainSimpleVerifierFailure(verifierString, linkedTags);
+          throw new Error(
+            `The active address does not satisfy the verifier "${verifierString}". `
+            + `${detail ? `${detail}. ` : ''}`
+            + `Assign the required tag(s) to ${address} before creating ${assetName}.`
+          );
+        }
         result = await neuraiAssets.createRestrictedAsset({
           assetName,
           quantity: Number(elements.caQuantity!.value) || 1,
@@ -2280,17 +2540,7 @@ import type { WalletSettings } from '../types/index.js';
     bindAssetNameInput(elements.caAssetName!, alphaNumDotUnderscore);
     bindAssetNameInput(elements.caSubName!, alphaNumDotUnderscore);
     bindAssetNameInput(elements.caTag!, alphaNumDotUnderscore);
-
-    // QUALIFIER and RESTRICTED: free-type prefix fields (no separator, underscore only)
-    // We handle prefix forcing in updateCreateAssetUI via placeholder hints,
-    // and the actual prefix (#/$) is added programmatically in handleCreateAsset.
-    // For verifier, allow #, &, |, !, (, ), space, A-Z, 0-9, _
-    elements.caVerifier!.addEventListener('input', () => {
-      const allowed = /[A-Z0-9_#&|!()\s/]/i;
-      const v = elements.caVerifier!.value.toUpperCase();
-      const cleaned = v.split('').filter(c => allowed.test(c)).join('');
-      if (cleaned !== elements.caVerifier!.value) elements.caVerifier!.value = cleaned;
-    });
+    renderVerifierPreview();
 
     // Type tab clicks
     elements.assetTypeTabs!.addEventListener('click', (e) => {
@@ -2305,6 +2555,16 @@ import type { WalletSettings } from '../types/index.js';
     });
 
     elements.caLoadParentsBtn!.addEventListener('click', loadOwnerTokensIntoSelect);
+    elements.caLoadRestrictedBasesBtn!.addEventListener('click', loadRestrictedBaseAssets);
+    elements.caLoadVerifiersBtn!.addEventListener('click', loadAvailableVerifierTags);
+    elements.caVerifierAddBtn!.addEventListener('click', () => appendSelectedVerifier(false));
+    elements.caVerifierNegateBtn!.addEventListener('click', () => appendSelectedVerifier(true));
+    elements.caVerifierAndBtn!.addEventListener('click', () => appendVerifierOperator('&'));
+    elements.caVerifierOrBtn!.addEventListener('click', () => appendVerifierOperator('|'));
+    elements.caVerifierClearBtn!.addEventListener('click', () => {
+      elements.caVerifier!.value = '';
+      renderVerifierPreview();
+    });
     elements.caCreateBtn!.addEventListener('click', handleCreateAsset);
 
     // Mode toggle
@@ -2362,9 +2622,11 @@ import type { WalletSettings } from '../types/index.js';
         elements.caSubName!.value = '';
         elements.caTag!.value = '';
         elements.caParentSelect!.value = '';
+        elements.caRestrictedBaseSelect!.value = '';
         elements.caQuantity!.value = '';
         elements.caIpfsHash!.value = '';
         elements.caVerifier!.value = '';
+        renderVerifierPreview();
       } else {
         elements.cfApplyBtn!.classList.remove('hidden');
         elements.cfApplyBtn!.disabled = false;

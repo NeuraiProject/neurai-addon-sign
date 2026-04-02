@@ -1242,6 +1242,7 @@ select:focus,
 
 #caAssetNameGroup,
 #caParentSelectGroup,
+#caRestrictedBaseGroup,
 #caSubNameGroup,
 #caTagGroup,
 #caReissuableGroup,
@@ -1263,6 +1264,45 @@ select:focus,
   display: flex;
   gap: 8px;
   align-items: stretch;
+}
+
+.ca-verifier-picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ca-verifier-picker-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.ca-verifier-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ca-verifier-actions .btn {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.ca-verifier-preview {
+  min-height: 48px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ca-verifier-preview.is-empty {
+  color: var(--text-muted);
 }
 
 .ca-parent-select-row select {
@@ -1345,6 +1385,10 @@ select:focus,
   .asset-mode-toggle,
   .create-asset-form {
     grid-template-columns: 1fr;
+  }
+
+  .ca-verifier-picker-row {
+    flex-direction: column;
   }
 
   .asset-type-tabs {
