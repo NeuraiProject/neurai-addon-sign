@@ -50,6 +50,7 @@ declare global {
     connect(): Promise<void>;
     disconnect(): Promise<void>;
     getInfo(): Promise<NeuraiESP32DeviceInfo>;
+    setNetwork?(network: 'Neurai' | 'NeuraiTest'): Promise<NeuraiESP32DeviceInfo | { success?: boolean; network?: string }>;
     getAddress(): Promise<NeuraiESP32AddressResult>;
     signMessage(message: string): Promise<{ signature: string; address: string }>;
     signPsbt(psbt: string, display?: NeuraiESP32SignDisplay): Promise<{ psbt: string }>;

@@ -386,6 +386,29 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── Hardware wallet ────────────────────────────────────────────────────────
 
+  function toHardwareNetwork(network: string) {
+    return network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
+  }
+
+  async function setHardwareNetwork(device: NeuraiESP32Instance, network: string) {
+    const targetNetwork = toHardwareNetwork(network);
+    if (typeof device.setNetwork === 'function') {
+      await device.setNetwork(targetNetwork);
+      return targetNetwork;
+    }
+
+    const serialCapable = device as unknown as {
+      serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
+    };
+
+    if (typeof serialCapable.serial?.sendCommand !== 'function') {
+      throw new Error('The connected hardware library does not support network selection.');
+    }
+
+    await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
+    return targetNetwork;
+  }
+
   async function handleHardwareConnect() {
     el.hardwareError!.textContent = '';
     showLoading('Connecting to hardware wallet...');
@@ -395,18 +418,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       await device.connect();
 
       showLoading('Reading device info...');
+      var network = el.hardwareNetwork!.value;
+      var expectedNetwork = await setHardwareNetwork(device, network);
       var info = await device.getInfo();
       var addrResp = await device.getAddress();
-
-      var network = el.hardwareNetwork!.value;
-      var expectedNetwork = network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-      if (info.network && info.network !== expectedNetwork) {
-        await device.disconnect();
-        hideLoading();
-        el.hardwareError!.textContent =
-          'Device is configured for ' + info.network + ' but you selected ' + expectedNetwork + '.';
-        return;
-      }
 
       walletResult = {
         address: addrResp.address,
@@ -417,7 +432,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         network: network,
         walletType: 'hardware',
         hardwareDeviceName: info.device || 'NeuraiHW',
-        hardwareDeviceNetwork: info.network || null,
+        hardwareDeviceNetwork: expectedNetwork,
         hardwareFirmwareVersion: info.version || null,
         hardwareDerivationPath: addrResp.path || null,
         hardwareMasterFingerprint: info.master_fingerprint || null

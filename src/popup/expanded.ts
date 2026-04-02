@@ -26,6 +26,33 @@ import type { WalletSettings } from '../types/index.js';
     REISSUE_RESTRICTED: 200,
   };
 
+  function toHardwareNetwork(network: string) {
+    return network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
+  }
+
+  async function setHardwareNetwork(device: NeuraiESP32Instance, walletNetwork: string) {
+    const targetNetwork = toHardwareNetwork(walletNetwork);
+    if (typeof device.setNetwork === 'function') {
+      await device.setNetwork(targetNetwork);
+      return targetNetwork;
+    }
+
+    const serialCapable = device as unknown as {
+      serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
+    };
+
+    if (typeof serialCapable.serial?.sendCommand !== 'function') {
+      throw new Error('The connected hardware library does not support network selection.');
+    }
+
+    await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
+    return targetNetwork;
+  }
+
+  async function syncHardwareNetwork(device: NeuraiESP32Instance, walletNetwork?: string) {
+    return await setHardwareNetwork(device, walletNetwork || 'xna');
+  }
+
   const elements = {
     // Header
     refreshBtn: document.getElementById('refreshBtn')!,
@@ -1121,13 +1148,9 @@ import type { WalletSettings } from '../types/index.js';
     }
     const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
     await device.connect();
-    const info = await device.getInfo();
     const wallet = state.wallet || {};
-    const expectedNetwork = (wallet.network || 'xna') === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-    if (info.network && info.network !== expectedNetwork) {
-      await device.disconnect();
-      throw new Error('Device is ' + info.network + ', expected ' + expectedNetwork);
-    }
+    await syncHardwareNetwork(device, wallet.network as string | undefined);
+    await device.getInfo();
     hwDevice = device;
   }
 
@@ -1139,6 +1162,9 @@ import type { WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
     await device.connect();
+    const wallet = state.wallet || {};
+    const selectedNetwork = wallet.network as string | undefined;
+    const activeHardwareNetwork = await syncHardwareNetwork(device, selectedNetwork);
     const info = await device.getInfo();
     const addrResp = await device.getAddress();
 
@@ -1147,7 +1173,7 @@ import type { WalletSettings } from '../types/index.js';
 
     return {
       deviceName: info.device || 'NeuraiHW',
-      deviceNetwork: info.network || null,
+      deviceNetwork: activeHardwareNetwork || info.network || null,
       firmwareVersion: info.version || null,
       address: addrResp.address,
       publicKey: addrResp.pubkey,
@@ -1207,6 +1233,8 @@ import type { WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon.' };
     }
     try {
+      const wallet = state.wallet || {};
+      await syncHardwareNetwork(hwDevice, wallet.network as string | undefined);
       const result = await hwDevice.signMessage(message.message as string);
       return { success: true, signature: result.signature, address: result.address };
     } catch (err) {
@@ -1222,6 +1250,7 @@ import type { WalletSettings } from '../types/index.js';
     try {
       const wallet = state.wallet || {};
       const network = wallet.network as string || 'xna';
+      await syncHardwareNetwork(hwDevice, network);
       const rpcUrl = network === 'xna-test'
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
@@ -1281,6 +1310,9 @@ import type { WalletSettings } from '../types/index.js';
 
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
+    const walletNetwork = wallet.network as string || 'xna';
+
+    await syncHardwareNetwork(hwDevice!, walletNetwork);
 
     if (needsInfo) {
       const info = hwDevice!.info || await hwDevice!.getInfo();

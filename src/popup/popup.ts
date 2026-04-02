@@ -12,6 +12,33 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   const C = NEURAI_CONSTANTS;
   const MSG = C.MSG;
 
+  function toHardwareNetwork(network: string) {
+    return network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
+  }
+
+  async function setHardwareNetwork(device: NeuraiESP32Instance, walletNetwork: string) {
+    const targetNetwork = toHardwareNetwork(walletNetwork);
+    if (typeof device.setNetwork === 'function') {
+      await device.setNetwork(targetNetwork);
+      return targetNetwork;
+    }
+
+    const serialCapable = device as unknown as {
+      serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
+    };
+
+    if (typeof serialCapable.serial?.sendCommand !== 'function') {
+      throw new Error('The connected hardware library does not support network selection.');
+    }
+
+    await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
+    return targetNetwork;
+  }
+
+  async function syncHardwareNetwork(device: NeuraiESP32Instance, walletNetwork?: string) {
+    return await setHardwareNetwork(device, walletNetwork || 'xna');
+  }
+
   // ── Persistent HW device connection ─────────────────────────────────────
   let hwDevice: NeuraiESP32Instance | null = null; // NeuraiESP32 instance, kept alive while popup is open
   let hwStatusInterval: ReturnType<typeof setInterval> | null = null; // polling interval for connection status
@@ -1494,14 +1521,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
     await device.connect();
-    const info = await device.getInfo();
-
-    // Validate network
-    const expectedNetwork = state.network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-    if (info.network && info.network !== expectedNetwork) {
-      await device.disconnect();
-      throw new Error('Device is ' + info.network + ', expected ' + expectedNetwork);
-    }
+    await syncHardwareNetwork(device, state.network);
+    await device.getInfo();
 
     hwDevice = device;
   }
@@ -1525,6 +1546,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
     await device.connect();
+    const activeHardwareNetwork = await syncHardwareNetwork(device, state.network);
     const info = await device.getInfo();
     const addrResp = await device.getAddress();
 
@@ -1533,7 +1555,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     return {
       deviceName: info.device || 'NeuraiHW',
-      deviceNetwork: info.network || null,
+      deviceNetwork: activeHardwareNetwork || info.network || null,
       firmwareVersion: info.version || null,
       address: addrResp.address,
       publicKey: addrResp.pubkey,
@@ -1612,6 +1634,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
+      await syncHardwareNetwork(hwDevice, state.network);
       showToast('Confirm message signing on your device...', 'success');
       const result = await hwDevice.signMessage(message.message as string);
       showToast('Message signed', 'success');
@@ -1628,6 +1651,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
+      await syncHardwareNetwork(hwDevice, state.network);
       const metadata = await ensureHardwareSigningMetadata(message);
       const publicKey = metadata.publicKey;
       const derivationPath = metadata.derivationPath;
@@ -1691,6 +1715,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
+
+    await syncHardwareNetwork(hwDevice as NeuraiESP32Instance, state.network);
 
     if (needsInfo) {
       const info = (hwDevice as NeuraiESP32Instance).info || await (hwDevice as NeuraiESP32Instance).getInfo();
