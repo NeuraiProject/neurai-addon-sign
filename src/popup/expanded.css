@@ -1112,16 +1112,48 @@ select:focus,
 
 .create-asset-card {
   padding: 24px;
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.create-asset-sidebar,
+.create-asset-body,
+.create-asset-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.create-asset-sidebar {
+  align-content: start;
+}
+
+.create-asset-side-note {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(246, 133, 27, 0.2);
+  background:
+    linear-gradient(135deg, rgba(246, 133, 27, 0.1), transparent 72%),
+    var(--bg-input);
+}
+
+.create-asset-side-note p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .asset-mode-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: 20px;
 }
 
 .asset-mode-btn {
-  flex: 1;
   padding: 8px 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1150,24 +1182,24 @@ select:focus,
   resize: vertical;
   font-family: var(--font-mono);
   font-size: 12px;
-  padding: 8px 12px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-secondary, #f8fafc);
-  color: var(--text);
+  border-radius: 12px;
+  background: var(--bg-input);
+  color: var(--text-primary);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 #configureAssetPanel textarea:focus {
-  border-color: var(--primary);
+  border-color: rgba(246, 133, 27, 0.55);
+  box-shadow: 0 0 0 4px rgba(246, 133, 27, 0.12);
 }
 
 .asset-type-tabs {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
 }
 
 .asset-type-tab {
@@ -1194,7 +1226,37 @@ select:focus,
 }
 
 .create-asset-form {
-  max-width: 560px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  max-width: none;
+  align-items: start;
+}
+
+.create-asset-form .form-group,
+.create-asset-fee-row,
+.create-asset-error,
+.create-asset-form .settings-actions {
+  margin-bottom: 0;
+}
+
+#caAssetNameGroup,
+#caParentSelectGroup,
+#caSubNameGroup,
+#caTagGroup,
+#caReissuableGroup,
+#caVerifierGroup,
+#cfOwnerTokenGroup,
+#cfAddressesGroup,
+#cfGlobalGroup,
+#cfChangeVerifierGroup,
+#cfNewVerifierGroup,
+#cfReissuableGroup,
+#cfNewIpfsGroup,
+.create-asset-fee-row,
+.create-asset-error,
+.create-asset-form .settings-actions {
+  grid-column: 1 / -1;
 }
 
 .ca-parent-select-row {
@@ -1280,6 +1342,11 @@ select:focus,
 }
 
 @media (max-width: 640px) {
+  .asset-mode-toggle,
+  .create-asset-form {
+    grid-template-columns: 1fr;
+  }
+
   .asset-type-tabs {
     gap: 4px;
   }
@@ -1287,6 +1354,16 @@ select:focus,
   .asset-type-tab {
     padding: 5px 10px;
     font-size: 12px;
+  }
+}
+
+@media (max-width: 980px) {
+  .create-asset-card {
+    grid-template-columns: 1fr;
+  }
+
+  .create-asset-side-note {
+    display: none;
   }
 }
 
