@@ -33,8 +33,9 @@ declare global {
   interface NeuraiAssetsCreateSubParams extends NeuraiAssetsCreateRootParams {}
 
   interface NeuraiAssetsCreateUniqueParams {
-    rootAssetName: string;
-    assetTags: Array<{ tag: string; hasIpfs?: boolean; ipfsHash?: string }>;
+    rootName: string;
+    assetTags: string[];
+    ipfsHashes?: string[];
     toAddress?: string;
     changeAddress?: string;
   }
@@ -68,6 +69,29 @@ declare global {
     changeAddress?: string;
   }
 
+  interface NeuraiAssetsTagParams {
+    qualifierName: string;
+    addresses: string[];
+    assetData?: string;
+    changeAddress?: string;
+  }
+
+  interface NeuraiAssetsReissueRestrictedParams {
+    assetName: string;
+    quantity: number;
+    changeVerifier?: boolean;
+    newVerifier?: string;
+    reissuable?: boolean;
+    newIpfs?: string;
+    changeAddress?: string;
+  }
+
+  interface NeuraiAssetsFreezeParams {
+    assetName: string;
+    addresses?: string[];
+    changeAddress?: string;
+  }
+
   class NeuraiAssets {
     constructor(rpc: (method: string, params: unknown[]) => Promise<unknown>, config?: NeuraiAssetsConfig);
     updateConfig(config: Partial<NeuraiAssetsConfig>): void;
@@ -77,6 +101,13 @@ declare global {
     createQualifier(params: NeuraiAssetsCreateQualifierParams): Promise<NeuraiAssetsBuildResult>;
     createRestrictedAsset(params: NeuraiAssetsCreateRestrictedParams): Promise<NeuraiAssetsBuildResult>;
     reissueAsset(params: NeuraiAssetsReissueParams): Promise<NeuraiAssetsBuildResult>;
+    tagAddresses(params: NeuraiAssetsTagParams): Promise<NeuraiAssetsBuildResult>;
+    untagAddresses(params: NeuraiAssetsTagParams): Promise<NeuraiAssetsBuildResult>;
+    reissueRestrictedAsset(params: NeuraiAssetsReissueRestrictedParams): Promise<NeuraiAssetsBuildResult>;
+    freezeAddresses(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
+    unfreezeAddresses(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
+    freezeAssetGlobally(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
+    unfreezeAssetGlobally(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
     assetExists(assetName: string): Promise<boolean>;
     getAssetType(assetName: string): string;
     getAssetData(assetName: string): Promise<unknown>;

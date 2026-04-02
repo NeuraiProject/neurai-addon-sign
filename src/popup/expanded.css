@@ -511,6 +511,37 @@ textarea {
   text-align: right;
 }
 
+.assets-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 0 14px;
+}
+
+.assets-filter-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.assets-filter-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.assets-filter-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
 .assets-empty {
   padding: 28px 16px;
   text-align: center;
@@ -1081,6 +1112,55 @@ select:focus,
 
 .create-asset-card {
   padding: 24px;
+}
+
+.asset-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.asset-mode-btn {
+  flex: 1;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.asset-mode-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.asset-mode-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+#configureAssetPanel textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#configureAssetPanel textarea:focus {
+  border-color: var(--primary);
 }
 
 .asset-type-tabs {

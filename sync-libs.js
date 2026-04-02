@@ -95,7 +95,7 @@ const neuraiAssetsDest = path.join(DEST, 'NeuraiAssets.js');
 try {
   const entryFile = path.join(__dirname, '.tmp-assets-entry.js');
   fs.writeFileSync(entryFile, `
-    var NeuraiAssets = require('@neuraiproject/neurai-assets');
+    var NeuraiAssets = require('./test-page/neurai-assets/src/index.js');
     var root =
       typeof globalThis !== 'undefined' ? globalThis :
       typeof self !== 'undefined' ? self :

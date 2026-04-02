@@ -23,6 +23,7 @@ import type { WalletSettings } from '../types/index.js';
     QUALIFIER: 2000,
     RESTRICTED: 3000,
     REISSUE: 200,
+    REISSUE_RESTRICTED: 200,
   };
 
   const elements = {
@@ -52,6 +53,7 @@ import type { WalletSettings } from '../types/index.js';
     assetsPrevBtn: document.getElementById('assetsPrevBtn') as HTMLButtonElement | null,
     assetsNextBtn: document.getElementById('assetsNextBtn') as HTMLButtonElement | null,
     assetsPageLabel: document.getElementById('assetsPageLabel'),
+    assetsFilterBar: document.getElementById('assetsFilterBar'),
     historyList: document.getElementById('historyList')!,
     historyEmpty: document.getElementById('historyEmpty')!,
     unlockModal: document.getElementById('unlockModal')!,
@@ -118,6 +120,37 @@ import type { WalletSettings } from '../types/index.js';
     caTxConfirmError: document.getElementById('caTxConfirmError'),
     caTxCancelBtn: document.getElementById('caTxCancelBtn') as HTMLButtonElement | null,
     caTxBroadcastBtn: document.getElementById('caTxBroadcastBtn') as HTMLButtonElement | null,
+    // Card mode toggle
+    assetModeToggle: document.getElementById('assetModeToggle'),
+    caCardTitle: document.getElementById('caCardTitle'),
+    caCardCopy: document.getElementById('caCardCopy'),
+    createAssetPanel: document.getElementById('createAssetPanel'),
+    configureAssetPanel: document.getElementById('configureAssetPanel'),
+    // Configure panel
+    cfTypeTabs: document.getElementById('cfTypeTabs'),
+    cfOwnerTokenGroup: document.getElementById('cfOwnerTokenGroup'),
+    cfOwnerTokenLabel: document.getElementById('cfOwnerTokenLabel'),
+    cfOwnerTokenSelect: document.getElementById('cfOwnerTokenSelect') as HTMLSelectElement | null,
+    cfOwnerTokenHint: document.getElementById('cfOwnerTokenHint'),
+    cfLoadTokensBtn: document.getElementById('cfLoadTokensBtn') as HTMLButtonElement | null,
+    cfAddressesGroup: document.getElementById('cfAddressesGroup'),
+    cfAddresses: document.getElementById('cfAddresses') as HTMLTextAreaElement | null,
+    cfGlobalGroup: document.getElementById('cfGlobalGroup'),
+    cfGlobal: document.getElementById('cfGlobal') as HTMLInputElement | null,
+    cfQuantityGroup: document.getElementById('cfQuantityGroup'),
+    cfQuantity: document.getElementById('cfQuantity') as HTMLInputElement | null,
+    cfChangeVerifierGroup: document.getElementById('cfChangeVerifierGroup'),
+    cfChangeVerifier: document.getElementById('cfChangeVerifier') as HTMLInputElement | null,
+    cfNewVerifierGroup: document.getElementById('cfNewVerifierGroup'),
+    cfNewVerifier: document.getElementById('cfNewVerifier') as HTMLInputElement | null,
+    cfReissuableGroup: document.getElementById('cfReissuableGroup'),
+    cfReissuable: document.getElementById('cfReissuable') as HTMLInputElement | null,
+    cfNewIpfsGroup: document.getElementById('cfNewIpfsGroup'),
+    cfNewIpfs: document.getElementById('cfNewIpfs') as HTMLInputElement | null,
+    cfFeeRow: document.getElementById('cfFeeRow'),
+    cfFeeValue: document.getElementById('cfFeeValue'),
+    cfError: document.getElementById('cfError'),
+    cfApplyBtn: document.getElementById('cfApplyBtn') as HTMLButtonElement | null,
   };
 
   let state = {
@@ -127,6 +160,7 @@ import type { WalletSettings } from '../types/index.js';
     settings: { ...C.DEFAULT_SETTINGS } as WalletSettings,
     assets: [] as unknown[],
     assetsPage: 0,
+    assetsFilter: 'all' as string,
     recentMovements: [] as unknown[],
     recentMovementsPage: 0,
     historyPage: 0,
@@ -137,6 +171,8 @@ import type { WalletSettings } from '../types/index.js';
     lockWatchInterval: null as ReturnType<typeof setInterval> | null,
     lastUnlockTouchAt: 0,
     createAssetType: 'ROOT' as string,
+    configAssetType: 'TAG' as string,
+    cardMode: 'CREATE' as 'CREATE' | 'CONFIGURE',
     pendingSignedTx: null as { hex: string; rpcUrl: string; buildResult: NeuraiAssetsBuildResult } | null,
   };
 
@@ -174,6 +210,16 @@ import type { WalletSettings } from '../types/index.js';
     if (elements.newAccountBtn) elements.newAccountBtn.addEventListener('click', handleCreateNewAccount);
     if (elements.assetsPrevBtn) elements.assetsPrevBtn.addEventListener('click', () => changeAssetsPage(-1));
     if (elements.assetsNextBtn) elements.assetsNextBtn.addEventListener('click', () => changeAssetsPage(1));
+    if (elements.assetsFilterBar) elements.assetsFilterBar.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.assets-filter-btn') as HTMLElement | null;
+      if (!btn || !btn.dataset.filter) return;
+      state.assetsFilter = btn.dataset.filter;
+      state.assetsPage = 0;
+      elements.assetsFilterBar!.querySelectorAll('.assets-filter-btn').forEach(b => {
+        b.classList.toggle('active', (b as HTMLElement).dataset.filter === state.assetsFilter);
+      });
+      renderAssetsList();
+    });
     if (elements.historyPrevBtn) elements.historyPrevBtn.addEventListener('click', () => changeHistoryPage(-1));
     if (elements.historyNextBtn) elements.historyNextBtn.addEventListener('click', () => changeHistoryPage(1));
     if (elements.recentMovementsPrevBtn) elements.recentMovementsPrevBtn.addEventListener('click', () => changeRecentMovementsPage(-1));
@@ -456,18 +502,31 @@ import type { WalletSettings } from '../types/index.js';
       .sort((a, b) => (a as { name: string }).name.localeCompare((b as { name: string }).name, undefined, { sensitivity: 'base' }));
   }
 
+  function getAssetType(name: string): string {
+    if (name.endsWith('!')) return 'owner';
+    if (name.startsWith('$')) return 'restricted';
+    if (name.startsWith('#')) return 'qualifier';
+    if (name.includes('#')) return 'unique';
+    if (name.includes('/')) return 'sub';
+    return 'root';
+  }
+
   function renderAssetsList() {
-    const totalPages = Math.max(1, Math.ceil(state.assets.length / PAGE_SIZE));
+    const filtered = state.assetsFilter === 'all'
+      ? state.assets
+      : state.assets.filter(a => getAssetType((a as { name: string }).name) === state.assetsFilter);
+
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     state.assetsPage = Math.min(state.assetsPage, totalPages - 1);
 
-    if (!state.assets.length) {
+    if (!filtered.length) {
       elements.assetsList.innerHTML = '';
       elements.assetsEmpty.classList.remove('hidden');
       updatePager(elements.assetsPager, elements.assetsPageLabel, elements.assetsPrevBtn, elements.assetsNextBtn, 0, 0);
       return;
     }
     elements.assetsEmpty.classList.add('hidden');
-    const pageItems = paginateItems(state.assets, state.assetsPage);
+    const pageItems = paginateItems(filtered, state.assetsPage);
     elements.assetsList.innerHTML = pageItems.map((asset) => {
       const a = asset as { name: string; amountText: string };
       return `<div class="asset-item"><span class="asset-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span><span class="asset-balance">${escapeHtml(a.amountText)}</span></div>`;
@@ -642,7 +701,10 @@ import type { WalletSettings } from '../types/index.js';
   }
 
   function changeAssetsPage(delta: number) {
-    const totalPages = Math.max(1, Math.ceil(state.assets.length / PAGE_SIZE));
+    const filtered = state.assetsFilter === 'all'
+      ? state.assets
+      : state.assets.filter(a => getAssetType((a as { name: string }).name) === state.assetsFilter);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     state.assetsPage = Math.max(0, Math.min(totalPages - 1, state.assetsPage + delta));
     renderAssetsList();
   }
@@ -1598,17 +1660,16 @@ import type { WalletSettings } from '../types/index.js';
         const rootName = parentOwnerToken.endsWith('!') ? parentOwnerToken.slice(0, -1) : parentOwnerToken;
         const tag = elements.caTag!.value.trim().toUpperCase();
         if (!tag) throw new Error('NFT tag is required.');
+        const ipfsHash = elements.caIpfsHash!.value.trim();
         result = await neuraiAssets.createUniqueAssets({
-          rootAssetName: rootName,
-          assetTags: [{
-            tag,
-            hasIpfs: !!elements.caIpfsHash!.value.trim(),
-            ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
-          }],
+          rootName,
+          assetTags: [tag],
+          ...(ipfsHash ? { ipfsHashes: [ipfsHash] } : {}),
         });
       } else if (type === 'QUALIFIER') {
-        const qualifierName = elements.caAssetName!.value.trim().toUpperCase();
-        if (!qualifierName) throw new Error('Qualifier name is required (starts with #).');
+        const raw = elements.caAssetName!.value.trim().toUpperCase();
+        if (!raw) throw new Error('Qualifier name is required.');
+        const qualifierName = raw.startsWith('#') ? raw : `#${raw}`;
         result = await neuraiAssets.createQualifier({
           qualifierName,
           quantity: Number(elements.caQuantity!.value) || 1,
@@ -1616,10 +1677,13 @@ import type { WalletSettings } from '../types/index.js';
           ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
         });
       } else if (type === 'RESTRICTED') {
-        const assetName = elements.caAssetName!.value.trim().toUpperCase();
-        const verifierString = elements.caVerifier!.value.trim();
-        if (!assetName) throw new Error('Asset name is required (starts with $).');
-        if (!verifierString) throw new Error('Verifier string is required for restricted assets.');
+        const raw = elements.caAssetName!.value.trim().toUpperCase();
+        const rawVerifier = elements.caVerifier!.value.trim().toUpperCase();
+        if (!raw) throw new Error('Asset name is required.');
+        if (!rawVerifier) throw new Error('Verifier string is required for restricted assets.');
+        const assetName = raw.startsWith('$') ? raw : `$${raw}`;
+        // Auto-add # prefix to bare qualifier names (e.g. "KYC" → "#KYC", "KYC & ACCREDITED" → "#KYC & #ACCREDITED")
+        const verifierString = rawVerifier.replace(/(?<!#)(?<![A-Z0-9_])([A-Z][A-Z0-9_]*)/g, '#$1');
         result = await neuraiAssets.createRestrictedAsset({
           assetName,
           quantity: Number(elements.caQuantity!.value) || 1,
@@ -1650,64 +1714,7 @@ import type { WalletSettings } from '../types/index.js';
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
 
-      let signedHex: string;
-
-      if (wallet.walletType === 'hardware') {
-        // Hardware wallet: PSBT flow via ESP32
-        if (!hwDevice || !hwDevice.connected) {
-          throw new Error('Hardware wallet not connected. Reconnect it from the wallet view.');
-        }
-        const metadata = await ensureHardwareSigningMetadata({});
-        if (!metadata.publicKey || !metadata.derivationPath || !metadata.masterFingerprint) {
-          throw new Error('Hardware wallet metadata incomplete. Reconnect the device.');
-        }
-        const networkType = network === 'xna-test' ? 'xna-test' : 'xna';
-        const txInputs = parseRawTransactionInputs(result.rawTx);
-        const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
-        const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
-          network: networkType,
-          rawUnsignedTransaction: result.rawTx,
-          inputs: enrichedUtxos.map(utxo => ({
-            txid: utxo.txid,
-            vout: utxo.vout,
-            sequence: utxo.sequence,
-            rawTxHex: utxo.rawTxHex ?? undefined,
-            masterFingerprint: metadata.masterFingerprint,
-            derivationPath: metadata.derivationPath,
-            pubkey: metadata.publicKey,
-            sighashType: 1 // ALL
-          }))
-        });
-        const feeSats = calculateRawTransactionFeeSats(result.rawTx, enrichedUtxos);
-        const signingDisplay = feeSats !== null
-          ? { feeAmount: formatSatoshisToXna(feeSats), baseCurrency: 'XNA' }
-          : undefined;
-        const signResult = await hwDevice.signPsbt(psbtBase64, signingDisplay);
-        const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
-        signedHex = finalized.txHex;
-      } else {
-        // Software wallet: sign via node RPC
-        const wif = await getDecryptedWif();
-        if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
-        const signResp = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '1.0', id: 'sign-asset-tx', method: 'signrawtransaction',
-            params: [result.rawTx, [], [wif], 'ALL']
-          })
-        });
-        const signData = await signResp.json() as {
-          result?: { hex: string; complete: boolean };
-          error?: { message: string } | string;
-        };
-        if (signData.error) {
-          const msg = typeof signData.error === 'string' ? signData.error : signData.error.message;
-          throw new Error('Signing failed: ' + msg);
-        }
-        if (!signData.result?.complete) throw new Error('Transaction signing incomplete. Check your UTXOs.');
-        signedHex = signData.result.hex;
-      }
+      const signedHex = await signRawTx(result.rawTx, rpcUrl);
 
       // Store signed TX and show confirm modal instead of broadcasting immediately
       state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result };
@@ -1819,6 +1826,32 @@ import type { WalletSettings } from '../types/index.js';
     elements.caTxConfirmError!.classList.add('hidden');
 
     try {
+      const explainReject = async (): Promise<string | null> => {
+        try {
+          const resp = await fetch(pending.rpcUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '1.0',
+              id: 'testmempoolaccept-asset-tx',
+              method: 'testmempoolaccept',
+              params: [[pending.hex]]
+            })
+          });
+          const text = await resp.text();
+          if (!text) return null;
+          const data = JSON.parse(text) as {
+            result?: Array<{ allowed?: boolean; 'reject-reason'?: string; reject_reason?: string }>;
+          };
+          const first = data.result?.[0];
+          if (!first) return null;
+          if (first.allowed) return null;
+          return first['reject-reason'] || first.reject_reason || null;
+        } catch {
+          return null;
+        }
+      };
+
       const broadcastResp = await fetch(pending.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1827,13 +1860,32 @@ import type { WalletSettings } from '../types/index.js';
           params: [pending.hex]
         })
       });
-      const broadcastData = await broadcastResp.json() as {
+      const rawText = await broadcastResp.text();
+      let broadcastData: {
         result?: string;
-        error?: { message: string } | string;
-      };
+        error?: { message?: string; code?: number; data?: unknown } | string;
+      } = {};
+
+      if (rawText) {
+        try {
+          broadcastData = JSON.parse(rawText);
+        } catch {
+          if (!broadcastResp.ok) {
+            throw new Error(rawText.trim() || `Broadcast failed (HTTP ${broadcastResp.status})`);
+          }
+        }
+      }
+
+      if (!broadcastResp.ok && !broadcastData.error) {
+        throw new Error(`Broadcast failed (HTTP ${broadcastResp.status})`);
+      }
+
       if (broadcastData.error) {
-        const msg = typeof broadcastData.error === 'string' ? broadcastData.error : broadcastData.error.message;
-        throw new Error(msg);
+        const msg = typeof broadcastData.error === 'string'
+          ? broadcastData.error
+          : broadcastData.error.message || String(broadcastData.error.data || 'Broadcast failed');
+        const rejectReason = await explainReject();
+        throw new Error(rejectReason ? `${msg} (${rejectReason})` : msg);
       }
 
       const txid = broadcastData.result || 'unknown';
@@ -1841,7 +1893,11 @@ import type { WalletSettings } from '../types/index.js';
       elements.caTxConfirmModal!.classList.add('hidden');
       elements.caTxid!.textContent = txid;
       elements.caResult!.classList.remove('hidden');
-      elements.caCreateBtn!.classList.add('hidden');
+      if (state.cardMode === 'CREATE') {
+        elements.caCreateBtn!.classList.add('hidden');
+      } else {
+        elements.cfApplyBtn!.classList.add('hidden');
+      }
 
     } catch (err) {
       const msg = (err as Error).message || 'Broadcast failed';
@@ -1876,7 +1932,7 @@ import type { WalletSettings } from '../types/index.js';
   async function loadOwnerTokensIntoSelect() {
     const select = elements.caParentSelect!;
     const hint = elements.caParentSelectHint!;
-    select.innerHTML = '<option value="">-- Select owner token --</option>';
+    select.innerHTML = '<option value="">-- Select asset --</option>';
     hint.textContent = 'Loading…';
     elements.caLoadParentsBtn!.disabled = true;
 
@@ -1908,6 +1964,278 @@ import type { WalletSettings } from '../types/index.js';
       hint.textContent = 'Failed to load: ' + (err as Error).message;
     } finally {
       elements.caLoadParentsBtn!.disabled = false;
+    }
+  }
+
+  // ── Shared TX signing helper ────────────────────────────────────────────────
+
+  async function signRawTx(rawTx: string, rpcUrl: string): Promise<string> {
+    const wallet = state.wallet as Record<string, unknown>;
+    if (wallet.walletType === 'hardware') {
+      if (!hwDevice || !hwDevice.connected) {
+        throw new Error('Hardware wallet not connected. Reconnect it from the wallet view.');
+      }
+      const metadata = await ensureHardwareSigningMetadata({});
+      if (!metadata.publicKey || !metadata.derivationPath || !metadata.masterFingerprint) {
+        throw new Error('Hardware wallet metadata incomplete. Reconnect the device.');
+      }
+      const networkType = (wallet.network as string) === 'xna-test' ? 'xna-test' : 'xna';
+      const txInputs = parseRawTransactionInputs(rawTx);
+      const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
+      const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
+        network: networkType,
+        rawUnsignedTransaction: rawTx,
+        inputs: enrichedUtxos.map(utxo => ({
+          txid: utxo.txid,
+          vout: utxo.vout,
+          sequence: utxo.sequence,
+          rawTxHex: utxo.rawTxHex ?? undefined,
+          masterFingerprint: metadata.masterFingerprint,
+          derivationPath: metadata.derivationPath,
+          pubkey: metadata.publicKey,
+          sighashType: 1,
+        })),
+      });
+      const feeSats = calculateRawTransactionFeeSats(rawTx, enrichedUtxos);
+      const signingDisplay = feeSats !== null
+        ? { feeAmount: formatSatoshisToXna(feeSats), baseCurrency: 'XNA' }
+        : undefined;
+      const signResult = await hwDevice.signPsbt(psbtBase64, signingDisplay);
+      const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
+      return finalized.txHex;
+    } else {
+      const wif = await getDecryptedWif();
+      if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
+      const signResp = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '1.0', id: 'sign-tx', method: 'signrawtransaction',
+          params: [rawTx, [], [wif], 'ALL'],
+        }),
+      });
+      if (!signResp.ok) throw new Error(`Sign RPC error: ${signResp.status}`);
+      const signData = await signResp.json() as {
+        result?: { hex: string; complete: boolean };
+        error?: { message: string } | string;
+      };
+      if (signData.error) {
+        const msg = typeof signData.error === 'string' ? signData.error : signData.error.message;
+        throw new Error('Signing failed: ' + msg);
+      }
+      if (!signData.result?.complete) throw new Error('Transaction signing incomplete. Check your UTXOs.');
+      return signData.result.hex;
+    }
+  }
+
+  // ── Configure Asset panel ───────────────────────────────────────────────────
+
+  function updateCardMode(mode: 'CREATE' | 'CONFIGURE') {
+    state.cardMode = mode;
+    elements.assetModeToggle!.querySelectorAll('.asset-mode-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === mode);
+    });
+    const isCreate = mode === 'CREATE';
+    elements.createAssetPanel!.classList.toggle('hidden', !isCreate);
+    elements.configureAssetPanel!.classList.toggle('hidden', isCreate);
+    elements.caCardTitle!.textContent = isCreate ? 'Create Asset' : 'Configure Asset';
+    elements.caCardCopy!.textContent = isCreate
+      ? 'Issue new tokens or NFTs on the Neurai network.'
+      : 'Manage existing assets — tag addresses, reissue or freeze.';
+    elements.caResult!.classList.add('hidden');
+    if (mode === 'CONFIGURE') {
+      loadOwnerTokensIntoCfSelect();
+    }
+  }
+
+  function updateConfigureAssetUI() {
+    const type = state.configAssetType;
+    const isTag = type === 'TAG';
+    const isUntag = type === 'UNTAG';
+    const isReissueRestricted = type === 'REISSUE_RESTRICTED';
+    const isFreeze = type === 'FREEZE';
+    const isUnfreeze = type === 'UNFREEZE';
+    const needsQualifier = isTag || isUntag;
+    const needsAddresses = isTag || isUntag || isFreeze || isUnfreeze;
+    const needsGlobal = isFreeze || isUnfreeze;
+    const isGlobal = elements.cfGlobal!.checked;
+
+    elements.cfTypeTabs!.querySelectorAll('.asset-type-tab').forEach(btn => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.type === type);
+    });
+
+    elements.cfOwnerTokenLabel!.textContent = needsQualifier ? 'Qualifier' : 'Restricted Asset';
+
+    elements.cfAddressesGroup!.classList.toggle('hidden', !needsAddresses || (needsGlobal && isGlobal));
+    elements.cfGlobalGroup!.classList.toggle('hidden', !needsGlobal);
+    elements.cfQuantityGroup!.classList.toggle('hidden', !isReissueRestricted);
+    elements.cfChangeVerifierGroup!.classList.toggle('hidden', !isReissueRestricted);
+    elements.cfNewVerifierGroup!.classList.toggle('hidden', !isReissueRestricted || !elements.cfChangeVerifier!.checked);
+    elements.cfReissuableGroup!.classList.toggle('hidden', !isReissueRestricted);
+    elements.cfNewIpfsGroup!.classList.toggle('hidden', !isReissueRestricted);
+    elements.cfFeeRow!.classList.toggle('hidden', !isReissueRestricted);
+
+    if (isTag) elements.cfApplyBtn!.textContent = 'Tag Addresses';
+    else if (isUntag) elements.cfApplyBtn!.textContent = 'Untag Addresses';
+    else if (isReissueRestricted) elements.cfApplyBtn!.textContent = 'Reissue Asset';
+    else if (isFreeze) elements.cfApplyBtn!.textContent = isGlobal ? 'Freeze Globally' : 'Freeze Addresses';
+    else if (isUnfreeze) elements.cfApplyBtn!.textContent = isGlobal ? 'Unfreeze Globally' : 'Unfreeze Addresses';
+  }
+
+  async function loadOwnerTokensIntoCfSelect() {
+    const type = state.configAssetType;
+    const needsQualifier = type === 'TAG' || type === 'UNTAG';
+    const select = elements.cfOwnerTokenSelect!;
+    const hint = elements.cfOwnerTokenHint!;
+    select.innerHTML = '<option value="">-- Select asset --</option>';
+    hint.textContent = 'Loading…';
+    elements.cfLoadTokensBtn!.disabled = true;
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet?.address) { hint.textContent = 'No wallet loaded.'; return; }
+      const network = (wallet.network as string) || 'xna';
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+
+      let selectableAssets: string[] = [];
+
+      const balances = await rpc('listassetbalancesbyaddress', [address]) as Record<string, number> | null;
+      if (needsQualifier) {
+        // Tag/untag spends the qualifier asset itself (#KYC), not #KYC!
+        selectableAssets = balances
+          ? Object.keys(balances).filter(name => name.startsWith('#') && !name.endsWith('!') && balances[name] > 0)
+          : [];
+      } else {
+        // Restricted operations are driven by the restricted asset name ($TOKEN),
+        // but control is proven with the owner token TOKEN!.
+        selectableAssets = balances
+          ? Object.keys(balances)
+              .filter(name => !name.startsWith('#') && name.endsWith('!') && balances[name] > 0)
+              .map(name => `$${name.slice(0, -1)}`)
+          : [];
+      }
+
+      selectableAssets = [...new Set(selectableAssets)].sort();
+
+      if (selectableAssets.length === 0) {
+        hint.textContent = needsQualifier
+          ? 'No qualifier assets found (#NAME). Create a qualifier first.'
+          : 'No restricted assets found that you can manage.';
+      } else {
+        selectableAssets.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          select.appendChild(opt);
+        });
+        hint.textContent = `${selectableAssets.length} asset${selectableAssets.length !== 1 ? 's' : ''} found`;
+      }
+    } catch (err) {
+      hint.textContent = 'Failed to load: ' + (err as Error).message;
+    } finally {
+      elements.cfLoadTokensBtn!.disabled = false;
+    }
+  }
+
+  async function handleConfigureAsset() {
+    elements.cfError!.textContent = '';
+    elements.cfError!.classList.add('hidden');
+    elements.cfApplyBtn!.disabled = true;
+    const origText = elements.cfApplyBtn!.textContent || 'Apply';
+    elements.cfApplyBtn!.textContent = 'Processing…';
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet || !wallet.address) throw new Error('No wallet loaded. Please unlock first.');
+      const network = (wallet.network as string) || 'xna';
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+      const neuraiAssets = new NeuraiAssets(rpc, {
+        network,
+        addresses: [address],
+        changeAddress: address,
+        toAddress: address,
+      });
+
+      const type = state.configAssetType;
+      const selectedAsset = elements.cfOwnerTokenSelect!.value;
+      if (!selectedAsset) throw new Error('Select an asset from the dropdown.');
+      const tokenName = selectedAsset;
+
+      let result: NeuraiAssetsBuildResult;
+
+      if (type === 'TAG' || type === 'UNTAG') {
+        const rawAddresses = elements.cfAddresses!.value.trim();
+        if (!rawAddresses) throw new Error('Enter at least one address.');
+        const addresses = rawAddresses.split('\n').map(a => a.trim()).filter(Boolean);
+        const tagChecks = await Promise.all(
+          addresses.map(async target => ({
+            target,
+            hasTag: Boolean(await rpc('checkaddresstag', [target, tokenName]))
+          }))
+        );
+        if (type === 'TAG') {
+          const alreadyTagged = tagChecks.filter(item => item.hasTag).map(item => item.target);
+          if (alreadyTagged.length > 0) {
+            throw new Error(
+              `These addresses already have ${tokenName}: ${alreadyTagged.join(', ')}`
+            );
+          }
+          result = await neuraiAssets.tagAddresses({ qualifierName: tokenName, addresses });
+        } else {
+          const missingTag = tagChecks.filter(item => !item.hasTag).map(item => item.target);
+          if (missingTag.length > 0) {
+            throw new Error(
+              `These addresses do not have ${tokenName}: ${missingTag.join(', ')}`
+            );
+          }
+          result = await neuraiAssets.untagAddresses({ qualifierName: tokenName, addresses });
+        }
+      } else if (type === 'REISSUE_RESTRICTED') {
+        const qty = Number(elements.cfQuantity!.value);
+        if (!qty || qty <= 0) throw new Error('Additional quantity must be greater than 0.');
+        const changeVerifier = elements.cfChangeVerifier!.checked;
+        result = await neuraiAssets.reissueRestrictedAsset({
+          assetName: tokenName,
+          quantity: qty,
+          changeVerifier,
+          newVerifier: changeVerifier ? elements.cfNewVerifier!.value.trim().toUpperCase().replace(/(?<!#)(?<![A-Z0-9_])([A-Z][A-Z0-9_]*)/g, '#$1') : undefined,
+          reissuable: elements.cfReissuable!.checked,
+          newIpfs: elements.cfNewIpfs!.value.trim() || undefined,
+        });
+      } else if (type === 'FREEZE' || type === 'UNFREEZE') {
+        const isGlobal = elements.cfGlobal!.checked;
+        if (isGlobal) {
+          result = type === 'FREEZE'
+            ? await neuraiAssets.freezeAssetGlobally({ assetName: tokenName })
+            : await neuraiAssets.unfreezeAssetGlobally({ assetName: tokenName });
+        } else {
+          const rawAddresses = elements.cfAddresses!.value.trim();
+          if (!rawAddresses) throw new Error('Enter at least one address, or enable global mode.');
+          const addresses = rawAddresses.split('\n').map(a => a.trim()).filter(Boolean);
+          result = type === 'FREEZE'
+            ? await neuraiAssets.freezeAddresses({ assetName: tokenName, addresses })
+            : await neuraiAssets.unfreezeAddresses({ assetName: tokenName, addresses });
+        }
+      } else {
+        throw new Error('Unknown configure type: ' + type);
+      }
+
+      const rpcUrl = network === 'xna-test'
+        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
+        : (state.settings.rpcMainnet || C.RPC_URL);
+
+      const signedHex = await signRawTx(result.rawTx, rpcUrl);
+      state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result };
+      showTxConfirmModal(result, signedHex);
+
+    } catch (err) {
+      elements.cfError!.textContent = (err as Error).message || 'Unknown error';
+      elements.cfError!.classList.remove('hidden');
+    } finally {
+      elements.cfApplyBtn!.disabled = false;
+      elements.cfApplyBtn!.textContent = origText;
     }
   }
 
@@ -1947,13 +2275,43 @@ import type { WalletSettings } from '../types/index.js';
     elements.caLoadParentsBtn!.addEventListener('click', loadOwnerTokensIntoSelect);
     elements.caCreateBtn!.addEventListener('click', handleCreateAsset);
 
+    // Mode toggle
+    elements.assetModeToggle!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.asset-mode-btn') as HTMLElement | null;
+      if (!btn || !btn.dataset.mode) return;
+      updateCardMode(btn.dataset.mode as 'CREATE' | 'CONFIGURE');
+    });
+
+    // Configure panel tab clicks
+    elements.cfTypeTabs!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.asset-type-tab') as HTMLElement | null;
+      if (!btn || !btn.dataset.type) return;
+      state.configAssetType = btn.dataset.type;
+      updateConfigureAssetUI();
+      loadOwnerTokensIntoCfSelect();
+    });
+
+    elements.cfLoadTokensBtn!.addEventListener('click', loadOwnerTokensIntoCfSelect);
+    elements.cfApplyBtn!.addEventListener('click', handleConfigureAsset);
+
+    // Global toggle in configure panel
+    elements.cfGlobal!.addEventListener('change', updateConfigureAssetUI);
+
+    // Change verifier toggle in configure panel
+    elements.cfChangeVerifier!.addEventListener('change', updateConfigureAssetUI);
+
     // Confirm modal
     elements.caTxBroadcastBtn!.addEventListener('click', handleBroadcast);
     elements.caTxCancelBtn!.addEventListener('click', () => {
       state.pendingSignedTx = null;
       elements.caTxConfirmModal!.classList.add('hidden');
-      elements.caCreateBtn!.disabled = false;
-      elements.caCreateBtn!.textContent = 'Create Asset';
+      if (state.cardMode === 'CREATE') {
+        elements.caCreateBtn!.disabled = false;
+        elements.caCreateBtn!.textContent = 'Create Asset';
+      } else {
+        elements.cfApplyBtn!.disabled = false;
+        updateConfigureAssetUI(); // restores button text
+      }
     });
     elements.caTxRawToggle!.addEventListener('click', () => {
       const hidden = elements.caTxRawHex!.classList.toggle('hidden');
@@ -1962,20 +2320,34 @@ import type { WalletSettings } from '../types/index.js';
 
     elements.caNewBtn!.addEventListener('click', () => {
       elements.caResult!.classList.add('hidden');
-      elements.caCreateBtn!.classList.remove('hidden');
-      elements.caCreateBtn!.disabled = false;
-      elements.caCreateBtn!.textContent = 'Create Asset';
       elements.caError!.classList.add('hidden');
-      elements.caAssetName!.value = '';
-      elements.caSubName!.value = '';
-      elements.caTag!.value = '';
-      elements.caParentSelect!.value = '';
-      elements.caQuantity!.value = '';
-      elements.caIpfsHash!.value = '';
-      elements.caVerifier!.value = '';
+      elements.cfError!.classList.add('hidden');
+      if (state.cardMode === 'CREATE') {
+        elements.caCreateBtn!.classList.remove('hidden');
+        elements.caCreateBtn!.disabled = false;
+        elements.caCreateBtn!.textContent = 'Create Asset';
+        elements.caAssetName!.value = '';
+        elements.caSubName!.value = '';
+        elements.caTag!.value = '';
+        elements.caParentSelect!.value = '';
+        elements.caQuantity!.value = '';
+        elements.caIpfsHash!.value = '';
+        elements.caVerifier!.value = '';
+      } else {
+        elements.cfApplyBtn!.classList.remove('hidden');
+        elements.cfApplyBtn!.disabled = false;
+        elements.cfAddresses!.value = '';
+        elements.cfQuantity!.value = '';
+        elements.cfNewVerifier!.value = '';
+        elements.cfNewIpfs!.value = '';
+        elements.cfGlobal!.checked = false;
+        elements.cfChangeVerifier!.checked = false;
+        updateConfigureAssetUI();
+      }
     });
 
     updateCreateAssetUI();
+    updateConfigureAssetUI();
   }
 
   // ── Boot ───────────────────────────────────────────────────────────────────

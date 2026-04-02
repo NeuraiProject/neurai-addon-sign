@@ -105,6 +105,15 @@
               <h2>Assets Balance</h2>
               <p class="section-copy">Assets detected for the active address.</p>
             </div>
+            <div class="assets-filter-bar" id="assetsFilterBar">
+              <button class="assets-filter-btn active" data-filter="all" type="button">All</button>
+              <button class="assets-filter-btn" data-filter="root" type="button">Root</button>
+              <button class="assets-filter-btn" data-filter="sub" type="button">Sub</button>
+              <button class="assets-filter-btn" data-filter="unique" type="button">Unique</button>
+              <button class="assets-filter-btn" data-filter="qualifier" type="button">Qualifier</button>
+              <button class="assets-filter-btn" data-filter="restricted" type="button">Restricted</button>
+              <button class="assets-filter-btn" data-filter="owner" type="button">Owner</button>
+            </div>
             <div class="balance-panel" id="balancePanelAssets" role="tabpanel">
               <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
               <div class="assets-list" id="assetsList"></div>
@@ -148,101 +157,188 @@
       </section>
 
       <section class="card create-asset-card" id="createAssetCard">
+        <div class="asset-mode-toggle" id="assetModeToggle">
+          <button class="asset-mode-btn active" data-mode="CREATE" type="button">Create Asset</button>
+          <button class="asset-mode-btn" data-mode="CONFIGURE" type="button">Configure Asset</button>
+        </div>
+
         <div class="section-intro">
           <p class="eyebrow">Blockchain</p>
-          <h2>Create Asset</h2>
-          <p class="section-copy">Issue new tokens or NFTs on the Neurai network.</p>
+          <h2 id="caCardTitle">Create Asset</h2>
+          <p class="section-copy" id="caCardCopy">Issue new tokens or NFTs on the Neurai network.</p>
         </div>
 
-        <div class="asset-type-tabs" id="assetTypeTabs" role="tablist">
-          <button class="asset-type-tab active" data-type="ROOT" type="button" role="tab">Root</button>
-          <button class="asset-type-tab" data-type="SUB" type="button" role="tab">Sub</button>
-          <button class="asset-type-tab" data-type="UNIQUE" type="button" role="tab">NFT</button>
-          <button class="asset-type-tab" data-type="QUALIFIER" type="button" role="tab">Qualifier</button>
-          <button class="asset-type-tab" data-type="RESTRICTED" type="button" role="tab">Restricted</button>
-          <button class="asset-type-tab" data-type="REISSUE" type="button" role="tab">Reissue</button>
-        </div>
-
-        <div class="create-asset-form" id="createAssetForm">
-          <div class="form-group" id="caAssetNameGroup">
-            <label for="caAssetName">Asset Name</label>
-            <input type="text" id="caAssetName" placeholder="MYTOKEN" autocomplete="off" spellcheck="false">
-            <span class="form-hint" id="caAssetNameHint">3–30 uppercase letters, numbers, _ or .</span>
+        <!-- CREATE panel -->
+        <div id="createAssetPanel">
+          <div class="asset-type-tabs" id="assetTypeTabs" role="tablist">
+            <button class="asset-type-tab active" data-type="ROOT" type="button" role="tab">Root</button>
+            <button class="asset-type-tab" data-type="SUB" type="button" role="tab">Sub</button>
+            <button class="asset-type-tab" data-type="UNIQUE" type="button" role="tab">NFT</button>
+            <button class="asset-type-tab" data-type="QUALIFIER" type="button" role="tab">Qualifier</button>
+            <button class="asset-type-tab" data-type="RESTRICTED" type="button" role="tab">Restricted</button>
+            <button class="asset-type-tab" data-type="REISSUE" type="button" role="tab">Reissue</button>
           </div>
 
-          <div class="form-group hidden" id="caParentSelectGroup">
-            <label for="caParentSelect" id="caParentSelectLabel">Parent Asset</label>
-            <div class="ca-parent-select-row">
-              <select id="caParentSelect">
-                <option value="">-- Select owner token --</option>
-              </select>
-              <button class="btn btn-secondary btn-small" id="caLoadParentsBtn" type="button">Refresh</button>
+          <div class="create-asset-form" id="createAssetForm">
+            <div class="form-group" id="caAssetNameGroup">
+              <label for="caAssetName">Asset Name</label>
+              <input type="text" id="caAssetName" placeholder="MYTOKEN" autocomplete="off" spellcheck="false">
+              <span class="form-hint" id="caAssetNameHint">3–30 uppercase letters, numbers, _ or .</span>
             </div>
-            <span class="form-hint" id="caParentSelectHint">Loading your owner tokens…</span>
-          </div>
 
-          <div class="form-group hidden" id="caSubNameGroup">
-            <label for="caSubName">Sub Name</label>
-            <input type="text" id="caSubName" placeholder="SUBTOKEN" autocomplete="off" spellcheck="false">
-            <span class="form-hint">Child part only — result: PARENT/SUBTOKEN</span>
-          </div>
+            <div class="form-group hidden" id="caParentSelectGroup">
+              <label for="caParentSelect" id="caParentSelectLabel">Parent Asset</label>
+              <div class="ca-parent-select-row">
+                <select id="caParentSelect">
+                  <option value="">-- Select asset --</option>
+                </select>
+                <button class="btn btn-secondary btn-small" id="caLoadParentsBtn" type="button">Refresh</button>
+              </div>
+              <span class="form-hint" id="caParentSelectHint">Loading your owner tokens…</span>
+            </div>
 
-          <div class="form-group hidden" id="caTagGroup">
-            <label for="caTag">NFT Tag</label>
-            <input type="text" id="caTag" placeholder="EDITION001" autocomplete="off" spellcheck="false">
-            <span class="form-hint">Unique identifier — result: PARENT#EDITION001</span>
-          </div>
+            <div class="form-group hidden" id="caSubNameGroup">
+              <label for="caSubName">Sub Name</label>
+              <input type="text" id="caSubName" placeholder="SUBTOKEN" autocomplete="off" spellcheck="false">
+              <span class="form-hint">Child part only — result: PARENT/SUBTOKEN</span>
+            </div>
 
-          <div class="form-group" id="caQuantityGroup">
-            <label for="caQuantity" id="caQuantityLabel">Quantity</label>
-            <input type="number" id="caQuantity" placeholder="1000000" min="1" max="21000000000">
-          </div>
+            <div class="form-group hidden" id="caTagGroup">
+              <label for="caTag">NFT Tag</label>
+              <input type="text" id="caTag" placeholder="EDITION001" autocomplete="off" spellcheck="false">
+              <span class="form-hint">Unique identifier — result: PARENT#EDITION001</span>
+            </div>
 
-          <div class="form-group" id="caUnitsGroup">
-            <label for="caUnits">Decimals</label>
-            <select id="caUnits">
-              <option value="0">0 — integer (e.g. 1000)</option>
-              <option value="2">2 — cents (e.g. 10.50)</option>
-              <option value="4">4 (e.g. 1.0000)</option>
-              <option value="8">8 — satoshi precision</option>
-              <option value="1">1</option>
-              <option value="3">3</option>
-              <option value="5">5</option>
-              <option value="6">6</option>
-              <option value="7">7</option>
-            </select>
-          </div>
+            <div class="form-group" id="caQuantityGroup">
+              <label for="caQuantity" id="caQuantityLabel">Quantity</label>
+              <input type="number" id="caQuantity" placeholder="1000000" min="1" max="21000000000">
+            </div>
 
-          <div class="form-group" id="caReissuableGroup">
-            <label class="checkbox-label">
-              <input type="checkbox" id="caReissuable" checked>
-              <span id="caReissuableLabel">Reissuable — can mint more supply later</span>
-            </label>
-          </div>
+            <div class="form-group" id="caUnitsGroup">
+              <label for="caUnits">Decimals</label>
+              <select id="caUnits">
+                <option value="0">0 — integer (e.g. 1000)</option>
+                <option value="2">2 — cents (e.g. 10.50)</option>
+                <option value="4">4 (e.g. 1.0000)</option>
+                <option value="8">8 — satoshi precision</option>
+                <option value="1">1</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+              </select>
+            </div>
 
-          <div class="form-group hidden" id="caVerifierGroup">
-            <label for="caVerifier">Verifier String</label>
-            <input type="text" id="caVerifier" placeholder="#KYC &amp; #ACCREDITED" autocomplete="off" spellcheck="false">
-            <span class="form-hint">Boolean expression using qualifier tags (e.g. #KYC | #INSTITUTION)</span>
-          </div>
+            <div class="form-group" id="caReissuableGroup">
+              <label class="checkbox-label">
+                <input type="checkbox" id="caReissuable" checked>
+                <span id="caReissuableLabel">Reissuable — can mint more supply later</span>
+              </label>
+            </div>
 
-          <div class="form-group">
-            <label for="caIpfsHash">IPFS Hash <span class="form-hint-inline">(optional)</span></label>
-            <input type="text" id="caIpfsHash" placeholder="Qm... or bafy..." autocomplete="off" spellcheck="false">
-          </div>
+            <div class="form-group hidden" id="caVerifierGroup">
+              <label for="caVerifier">Verifier String</label>
+              <input type="text" id="caVerifier" placeholder="#KYC &amp; #ACCREDITED" autocomplete="off" spellcheck="false">
+              <span class="form-hint">Boolean expression using qualifier tags (e.g. #KYC | #INSTITUTION)</span>
+            </div>
 
-          <div class="create-asset-fee-row">
-            <span class="fee-label">Burn fee:</span>
-            <span class="fee-value" id="caFeeValue">1000 XNA</span>
-          </div>
+            <div class="form-group">
+              <label for="caIpfsHash">IPFS Hash <span class="form-hint-inline">(optional)</span></label>
+              <input type="text" id="caIpfsHash" placeholder="Qm... or bafy..." autocomplete="off" spellcheck="false">
+            </div>
 
-          <p class="create-asset-error hidden" id="caError"></p>
+            <div class="create-asset-fee-row">
+              <span class="fee-label">Burn fee:</span>
+              <span class="fee-value" id="caFeeValue">1000 XNA</span>
+            </div>
 
-          <div class="settings-actions">
-            <button class="btn btn-primary" id="caCreateBtn" type="button">Create Asset</button>
+            <p class="create-asset-error hidden" id="caError"></p>
+
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="caCreateBtn" type="button">Create Asset</button>
+            </div>
           </div>
         </div>
 
+        <!-- CONFIGURE panel -->
+        <div id="configureAssetPanel" class="hidden">
+          <div class="asset-type-tabs" id="cfTypeTabs" role="tablist">
+            <button class="asset-type-tab active" data-type="TAG" type="button" role="tab">Tag</button>
+            <button class="asset-type-tab" data-type="UNTAG" type="button" role="tab">Untag</button>
+            <button class="asset-type-tab" data-type="REISSUE_RESTRICTED" type="button" role="tab">Reissue $</button>
+            <button class="asset-type-tab" data-type="FREEZE" type="button" role="tab">Freeze</button>
+            <button class="asset-type-tab" data-type="UNFREEZE" type="button" role="tab">Unfreeze</button>
+          </div>
+
+          <div class="create-asset-form" id="configureAssetForm">
+            <div class="form-group" id="cfOwnerTokenGroup">
+              <label id="cfOwnerTokenLabel">Qualifier</label>
+              <div class="ca-parent-select-row">
+                <select id="cfOwnerTokenSelect">
+                  <option value="">-- Select asset --</option>
+                </select>
+                <button class="btn btn-secondary btn-small" id="cfLoadTokensBtn" type="button">Refresh</button>
+              </div>
+              <span class="form-hint" id="cfOwnerTokenHint">Select a type above then click Refresh</span>
+            </div>
+
+            <div class="form-group hidden" id="cfAddressesGroup">
+              <label for="cfAddresses">Addresses</label>
+              <textarea id="cfAddresses" rows="4" placeholder="One address per line…" spellcheck="false" autocomplete="off"></textarea>
+              <span class="form-hint">One Neurai address per line</span>
+            </div>
+
+            <div class="form-group hidden" id="cfGlobalGroup">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfGlobal">
+                <span>Apply globally (all addresses)</span>
+              </label>
+            </div>
+
+            <div class="form-group hidden" id="cfQuantityGroup">
+              <label for="cfQuantity">Additional Quantity</label>
+              <input type="number" id="cfQuantity" placeholder="1000000" min="1" max="21000000000">
+            </div>
+
+            <div class="form-group hidden" id="cfChangeVerifierGroup">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfChangeVerifier">
+                <span>Update verifier string</span>
+              </label>
+            </div>
+
+            <div class="form-group hidden" id="cfNewVerifierGroup">
+              <label for="cfNewVerifier">New Verifier String</label>
+              <input type="text" id="cfNewVerifier" placeholder="#KYC &amp; #ACCREDITED" autocomplete="off" spellcheck="false">
+              <span class="form-hint">Boolean expression using qualifier tags</span>
+            </div>
+
+            <div class="form-group hidden" id="cfReissuableGroup">
+              <label class="checkbox-label">
+                <input type="checkbox" id="cfReissuable" checked>
+                <span>Keep reissuable (uncheck to lock supply permanently)</span>
+              </label>
+            </div>
+
+            <div class="form-group hidden" id="cfNewIpfsGroup">
+              <label for="cfNewIpfs">New IPFS Hash <span class="form-hint-inline">(optional)</span></label>
+              <input type="text" id="cfNewIpfs" placeholder="Qm... or bafy..." autocomplete="off" spellcheck="false">
+            </div>
+
+            <div class="create-asset-fee-row hidden" id="cfFeeRow">
+              <span class="fee-label">Burn fee:</span>
+              <span class="fee-value" id="cfFeeValue">200 XNA</span>
+            </div>
+
+            <p class="create-asset-error hidden" id="cfError"></p>
+
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="cfApplyBtn" type="button">Apply</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Shared result -->
         <div class="create-asset-result hidden" id="caResult">
           <div class="create-asset-success">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1a9 9 0 1 0 0 18A9 9 0 0 0 10 1zm4.07 6.47-4.8 4.8a.75.75 0 0 1-1.06 0l-2.3-2.3a.75.75 0 1 1 1.06-1.06l1.77 1.77 4.27-4.27a.75.75 0 1 1 1.06 1.06z"/></svg>
@@ -252,7 +348,7 @@
             </div>
           </div>
           <div class="settings-actions">
-            <button class="btn btn-secondary btn-small" id="caNewBtn" type="button">Create another</button>
+            <button class="btn btn-secondary btn-small" id="caNewBtn" type="button">Done</button>
           </div>
         </div>
       </section>

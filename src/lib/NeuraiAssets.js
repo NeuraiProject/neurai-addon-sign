@@ -1,6 +1,6 @@
 (function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.NeuraiAssets = f()}})(function(){var define,module,exports;return (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
 
-    var NeuraiAssets = require('@neuraiproject/neurai-assets');
+    var NeuraiAssets = require('./test-page/neurai-assets/src/index.js');
     var root =
       typeof globalThis !== 'undefined' ? globalThis :
       typeof self !== 'undefined' ? self :
@@ -9,7 +9,7 @@
     root.NeuraiAssets = NeuraiAssets;
     if (typeof module !== 'undefined') module.exports = NeuraiAssets;
   
-},{"@neuraiproject/neurai-assets":22}],2:[function(require,module,exports){
+},{"./test-page/neurai-assets/src/index.js":22}],2:[function(require,module,exports){
 /**
  * NeuraiAssets - Main API Class
  * Unified interface for all Neurai asset operations
@@ -179,7 +179,8 @@ class NeuraiAssets {
    * @returns {Promise<object>} Transaction data
    */
   async createQualifier(params) {
-    const builder = new IssueQualifierBuilder(this.rpc, this._buildParams(params));
+    const normalized = { ...params, assetName: params.assetName || params.qualifierName };
+    const builder = new IssueQualifierBuilder(this.rpc, this._buildParams(normalized));
     return await builder.build();
   }
 
@@ -852,14 +853,7 @@ class FreezeAddressBuilder extends BaseAssetTransactionBuilder {
           );
         }
 
-        // Basic address validation
-        const validPrefixes = this.network === 'xna' ? ['N'] : ['m', 'n'];
-        if (!validPrefixes.some(prefix => address.startsWith(prefix))) {
-          throw new InvalidAddressError(
-            `addresses[${index}] has invalid prefix for network ${this.network}`,
-            address
-          );
-        }
+        // Address prefix validation is left to the node (varies by network)
       });
     }
 
@@ -967,13 +961,6 @@ class FreezeAddressBuilder extends BaseAssetTransactionBuilder {
       outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
     }
 
-    // Second: Owner token return (CRITICAL - must return or lost forever!)
-    const ownerTokenReturn = this.ownerTokenManager.createOwnerTokenReturnOutput(
-      ownerTokenName,
-      changeAddress
-    );
-    outputs.push(ownerTokenReturn);
-
     // Last: Freeze/Unfreeze operation
     let operationOutput;
     let targetAddresses = [];
@@ -985,7 +972,7 @@ class FreezeAddressBuilder extends BaseAssetTransactionBuilder {
           asset_name: assetName,
           addresses: targetAddresses
         });
-        outputs.push({ [targetAddresses[0]]: operationOutput });
+        outputs.push({ [changeAddress]: operationOutput });
         break;
 
       case 'UNFREEZE_ADDRESSES':
@@ -994,7 +981,7 @@ class FreezeAddressBuilder extends BaseAssetTransactionBuilder {
           asset_name: assetName,
           addresses: targetAddresses
         });
-        outputs.push({ [targetAddresses[0]]: operationOutput });
+        outputs.push({ [changeAddress]: operationOutput });
         break;
 
       case 'FREEZE_ASSET':
@@ -1014,13 +1001,10 @@ class FreezeAddressBuilder extends BaseAssetTransactionBuilder {
     // 13. Order outputs (protocol requirement)
     const orderedOutputs = this.outputOrderer.order(outputs);
 
-    // 14. Validate owner token is returned (safety check)
-    this.ownerTokenManager.validateOwnerTokenReturn(inputs, orderedOutputs);
-
-    // 15. Create raw transaction
+    // 14. Create raw transaction
     const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
-    // 16. Format and return result
+    // 15. Format and return result
     const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
 
     return this.formatResult(
@@ -1087,7 +1071,8 @@ module.exports = FreezeAddressBuilder;
  * - Quantity: 1-10 units only
  * - Units: Always 0 (non-divisible)
  * - Used to tag addresses for restricted asset compliance
- * - Creates owner token (#QUALIFIER!)
+ * - Root qualifiers do not create owner tokens
+ * - Sub-qualifiers consume and return the parent qualifier asset itself
  */
 
 const BaseAssetTransactionBuilder = require('./BaseAssetTransactionBuilder');
@@ -1153,13 +1138,14 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
     const isSub = this.isSubQualifier(assetName);
     const parsed = AssetNameParser.parse(assetName);
 
-    // 3. If sub-qualifier, check parent exists and get owner token
-    let ownerTokenUTXO = null;
-    let ownerTokenName = null;
+    // 3. If sub-qualifier, check parent exists and get parent qualifier input
+    let parentQualifierUTXOs = [];
+    let parentQualifierQuantity = null;
+    let parentQualifierName = null;
     const addresses = await this._getAddresses();
 
     if (isSub) {
-      const parentQualifierName = parsed.parent;
+      parentQualifierName = parsed.parent;
 
       // Check parent qualifier exists
       const parentExists = await this.assetExists(parentQualifierName);
@@ -1170,18 +1156,16 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
         );
       }
 
-      // Find parent's owner token
-      ownerTokenName = AssetNameParser.getOwnerTokenName(parentQualifierName);
+      // Find parent qualifier balance to spend and return as change
       try {
-        ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-          ownerTokenName,
-          addresses
-        );
+        const selection = await this.utxoSelector.selectAssetUTXOs(addresses, parentQualifierName, 1);
+        parentQualifierUTXOs = selection.utxos;
+        parentQualifierQuantity = selection.totalAmount;
       } catch (error) {
-        if (error instanceof OwnerTokenNotFoundError) {
+        if (error.name === 'InsufficientFundsError') {
           throw new OwnerTokenNotFoundError(
-            `You must own the parent qualifier's owner token (${ownerTokenName}) to create a sub-qualifier.`,
-            ownerTokenName
+            `You must own the parent qualifier asset (${parentQualifierName}) to create a sub-qualifier.`,
+            parentQualifierName
           );
         }
         throw error;
@@ -1207,7 +1191,7 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
     const changeAddress = await this.getChangeAddress();
 
     // 7. Estimate fee
-    const outputCount = isSub ? 4 : 3; // Sub has owner token return
+    const outputCount = 3;
     const estimatedFee = await this.estimateFee(2, outputCount);
 
     // 8. Calculate total XNA needed
@@ -1219,7 +1203,7 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
     const totalXNAInput = utxoSelection.totalXNA;
 
     // 10. Recalculate fee with actual input count
-    const actualInputCount = baseCurrencyUTXOs.length + (ownerTokenUTXO ? 1 : 0);
+    const actualInputCount = baseCurrencyUTXOs.length + parentQualifierUTXOs.length;
     const actualFee = await this.estimateFee(actualInputCount, outputCount);
 
     // 11. Verify we have enough XNA
@@ -1250,16 +1234,16 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
       });
     });
 
-    // Add owner token input if sub-qualifier
-    if (ownerTokenUTXO) {
+    // Add parent qualifier inputs if sub-qualifier
+    parentQualifierUTXOs.forEach(parentUTXO => {
       inputs.push({
-        txid: ownerTokenUTXO.txid,
-        vout: ownerTokenUTXO.outputIndex,
-        address: ownerTokenUTXO.address,
-        assetName: ownerTokenUTXO.assetName,
-        satoshis: ownerTokenUTXO.satoshis
+        txid: parentUTXO.txid,
+        vout: parentUTXO.outputIndex,
+        address: parentUTXO.address,
+        assetName: parentUTXO.assetName,
+        satoshis: parentUTXO.satoshis
       });
-    }
+    });
 
     // 14. Build outputs (ORDER CRITICAL!)
     const outputs = [];
@@ -1272,21 +1256,14 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
       outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
     }
 
-    // Third: Owner token return (if sub-qualifier)
-    if (ownerTokenUTXO && ownerTokenName) {
-      const ownerTokenReturn = this.ownerTokenManager.createOwnerTokenReturnOutput(
-        ownerTokenName,
-        changeAddress
-      );
-      outputs.push(ownerTokenReturn);
-    }
-
     // Last: Issue qualifier operation
     const issueQualifierOutput = OutputFormatter.formatIssueQualifierOutput({
       asset_name: assetName,
       asset_quantity: quantity,
       has_ipfs: hasIpfs,
-      ipfs_hash: ipfsHash
+      ipfs_hash: ipfsHash,
+      root_change_address: isSub ? changeAddress : undefined,
+      change_quantity: isSub ? parentQualifierQuantity : undefined
     });
 
     outputs.push({ [toAddress]: issueQualifierOutput });
@@ -1294,18 +1271,11 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
     // 15. Order outputs (protocol requirement)
     const orderedOutputs = this.outputOrderer.order(outputs);
 
-    // 16. Validate owner token is returned if sub-qualifier
-    if (ownerTokenUTXO) {
-      this.ownerTokenManager.validateOwnerTokenReturn(inputs, orderedOutputs);
-    }
-
-    // 17. Create raw transaction
+    // 16. Create raw transaction
     const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
-    // 18. Format and return result
-    const allUTXOs = ownerTokenUTXO
-      ? [...baseCurrencyUTXOs, ownerTokenUTXO]
-      : baseCurrencyUTXOs;
+    // 17. Format and return result
+    const allUTXOs = [...baseCurrencyUTXOs, ...parentQualifierUTXOs];
 
     return this.formatResult(
       rawTx,
@@ -1318,8 +1288,7 @@ class IssueQualifierBuilder extends BaseAssetTransactionBuilder {
         assetName,
         qualifierType: isSub ? 'SUB_QUALIFIER' : 'QUALIFIER',
         parentQualifier: isSub ? parsed.parent : null,
-        ownerTokenName: assetName + '!',
-        parentOwnerTokenUsed: ownerTokenName,
+        parentQualifierUsed: parentQualifierName,
         operationType: isSub ? 'ISSUE_SUB_QUALIFIER' : 'ISSUE_QUALIFIER'
       }
     );
@@ -1340,12 +1309,12 @@ module.exports = IssueQualifierBuilder;
  * - Requires verifier string (boolean logic with qualifiers)
  * - Only addresses meeting verifier requirements can receive/hold
  * - Can freeze individual addresses or entire asset
- * - Creates owner token ($ASSET!)
+ * - Creates owner token (ASSET!)
  */
 
 const BaseAssetTransactionBuilder = require('./BaseAssetTransactionBuilder');
-const { OutputFormatter } = require('../utils');
-const { AssetExistsError } = require('../errors');
+const { OutputFormatter, AssetNameParser } = require('../utils');
+const { AssetExistsError, OwnerTokenNotFoundError } = require('../errors');
 const { IpfsValidator, VerifierValidator } = require('../validators');
 
 class IssueRestrictedBuilder extends BaseAssetTransactionBuilder {
@@ -1429,21 +1398,39 @@ class IssueRestrictedBuilder extends BaseAssetTransactionBuilder {
     const toAddress = await this.getToAddress();
     const changeAddress = await this.getChangeAddress();
 
-    // 6. Estimate fee
-    const estimatedFee = await this.estimateFee(1, 3);
+    // 6. Find owner token UTXO (CRITICAL: node requires it as input)
+    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
+    let ownerTokenUTXO;
+    try {
+      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
+        ownerTokenName,
+        addresses
+      );
+    } catch (error) {
+      if (error instanceof OwnerTokenNotFoundError) {
+        throw new OwnerTokenNotFoundError(
+          `You must own the owner token (${ownerTokenName}) to issue the restricted asset ${assetName}.`,
+          ownerTokenName
+        );
+      }
+      throw error;
+    }
 
-    // 7. Calculate total XNA needed
+    // 7. Estimate fee (+1 for owner token input)
+    const estimatedFee = await this.estimateFee(2, 4);
+
+    // 8. Calculate total XNA needed
     const totalXNANeeded = burnInfo.amount + estimatedFee;
 
-    // 8. Select XNA UTXOs
+    // 9. Select XNA UTXOs
     const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
     const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
     const totalXNAInput = utxoSelection.totalXNA;
 
-    // 9. Recalculate fee with actual input count
-    const actualFee = await this.estimateFee(baseCurrencyUTXOs.length, 3);
+    // 10. Recalculate fee with actual input count (+1 for owner token)
+    const actualFee = await this.estimateFee(baseCurrencyUTXOs.length + 1, 4);
 
-    // 10. Verify we have enough XNA
+    // 11. Verify we have enough XNA
     const totalRequired = burnInfo.amount + actualFee;
     if (totalXNAInput < totalRequired) {
       const additionalNeeded = totalRequired - totalXNAInput + 0.001;
@@ -1451,22 +1438,35 @@ class IssueRestrictedBuilder extends BaseAssetTransactionBuilder {
       baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
     }
 
-    // 11. Calculate XNA change
+    // 12. Calculate XNA change
     const finalTotalInput = baseCurrencyUTXOs.reduce(
       (sum, utxo) => sum + utxo.satoshis / 100000000,
       0
     );
     const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
 
-    // 12. Build inputs
-    const inputs = baseCurrencyUTXOs.map(utxo => ({
-      txid: utxo.txid,
-      vout: utxo.outputIndex,
-      address: utxo.address,
-      satoshis: utxo.satoshis
-    }));
+    // 13. Build inputs (XNA + owner token)
+    const inputs = [];
 
-    // 13. Build outputs (ORDER CRITICAL!)
+    baseCurrencyUTXOs.forEach(utxo => {
+      inputs.push({
+        txid: utxo.txid,
+        vout: utxo.outputIndex,
+        address: utxo.address,
+        satoshis: utxo.satoshis
+      });
+    });
+
+    // Add owner token input (node requires it to issue restricted asset)
+    inputs.push({
+      txid: ownerTokenUTXO.txid,
+      vout: ownerTokenUTXO.outputIndex,
+      address: ownerTokenUTXO.address,
+      assetName: ownerTokenUTXO.assetName,
+      satoshis: ownerTokenUTXO.satoshis
+    });
+
+    // 14. Build outputs (ORDER CRITICAL!)
     const outputs = [];
 
     // First: Burn output
@@ -1485,28 +1485,31 @@ class IssueRestrictedBuilder extends BaseAssetTransactionBuilder {
       units: units,
       reissuable: reissuable,
       has_ipfs: hasIpfs,
-      ipfs_hash: ipfsHash
+      ipfs_hash: ipfsHash,
+      owner_change_address: changeAddress
     });
 
     outputs.push({ [toAddress]: issueRestrictedOutput });
 
-    // 14. Order outputs (protocol requirement)
+    // 15. Order outputs (protocol requirement)
     const orderedOutputs = this.outputOrderer.order(outputs);
 
-    // 15. Create raw transaction
+    // 16. Create raw transaction
     const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
-    // 16. Format and return result
+    // 17. Format and return result
+    const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
+
     return this.formatResult(
       rawTx,
-      baseCurrencyUTXOs,
+      allUTXOs,
       inputs,
       orderedOutputs,
       actualFee,
       burnInfo.amount,
       {
         assetName,
-        ownerTokenName: assetName + '!',
+        ownerTokenName,
         verifierString,
         requiredQualifiers,
         operationType: 'ISSUE_RESTRICTED'
@@ -2136,14 +2139,9 @@ class IssueUniqueBuilder extends BaseAssetTransactionBuilder {
       outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
     }
 
-    // Third: Owner token return (CRITICAL - must return or lost forever!)
-    const ownerTokenReturn = this.ownerTokenManager.createOwnerTokenReturnOutput(
-      ownerTokenName,
-      changeAddress
-    );
-    outputs.push(ownerTokenReturn);
-
     // Last: Issue unique operation
+    // NOTE: owner token return is handled automatically by the node when processing
+    // issue_unique — adding it manually would cause TOKEN! to appear twice in outputs
     const issueUniqueOutput = OutputFormatter.formatIssueUniqueOutput({
       root_name: rootName,
       asset_tags: assetTags,
@@ -2155,16 +2153,14 @@ class IssueUniqueBuilder extends BaseAssetTransactionBuilder {
     // 15. Order outputs (protocol requirement)
     const orderedOutputs = this.outputOrderer.order(outputs);
 
-    // 16. Validate owner token is returned (safety check)
-    this.ownerTokenManager.validateOwnerTokenReturn(inputs, orderedOutputs);
-
-    // 17. Create raw transaction
+    // 16. Create raw transaction
+    // NOTE: validateOwnerTokenReturn removed — the node returns TOKEN! automatically
     const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
-    // 18. Build list of created NFT names
+    // 17. Build list of created NFT names
     const createdNFTs = assetTags.map(tag => `${rootName}#${tag}`);
 
-    // 19. Format and return result
+    // 18. Format and return result
     const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
 
     return this.formatResult(
@@ -2391,7 +2387,8 @@ class ReissueBuilder extends BaseAssetTransactionBuilder {
       asset_name: assetName,
       asset_quantity: this.toSatoshis(quantity, units),
       reissuable: reissuable !== undefined ? reissuable : undefined,
-      new_ipfs: newIpfs || undefined
+      new_ipfs: newIpfs || undefined,
+      owner_change_address: changeAddress
     });
 
     outputs.push({ [toAddress]: reissueOutput });
@@ -2435,7 +2432,7 @@ module.exports = ReissueBuilder;
  * Reissue Restricted:
  * - Mints additional supply of restricted asset
  * - Cost: 200 XNA (burned)
- * - Requires asset's owner token ($ASSET!)
+ * - Requires asset's owner token (ASSET!)
  * - Can update verifier string
  * - Can lock asset (make it non-reissuable)
  * - Can update IPFS metadata
@@ -2630,14 +2627,6 @@ class ReissueRestrictedBuilder extends BaseAssetTransactionBuilder {
       outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
     }
 
-    // Third: Owner token return (CRITICAL - must return or lost forever!)
-    const ownerReturnAddress = this.params.ownerChangeAddress || changeAddress;
-    const ownerTokenReturn = this.ownerTokenManager.createOwnerTokenReturnOutput(
-      ownerTokenName,
-      ownerReturnAddress
-    );
-    outputs.push(ownerTokenReturn);
-
     // Last: Reissue restricted operation
     const units = assetData.units || 0;
     const reissueRestrictedOutput = OutputFormatter.formatReissueRestrictedOutput({
@@ -2646,7 +2635,8 @@ class ReissueRestrictedBuilder extends BaseAssetTransactionBuilder {
       change_verifier: changeVerifier,
       new_verifier: changeVerifier ? newVerifier : undefined,
       reissuable: reissuable !== undefined ? reissuable : undefined,
-      new_ipfs: newIpfs || undefined
+      new_ipfs: newIpfs || undefined,
+      owner_change_address: this.params.ownerChangeAddress || changeAddress
     });
 
     outputs.push({ [toAddress]: reissueRestrictedOutput });
@@ -2654,13 +2644,10 @@ class ReissueRestrictedBuilder extends BaseAssetTransactionBuilder {
     // 16. Order outputs (protocol requirement)
     const orderedOutputs = this.outputOrderer.order(outputs);
 
-    // 17. Validate owner token is returned (safety check)
-    this.ownerTokenManager.validateOwnerTokenReturn(inputs, orderedOutputs);
-
-    // 18. Create raw transaction
+    // 17. Create raw transaction
     const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
-    // 19. Format and return result
+    // 18. Format and return result
     const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
 
     // Extract qualifiers from new verifier if changed
@@ -2702,13 +2689,13 @@ module.exports = ReissueRestrictedBuilder;
  * - Assign qualifier tags to addresses (for restricted asset compliance)
  * - Remove qualifier tags from addresses
  * - Cost: 0.1 XNA per address (burned)
- * - Requires qualifier's owner token (#QUALIFIER!)
+ * - Requires spending the qualifier asset itself (#QUALIFIER)
  * - Used to mark addresses as KYC'd, accredited, etc.
  * - Owner token must be returned
  */
 
 const BaseAssetTransactionBuilder = require('./BaseAssetTransactionBuilder');
-const { OutputFormatter, AssetNameParser } = require('../utils');
+const { OutputFormatter } = require('../utils');
 const { AssetNotFoundError, OwnerTokenNotFoundError, InvalidAddressError } = require('../errors');
 
 class TagAddressBuilder extends BaseAssetTransactionBuilder {
@@ -2728,6 +2715,10 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
       throw new Error('addresses is required and must be a non-empty array');
     }
 
+    if (params.addresses.length > 10) {
+      throw new Error('addresses array cannot exceed 10 entries per transaction (node limit)');
+    }
+
     // Validate qualifier name
     this.validateAssetName(params.qualifierName, 'QUALIFIER');
 
@@ -2740,14 +2731,7 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
         );
       }
 
-      // Basic address validation (starts with N or m/n depending on network)
-      const validPrefixes = this.network === 'xna' ? ['N'] : ['m', 'n'];
-      if (!validPrefixes.some(prefix => address.startsWith(prefix))) {
-        throw new InvalidAddressError(
-          `addresses[${index}] has invalid prefix for network ${this.network}`,
-          address
-        );
-      }
+      // Address prefix validation is left to the node (varies by network)
     });
 
     return true;
@@ -2765,7 +2749,6 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
     const {
       qualifierName,
       addresses: targetAddresses,
-      assetData = ''
     } = this.params;
 
     // 2. Check if qualifier exists
@@ -2781,19 +2764,18 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
     const addresses = await this._getAddresses();
     const changeAddress = await this.getChangeAddress();
 
-    // 4. Find qualifier's owner token (CRITICAL: must have this)
-    const ownerTokenName = AssetNameParser.getOwnerTokenName(qualifierName);
-    let ownerTokenUTXO;
+    // 4. Find qualifier asset balance (CRITICAL: must have this)
+    let qualifierUTXOs;
+    let qualifierQuantity;
     try {
-      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-        ownerTokenName,
-        addresses
-      );
+      const selection = await this.utxoSelector.selectAssetUTXOs(addresses, qualifierName, 1);
+      qualifierUTXOs = selection.utxos;
+      qualifierQuantity = selection.totalAmount;
     } catch (error) {
-      if (error instanceof OwnerTokenNotFoundError) {
+      if (error.name === 'InsufficientFundsError') {
         throw new OwnerTokenNotFoundError(
-          `You must own the qualifier's owner token (${ownerTokenName}) to tag/untag addresses.`,
-          ownerTokenName
+          `You must own the qualifier asset (${qualifierName}) to tag/untag addresses.`,
+          qualifierName
         );
       }
       throw error;
@@ -2817,7 +2799,7 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
     const totalXNAInput = utxoSelection.totalXNA;
 
     // 9. Recalculate fee with actual input count
-    const actualInputCount = baseCurrencyUTXOs.length + 1; // +1 for owner token
+    const actualInputCount = baseCurrencyUTXOs.length + qualifierUTXOs.length;
     const actualFee = await this.estimateFee(actualInputCount, 3);
 
     // 10. Verify we have enough XNA
@@ -2835,7 +2817,7 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
     );
     const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
 
-    // 12. Build inputs (XNA + owner token)
+    // 12. Build inputs (XNA + qualifier asset)
     const inputs = [];
 
     // Add XNA inputs
@@ -2848,13 +2830,14 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
       });
     });
 
-    // Add owner token input
-    inputs.push({
-      txid: ownerTokenUTXO.txid,
-      vout: ownerTokenUTXO.outputIndex,
-      address: ownerTokenUTXO.address,
-      assetName: ownerTokenUTXO.assetName,
-      satoshis: ownerTokenUTXO.satoshis
+    qualifierUTXOs.forEach(utxo => {
+      inputs.push({
+        txid: utxo.txid,
+        vout: utxo.outputIndex,
+        address: utxo.address,
+        assetName: utxo.assetName,
+        satoshis: utxo.satoshis
+      });
     });
 
     // 13. Build outputs (ORDER CRITICAL!)
@@ -2868,39 +2851,30 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
       outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
     }
 
-    // Third: Owner token return (CRITICAL - must return or lost forever!)
-    const ownerTokenReturn = this.ownerTokenManager.createOwnerTokenReturnOutput(
-      ownerTokenName,
-      changeAddress
-    );
-    outputs.push(ownerTokenReturn);
-
-    // Last: Tag/Untag operation
-    // Note: Using first address as transaction output address (protocol requirement)
+    // Last: Tag/Untag operation. The node creates the qualifier change output
+    // from the operation object itself, so this must be sent to the change address.
     const operationOutput = isUntag
       ? OutputFormatter.formatUntagAddressesOutput({
-          tag_name: qualifierName,
-          addresses: targetAddresses
+          qualifier: qualifierName,
+          addresses: targetAddresses,
+          change_quantity: qualifierQuantity
         })
       : OutputFormatter.formatTagAddressesOutput({
-          tag_name: qualifierName,
+          qualifier: qualifierName,
           addresses: targetAddresses,
-          asset_data: assetData
+          change_quantity: qualifierQuantity
         });
 
-    outputs.push({ [targetAddresses[0]]: operationOutput });
+    outputs.push({ [changeAddress]: operationOutput });
 
     // 14. Order outputs (protocol requirement)
     const orderedOutputs = this.outputOrderer.order(outputs);
 
-    // 15. Validate owner token is returned (safety check)
-    this.ownerTokenManager.validateOwnerTokenReturn(inputs, orderedOutputs);
-
-    // 16. Create raw transaction
+    // 15. Create raw transaction
     const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
-    // 17. Format and return result
-    const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
+    // 16. Format and return result
+    const allUTXOs = [...baseCurrencyUTXOs, ...qualifierUTXOs];
 
     return this.formatResult(
       rawTx,
@@ -2911,7 +2885,7 @@ class TagAddressBuilder extends BaseAssetTransactionBuilder {
       burnInfo.amount,
       {
         qualifierName,
-        ownerTokenUsed: ownerTokenName,
+        qualifierAssetUsed: qualifierName,
         targetAddresses,
         addressCount,
         operationType: isUntag ? 'UNTAG_ADDRESSES' : 'TAG_ADDRESSES'
@@ -3086,8 +3060,8 @@ const ASSET_COSTS = {
   ISSUE_RESTRICTED: 3000,
   REISSUE: 200,
   REISSUE_RESTRICTED: 200,
-  TAG_ADDRESS: 0.1,   // Per address
-  UNTAG_ADDRESS: 0.1, // Per address
+  TAG_ADDRESS: 0.2,   // Per address
+  UNTAG_ADDRESS: 0.2, // Per address
   FREEZE_ADDRESS: 0,  // No cost (requires owner token)
   UNFREEZE_ADDRESS: 0, // No cost (requires owner token)
   FREEZE_ASSET: 0,    // No cost (requires owner token)
@@ -3196,7 +3170,7 @@ const NETWORKS = {
   TESTNET: {
     name: 'xna-test',
     displayName: 'Neurai Testnet',
-    addressPrefix: 'm',
+    addressPrefix: 't',
     assetNameMaxLength: 32,  // Same as mainnet
     defaultRPCPort: 19101,
     coin: 'TXNA'
@@ -3278,7 +3252,7 @@ function getNetworkConfig(networkName) {
 function detectNetworkFromAddress(address) {
   if (address.startsWith('N')) {
     return 'xna';
-  } else if (address.startsWith('m') || address.startsWith('n')) {
+  } else if (address.startsWith('t')) {
     return 'xna-test';
   } else {
     throw new Error(`Cannot detect network from address: ${address}`);
@@ -5462,6 +5436,9 @@ class AssetNameParser {
     if (this.isOwnerToken(assetName)) {
       return assetName;
     }
+    if (this.isRestricted(assetName)) {
+      return assetName.slice(1) + '!';
+    }
     return assetName + '!';
   }
 
@@ -5609,8 +5586,8 @@ class NetworkDetector {
       return 'xna';
     }
 
-    // Testnet addresses start with 'm' or 'n'
-    if (address.startsWith(NETWORKS.TESTNET.addressPrefix) || address.startsWith('n')) {
+    // Testnet addresses start with 't' (prefix byte 0x7f = 127)
+    if (address.startsWith(NETWORKS.TESTNET.addressPrefix)) {
       return 'xna-test';
     }
 
@@ -5742,13 +5719,18 @@ class OutputFormatter {
   static formatIssueUniqueOutput(params) {
     const { root_name, asset_tags, ipfs_hashes } = params;
 
-    return {
+    const output = {
       issue_unique: {
         root_name,
-        asset_tags,
-        ipfs_hashes: ipfs_hashes || []
+        asset_tags
       }
     };
+
+    if (ipfs_hashes && ipfs_hashes.length > 0) {
+      output.issue_unique.ipfs_hashes = ipfs_hashes;
+    }
+
+    return output;
   }
 
   /**
@@ -5764,10 +5746,11 @@ class OutputFormatter {
       units,
       reissuable,
       has_ipfs,
-      ipfs_hash
+      ipfs_hash,
+      owner_change_address
     } = params;
 
-    return {
+    const output = {
       issue_restricted: {
         asset_name,
         asset_quantity,
@@ -5778,6 +5761,12 @@ class OutputFormatter {
         ipfs_hash: ipfs_hash || ''
       }
     };
+
+    if (owner_change_address) {
+      output.issue_restricted.owner_change_address = owner_change_address;
+    }
+
+    return output;
   }
 
   /**
@@ -5790,10 +5779,12 @@ class OutputFormatter {
       asset_name,
       asset_quantity,
       has_ipfs,
-      ipfs_hash
+      ipfs_hash,
+      root_change_address,
+      change_quantity
     } = params;
 
-    return {
+    const output = {
       issue_qualifier: {
         asset_name,
         asset_quantity,
@@ -5801,6 +5792,16 @@ class OutputFormatter {
         ipfs_hash: ipfs_hash || ''
       }
     };
+
+    if (root_change_address) {
+      output.issue_qualifier.root_change_address = root_change_address;
+    }
+
+    if (change_quantity !== undefined && change_quantity !== null) {
+      output.issue_qualifier.change_quantity = change_quantity;
+    }
+
+    return output;
   }
 
   /**
@@ -5813,7 +5814,8 @@ class OutputFormatter {
       asset_name,
       asset_quantity,
       reissuable,
-      new_ipfs
+      new_ipfs,
+      owner_change_address
     } = params;
 
     const output = {
@@ -5832,6 +5834,10 @@ class OutputFormatter {
       output.reissue.ipfs_hash = new_ipfs;
     }
 
+    if (owner_change_address) {
+      output.reissue.owner_change_address = owner_change_address;
+    }
+
     return output;
   }
 
@@ -5847,7 +5853,8 @@ class OutputFormatter {
       change_verifier,
       new_verifier,
       reissuable,
-      new_ipfs
+      new_ipfs,
+      owner_change_address
     } = params;
 
     const output = {
@@ -5868,6 +5875,10 @@ class OutputFormatter {
 
     if (new_ipfs) {
       output.reissue_restricted.ipfs_hash = new_ipfs;
+    }
+
+    if (owner_change_address) {
+      output.reissue_restricted.owner_change_address = owner_change_address;
     }
 
     return output;
@@ -5894,18 +5905,23 @@ class OutputFormatter {
    */
   static formatTagAddressesOutput(params) {
     const {
-      tag_name,
+      qualifier,
       addresses,
-      asset_data
+      change_quantity
     } = params;
 
-    return {
+    const output = {
       tag_addresses: {
-        tag_name,
-        addresses,
-        asset_data: asset_data || ''
+        qualifier,
+        addresses
       }
     };
+
+    if (change_quantity !== undefined && change_quantity !== null) {
+      output.tag_addresses.change_quantity = change_quantity;
+    }
+
+    return output;
   }
 
   /**
@@ -5915,16 +5931,23 @@ class OutputFormatter {
    */
   static formatUntagAddressesOutput(params) {
     const {
-      tag_name,
-      addresses
+      qualifier,
+      addresses,
+      change_quantity
     } = params;
 
-    return {
+    const output = {
       untag_addresses: {
-        tag_name,
+        qualifier,
         addresses
       }
     };
+
+    if (change_quantity !== undefined && change_quantity !== null) {
+      output.untag_addresses.change_quantity = change_quantity;
+    }
+
+    return output;
   }
 
   /**
