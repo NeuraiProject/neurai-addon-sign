@@ -118,6 +118,60 @@ function applyTheme(settings: Partial<WalletSettings>): void {
   document.documentElement.setAttribute('data-theme', theme);
 }
 
+function isTestnetNetwork(network: string): boolean {
+  return network === 'xna-test' || network === 'xna-legacy-test' || network === 'xna-pq-test';
+}
+
+function toHardwareNetwork(network: string): 'Neurai' | 'NeuraiTest' {
+  return isTestnetNetwork(network) ? 'NeuraiTest' : 'Neurai';
+}
+
+function toEsp32NetworkType(network: string): NeuraiSignESP32NetworkType {
+  if (network === 'xna-legacy' || network === 'xna-legacy-test') {
+    return network;
+  }
+  return isTestnetNetwork(network) ? 'xna-test' : 'xna';
+}
+
+async function setHardwareNetwork(device: NeuraiESP32Instance, walletNetwork: string): Promise<'Neurai' | 'NeuraiTest'> {
+  const targetNetwork = toHardwareNetwork(walletNetwork);
+  if (typeof device.setNetwork === 'function') {
+    await device.setNetwork(targetNetwork);
+    return targetNetwork;
+  }
+
+  const serialCapable = device as unknown as {
+    serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
+  };
+
+  if (typeof serialCapable.serial?.sendCommand !== 'function') {
+    throw new Error('The connected hardware library does not support network selection.');
+  }
+
+  await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
+  return targetNetwork;
+}
+
+async function syncHardwareNetwork(device: NeuraiESP32Instance, walletNetwork?: string): Promise<'Neurai' | 'NeuraiTest'> {
+  return setHardwareNetwork(device, walletNetwork || 'xna');
+}
+
+function validateHardwareWalletNetwork(selectedNetwork: string, deviceNetwork: string | null | undefined): void {
+  const expectedNetwork = toHardwareNetwork(selectedNetwork);
+  if (deviceNetwork && deviceNetwork !== expectedNetwork) {
+    throw new Error(
+      'The ESP32 is configured for ' + deviceNetwork + ' but the addon is set to ' + expectedNetwork
+    );
+  }
+}
+
+function isSerialPortSelectionCancelled(error: unknown): boolean {
+  return !!(error && (
+    (error as Error).name === 'NotFoundError' ||
+    String((error as Error).message || '').includes('No port selected by the user')
+  ));
+}
+
 export const NEURAI_UTILS = {
   SECRET_V1,
   SECRET_KDF_ITERATIONS,
@@ -129,5 +183,12 @@ export const NEURAI_UTILS = {
   encryptTextWithPin,
   decryptTextWithPin,
   normalizeLockTimeoutMinutes,
-  applyTheme
+  applyTheme,
+  isTestnetNetwork,
+  toHardwareNetwork,
+  toEsp32NetworkType,
+  setHardwareNetwork,
+  syncHardwareNetwork,
+  validateHardwareWalletNetwork,
+  isSerialPortSelectionCancelled
 };

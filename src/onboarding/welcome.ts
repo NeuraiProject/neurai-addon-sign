@@ -84,10 +84,25 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── State ──────────────────────────────────────────────────────────────────
 
+  function isPQNetwork(network: string): network is NeuraiKeyPQNetwork {
+    return network === 'xna-pq' || network === 'xna-pq-test';
+  }
+
+  function isLegacyNetwork(network: string): network is NeuraiKeyNetwork {
+    return network === 'xna' || network === 'xna-test' || network === 'xna-legacy' || network === 'xna-legacy-test';
+  }
+
+  function generateMnemonicForWordCount(wordCount: '12' | '24') {
+    const entropy = new Uint8Array(wordCount === '24' ? 32 : 16);
+    crypto.getRandomValues(entropy);
+    return NeuraiKey.entropyToMnemonic(entropy);
+  }
+
   interface WalletResult {
     address: string;
     publicKey: string;
     privateKey: string | null;
+    seedKey: string | null;
     mnemonic: string | null;
     passphrase: string | null;
     network: string;
@@ -297,18 +312,35 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     try {
       var network = el.importNetwork!.value;
       var passphrase = el.importPassphrase!.value || null;
-      var derived = NeuraiKey.getAddressPair(network, seedRaw, 0, 0, passphrase || undefined);
-      var addressData = derived.external;
 
-      walletResult = {
-        address: addressData.address,
-        publicKey: addressData.publicKey,
-        privateKey: addressData.WIF,
-        mnemonic: seedRaw,
-        passphrase: passphrase,
-        network: network,
-        walletType: 'software'
-      };
+      if (isPQNetwork(network)) {
+        var pqAddr = NeuraiKey.getPQAddress(network, seedRaw, 0, 0, passphrase || undefined);
+        walletResult = {
+          address: pqAddr.address,
+          publicKey: pqAddr.publicKey,
+          privateKey: null,
+          seedKey: pqAddr.seedKey,
+          mnemonic: seedRaw,
+          passphrase: passphrase,
+          network: network,
+          walletType: 'software'
+        };
+      } else if (isLegacyNetwork(network)) {
+        var derived = NeuraiKey.getAddressPair(network, seedRaw, 0, 0, passphrase || undefined);
+        var addressData = derived.external;
+        walletResult = {
+          address: addressData.address,
+          publicKey: addressData.publicKey,
+          privateKey: addressData.WIF,
+          seedKey: null,
+          mnemonic: seedRaw,
+          passphrase: passphrase,
+          network: network,
+          walletType: 'software'
+        };
+      } else {
+        throw new Error('Unsupported network: ' + network);
+      }
 
       await saveWallet();
       hideLoading();
@@ -328,22 +360,38 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
     try {
       var network = el.generateNetwork!.value;
-      var strength = el.generateWordCount!.value === '24' ? 256 : 128;
       var passphrase = el.generatePassphrase!.value || null;
 
-      generatedMnemonic = NeuraiKey.generateMnemonic(strength);
-      var derived = NeuraiKey.getAddressPair(network, generatedMnemonic, 0, 0, passphrase || undefined);
-      var addressData = derived.external;
+      generatedMnemonic = generateMnemonicForWordCount(el.generateWordCount!.value === '24' ? '24' : '12');
 
-      walletResult = {
-        address: addressData.address,
-        publicKey: addressData.publicKey,
-        privateKey: addressData.WIF,
-        mnemonic: generatedMnemonic,
-        passphrase: passphrase,
-        network: network,
-        walletType: 'software'
-      };
+      if (isPQNetwork(network)) {
+        var pqAddr = NeuraiKey.getPQAddress(network, generatedMnemonic, 0, 0, passphrase || undefined);
+        walletResult = {
+          address: pqAddr.address,
+          publicKey: pqAddr.publicKey,
+          privateKey: null,
+          seedKey: pqAddr.seedKey,
+          mnemonic: generatedMnemonic,
+          passphrase: passphrase,
+          network: network,
+          walletType: 'software'
+        };
+      } else if (isLegacyNetwork(network)) {
+        var derived = NeuraiKey.getAddressPair(network, generatedMnemonic, 0, 0, passphrase || undefined);
+        var addressData = derived.external;
+        walletResult = {
+          address: addressData.address,
+          publicKey: addressData.publicKey,
+          privateKey: addressData.WIF,
+          seedKey: null,
+          mnemonic: generatedMnemonic,
+          passphrase: passphrase,
+          network: network,
+          walletType: 'software'
+        };
+      } else {
+        throw new Error('Unsupported network: ' + network);
+      }
 
       hideLoading();
       showMnemonicBackup(generatedMnemonic, passphrase);
@@ -386,29 +434,6 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── Hardware wallet ────────────────────────────────────────────────────────
 
-  function toHardwareNetwork(network: string) {
-    return network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-  }
-
-  async function setHardwareNetwork(device: NeuraiESP32Instance, network: string) {
-    const targetNetwork = toHardwareNetwork(network);
-    if (typeof device.setNetwork === 'function') {
-      await device.setNetwork(targetNetwork);
-      return targetNetwork;
-    }
-
-    const serialCapable = device as unknown as {
-      serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
-    };
-
-    if (typeof serialCapable.serial?.sendCommand !== 'function') {
-      throw new Error('The connected hardware library does not support network selection.');
-    }
-
-    await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
-    return targetNetwork;
-  }
-
   async function handleHardwareConnect() {
     el.hardwareError!.textContent = '';
     showLoading('Connecting to hardware wallet...');
@@ -419,7 +444,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
       showLoading('Reading device info...');
       var network = el.hardwareNetwork!.value;
-      var expectedNetwork = await setHardwareNetwork(device, network);
+      var expectedNetwork = await NEURAI_UTILS.setHardwareNetwork(device, network);
       var info = await device.getInfo();
       var addrResp = await device.getAddress();
 
@@ -427,6 +452,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         address: addrResp.address,
         publicKey: addrResp.pubkey,
         privateKey: null,
+        seedKey: null,
         mnemonic: null,
         passphrase: null,
         network: network,
@@ -483,6 +509,8 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     var account: Record<string, unknown> = {
       privateKey: null,
       privateKeyEnc: null,
+      seedKey: null,
+      seedKeyEnc: null,
       mnemonic: null,
       mnemonicEnc: null,
       passphrase: null,
@@ -502,6 +530,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     // Encrypt secrets with PIN
     if (walletResult!.privateKey && pin) {
       account.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult!.privateKey, pin);
+    }
+    if (walletResult!.seedKey && pin) {
+      account.seedKeyEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult!.seedKey, pin);
     }
     if (walletResult!.mnemonic && pin) {
       account.mnemonicEnc = await NEURAI_UTILS.encryptTextWithPin(walletResult!.mnemonic, pin);
@@ -645,7 +676,11 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
           var entry = (existingAccounts as AccountsRecord)[id];
           return entry && (
             entry.privateKey ||
+            entry.seedKey ||
+            entry.mnemonic ||
             (entry.privateKeyEnc && typeof entry.privateKeyEnc === 'string' && (entry.privateKeyEnc as unknown as string).length > 10) ||
+            (entry.seedKeyEnc && typeof entry.seedKeyEnc === 'string' && (entry.seedKeyEnc as unknown as string).length > 10) ||
+            (entry.mnemonicEnc && typeof entry.mnemonicEnc === 'string' && (entry.mnemonicEnc as unknown as string).length > 10) ||
             (entry.walletType === 'hardware' && entry.address && entry.publicKey)
           );
         });

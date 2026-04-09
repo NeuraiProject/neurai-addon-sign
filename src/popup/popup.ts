@@ -12,33 +12,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   const C = NEURAI_CONSTANTS;
   const MSG = C.MSG;
 
-  function toHardwareNetwork(network: string) {
-    return network === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-  }
-
-  async function setHardwareNetwork(device: NeuraiESP32Instance, walletNetwork: string) {
-    const targetNetwork = toHardwareNetwork(walletNetwork);
-    if (typeof device.setNetwork === 'function') {
-      await device.setNetwork(targetNetwork);
-      return targetNetwork;
-    }
-
-    const serialCapable = device as unknown as {
-      serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
-    };
-
-    if (typeof serialCapable.serial?.sendCommand !== 'function') {
-      throw new Error('The connected hardware library does not support network selection.');
-    }
-
-    await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
-    return targetNetwork;
-  }
-
-  async function syncHardwareNetwork(device: NeuraiESP32Instance, walletNetwork?: string) {
-    return await setHardwareNetwork(device, walletNetwork || 'xna');
-  }
-
   // ── Persistent HW device connection ─────────────────────────────────────
   let hwDevice: NeuraiESP32Instance | null = null; // NeuraiESP32 instance, kept alive while popup is open
   let hwStatusInterval: ReturnType<typeof setInterval> | null = null; // polling interval for connection status
@@ -536,8 +509,13 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       : 'Back up wallet secrets';
     updateAccountLabels();
 
-    const isTestnet = state.network === 'xna-test';
-    elements.networkBadge.querySelector('span:last-child')!.textContent = isTestnet ? 'Testnet' : 'Mainnet';
+    const isTestnet = NEURAI_UTILS.isTestnetNetwork(state.network);
+    const networkLabels: Record<string, string> = {
+      'xna': 'Mainnet', 'xna-test': 'Testnet',
+      'xna-legacy': 'Mainnet Legacy', 'xna-legacy-test': 'Testnet Legacy',
+      'xna-pq': 'Mainnet PQ', 'xna-pq-test': 'Testnet PQ'
+    };
+    elements.networkBadge.querySelector('span:last-child')!.textContent = networkLabels[state.network] || state.network;
 
     if (isTestnet) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     applyReaderRpcForCurrentContext();
@@ -695,10 +673,19 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const hasAny = getConfiguredAccountIds(state.accounts).length > 0;
     const legacyWalletData = legacyWallet as Record<string, unknown> | null;
-    if (!hasAny && legacyWalletData && (legacyWalletData.privateKey || legacyWalletData.privateKeyEnc)) {
+    if (!hasAny && legacyWalletData && (
+      legacyWalletData.privateKey ||
+      legacyWalletData.privateKeyEnc ||
+      legacyWalletData.seedKey ||
+      legacyWalletData.seedKeyEnc ||
+      legacyWalletData.mnemonic ||
+      legacyWalletData.mnemonicEnc
+    )) {
       state.accounts['1'] = {
         privateKey: legacyWalletData.privateKey || null,
         privateKeyEnc: legacyWalletData.privateKeyEnc || null,
+        seedKey: legacyWalletData.seedKey || null,
+        seedKeyEnc: legacyWalletData.seedKeyEnc || null,
         mnemonic: legacyWalletData.mnemonic || null,
         mnemonicEnc: legacyWalletData.mnemonicEnc || null,
         passphrase: legacyWalletData.passphrase || null,
@@ -803,6 +790,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       stored[id] = {
         privateKey: (!state.settings?.pinHash && entry!.privateKey) ? entry!.privateKey : null,
         privateKeyEnc: entry!.privateKeyEnc || null,
+        seedKey: (!state.settings?.pinHash && entry!.seedKey) ? entry!.seedKey : null,
+        seedKeyEnc: entry!.seedKeyEnc || null,
         mnemonic: (!state.settings?.pinHash && entry!.mnemonic) ? entry!.mnemonic : null,
         mnemonicEnc: entry!.mnemonicEnc || null,
         passphrase: (!state.settings?.pinHash && entry!.passphrase) ? entry!.passphrase : null,
@@ -827,13 +816,19 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       const id = String(i);
       const entry = state.accounts[id];
       if (!isConfiguredAccount(entry)) continue;
-      if (!entry!.privateKey && !entry!.privateKeyEnc) continue;
 
       let plain = entry!.privateKey as string || null;
       if (plain) {
         if (!pin) throw new Error('PIN is required to encrypt wallet keys');
         entry!.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plain, pin);
         if (id !== state.activeAccountId) entry!.privateKey = null;
+      }
+
+      let plainSeedKey = entry!.seedKey as string || null;
+      if (plainSeedKey) {
+        if (!pin) throw new Error('PIN is required to encrypt wallet keys');
+        entry!.seedKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plainSeedKey, pin);
+        if (id !== state.activeAccountId) entry!.seedKey = null;
       }
 
       let plainMnemonic = entry!.mnemonic as string || null;
@@ -861,6 +856,10 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     }
     state.privateKey = active.privateKey as string || null;
 
+    if (!active.seedKey && active.seedKeyEnc) {
+      active.seedKey = await NEURAI_UTILS.decryptTextWithPin(active.seedKeyEnc as EncryptedSecret, pin);
+    }
+
     if (!active.mnemonic && active.mnemonicEnc) {
       active.mnemonic = await NEURAI_UTILS.decryptTextWithPin(active.mnemonicEnc as EncryptedSecret, pin);
     }
@@ -882,6 +881,11 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
         entry!.privateKey = plain;
         entry!.privateKeyEnc = null;
         if (id === state.activeAccountId) state.privateKey = plain as string;
+      }
+      if (!entry!.seedKey && entry!.seedKeyEnc) {
+        const plain = await NEURAI_UTILS.decryptTextWithPin(entry!.seedKeyEnc as EncryptedSecret, pin);
+        entry!.seedKey = plain;
+        entry!.seedKeyEnc = null;
       }
       if (!entry!.mnemonic && entry!.mnemonicEnc) {
         const plain = await NEURAI_UTILS.decryptTextWithPin(entry!.mnemonicEnc as EncryptedSecret, pin);
@@ -912,6 +916,15 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
         entry!.privateKeyEnc = await NEURAI_UTILS.encryptTextWithPin(plain, newPin);
         if (id !== state.activeAccountId) entry!.privateKey = null;
         if (id === state.activeAccountId) state.privateKey = plain;
+      }
+
+      let sPlain = entry!.seedKey as string || null;
+      if (!sPlain && entry!.seedKeyEnc && oldPin) {
+        sPlain = await NEURAI_UTILS.decryptTextWithPin(entry!.seedKeyEnc as EncryptedSecret, oldPin);
+      }
+      if (sPlain) {
+        entry!.seedKeyEnc = await NEURAI_UTILS.encryptTextWithPin(sPlain, newPin);
+        if (id !== state.activeAccountId) entry!.seedKey = null;
       }
 
       let mPlain = entry!.mnemonic as string || null;
@@ -960,6 +973,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
         normalized[id] = {
           privateKey: e.privateKey || null,
           privateKeyEnc: NEURAI_UTILS.isEncryptedSecret(e.privateKeyEnc) ? e.privateKeyEnc : null,
+          seedKey: e.seedKey || null,
+          seedKeyEnc: NEURAI_UTILS.isEncryptedSecret(e.seedKeyEnc) ? e.seedKeyEnc : null,
           mnemonic: e.mnemonic || null,
           mnemonicEnc: NEURAI_UTILS.isEncryptedSecret(e.mnemonicEnc) ? e.mnemonicEnc : null,
           passphrase: e.passphrase || null,
@@ -982,11 +997,26 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
   function getAccountLabel(accountId: string) { return 'Neurai_' + accountId; }
   function getActiveWalletData() { return state.accounts[state.activeAccountId] || null; }
-  function hasAccountSecret(entry: Record<string, unknown> | null) { return !!(entry && (entry.privateKey || entry.privateKeyEnc)); }
+  function hasAccountSecret(entry: Record<string, unknown> | null) {
+    return !!(entry && (
+      entry.privateKey ||
+      entry.privateKeyEnc ||
+      entry.seedKey ||
+      entry.seedKeyEnc ||
+      entry.mnemonic ||
+      entry.mnemonicEnc ||
+      entry.passphrase ||
+      entry.passphraseEnc
+    ));
+  }
   function isConfiguredAccount(entry: Record<string, unknown> | null) {
     return !!(entry && (
       entry.privateKey ||
       entry.privateKeyEnc ||
+      entry.seedKey ||
+      entry.seedKeyEnc ||
+      entry.mnemonic ||
+      entry.mnemonicEnc ||
       (entry.walletType === 'hardware' && entry.address && entry.publicKey)
     ));
   }
@@ -994,6 +1024,10 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     return !!(entry && (
       entry.privateKey ||
       NEURAI_UTILS.isEncryptedSecret(entry.privateKeyEnc) ||
+      entry.seedKey ||
+      NEURAI_UTILS.isEncryptedSecret(entry.seedKeyEnc) ||
+      entry.mnemonic ||
+      NEURAI_UTILS.isEncryptedSecret(entry.mnemonicEnc) ||
       (entry.walletType === 'hardware' && entry.address && entry.publicKey)
     ));
   }
@@ -1521,7 +1555,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
     await device.connect();
-    await syncHardwareNetwork(device, state.network);
+    await NEURAI_UTILS.syncHardwareNetwork(device, state.network);
     await device.getInfo();
 
     hwDevice = device;
@@ -1546,7 +1580,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
     await device.connect();
-    const activeHardwareNetwork = await syncHardwareNetwork(device, state.network);
+    const activeHardwareNetwork = await NEURAI_UTILS.syncHardwareNetwork(device, state.network);
     const info = await device.getInfo();
     const addrResp = await device.getAddress();
 
@@ -1564,32 +1598,16 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     };
   }
 
-  function validateHardwareWalletNetwork(selectedNetwork: string, deviceNetwork: string | undefined) {
-    const expectedNetwork = selectedNetwork === 'xna-test' ? 'NeuraiTest' : 'Neurai';
-    if (deviceNetwork && deviceNetwork !== expectedNetwork) {
-      throw new Error(
-        'The ESP32 is configured for ' + deviceNetwork + ' but the addon is set to ' + expectedNetwork
-      );
-    }
-  }
-
-  function isSerialPortSelectionCancelled(error: unknown) {
-    return !!(error && (
-      (error as Error).name === 'NotFoundError' ||
-      String((error as Error).message || '').includes('No port selected by the user')
-    ));
-  }
-
   function getRpcUrlForNetwork(network: string) {
     const s = state.settings || C.DEFAULT_SETTINGS;
-    return network === 'xna-test'
+    return NEURAI_UTILS.isTestnetNetwork(network)
       ? (s.rpcTestnet as string || NeuraiReader.URL_TESTNET)
       : (s.rpcMainnet as string || NeuraiReader.URL_MAINNET);
   }
 
   function applyReaderRpcForCurrentContext() {
     const network = hasActiveWallet() ? state.network : (((elements as Record<string, HTMLElement | null>).network && (elements as unknown as Record<string, HTMLInputElement | null>).network?.value) || 'xna');
-    if (network === 'xna-test') NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
+    if (NEURAI_UTILS.isTestnetNetwork(network)) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     const url = getRpcUrlForNetwork(network);
     if (url) NeuraiReader.setURL(url);
   }
@@ -1634,7 +1652,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
-      await syncHardwareNetwork(hwDevice, state.network);
+      await NEURAI_UTILS.syncHardwareNetwork(hwDevice, state.network);
       showToast('Confirm message signing on your device...', 'success');
       const result = await hwDevice.signMessage(message.message as string);
       showToast('Message signed', 'success');
@@ -1651,7 +1669,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
-      await syncHardwareNetwork(hwDevice, state.network);
+      await NEURAI_UTILS.syncHardwareNetwork(hwDevice, state.network);
       const metadata = await ensureHardwareSigningMetadata(message);
       const publicKey = metadata.publicKey;
       const derivationPath = metadata.derivationPath;
@@ -1668,7 +1686,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
 
       // Build PSBT from raw transaction
-      const networkType = state.network === 'xna-test' ? 'xna-test' : 'xna';
+      const networkType = NEURAI_UTILS.toEsp32NetworkType(state.network);
       const sighashType = parseSighashType(message.sighashType as string);
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
         network: networkType,
@@ -1716,7 +1734,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
 
-    await syncHardwareNetwork(hwDevice as NeuraiESP32Instance, state.network);
+    await NEURAI_UTILS.syncHardwareNetwork(hwDevice as NeuraiESP32Instance, state.network);
 
     if (needsInfo) {
       const info = (hwDevice as NeuraiESP32Instance).info || await (hwDevice as NeuraiESP32Instance).getInfo();

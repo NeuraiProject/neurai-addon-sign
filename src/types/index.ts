@@ -2,7 +2,13 @@
 
 // ── Primitives ────────────────────────────────────────────────────────────────
 
-export type WalletNetwork = 'xna' | 'xna-test';
+export type WalletNetwork =
+  | 'xna'
+  | 'xna-test'
+  | 'xna-legacy'
+  | 'xna-legacy-test'
+  | 'xna-pq'
+  | 'xna-pq-test';
 export type WalletType   = 'software' | 'hardware';
 export type Theme        = 'dark' | 'light' | 'system';
 export type SighashType  = 'ALL' | 'NONE' | 'SINGLE' | 'ALL|ANYONECANPAY' | 'NONE|ANYONECANPAY' | 'SINGLE|ANYONECANPAY';
@@ -60,6 +66,18 @@ export interface WalletData {
   privateKey?: string;
   /** AES-GCM encrypted WIF private key — present when PIN is configured */
   privateKeyEnc?: EncryptedSecret;
+  /** PQ seed key (32-byte hex) — only present for PQ wallets without PIN */
+  seedKey?: string;
+  /** AES-GCM encrypted PQ seed key — present for PQ wallets with PIN */
+  seedKeyEnc?: EncryptedSecret;
+  /** Unencrypted mnemonic — only present when PIN is not configured */
+  mnemonic?: string;
+  /** AES-GCM encrypted mnemonic — present when PIN is configured */
+  mnemonicEnc?: EncryptedSecret;
+  /** Unencrypted passphrase — only present when PIN is not configured */
+  passphrase?: string;
+  /** AES-GCM encrypted passphrase — present when PIN is configured */
+  passphraseEnc?: EncryptedSecret;
   walletType?: WalletType;
   network?: WalletNetwork;
   /** Only present for hardware wallets */

@@ -8,15 +8,56 @@ declare global {
     toAddress?: string | null;
   }
 
+  type NeuraiAssetsOperationType =
+    | 'ISSUE_ROOT'
+    | 'ISSUE_SUB'
+    | 'ISSUE_DEPIN'
+    | 'ISSUE_UNIQUE'
+    | 'ISSUE_QUALIFIER'
+    | 'ISSUE_SUB_QUALIFIER'
+    | 'ISSUE_RESTRICTED'
+    | 'REISSUE'
+    | 'REISSUE_RESTRICTED'
+    | 'TAG_ADDRESSES'
+    | 'UNTAG_ADDRESSES'
+    | 'FREEZE_ADDRESSES'
+    | 'UNFREEZE_ADDRESSES'
+    | 'FREEZE_ASSET'
+    | 'UNFREEZE_ASSET';
+
+  type NeuraiAssetsBuildStrategy = 'rpc-node' | 'local-builder';
+
+  interface NeuraiAssetsBuildInput {
+    txid: string;
+    vout: number;
+    address: string;
+    satoshis: number;
+    assetName?: string;
+  }
+
+  interface NeuraiAssetsLocalRawBuild {
+    operationType: NeuraiAssetsOperationType;
+    params: Record<string, unknown>;
+  }
+
   interface NeuraiAssetsBuildResult {
     rawTx: string;
-    inputs: Array<{ txid: string; vout: number; address: string; satoshis: number }>;
-    outputs: Record<string, unknown>;
     fee: number;
     burnAmount: number;
+    network: string;
+    buildStrategy: NeuraiAssetsBuildStrategy;
+    burnAddress: string | null;
+    changeAddress: string | null;
+    changeAmount: number | null;
+    inputs: NeuraiAssetsBuildInput[];
+    outputs: Array<Record<string, unknown>>;
+    utxos?: unknown[];
+    assetData?: Record<string, unknown>;
     assetName?: string;
     ownerTokenName?: string;
-    operationType?: string;
+    operationType?: NeuraiAssetsOperationType;
+    localRawBuild?: NeuraiAssetsLocalRawBuild;
+    [key: string]: unknown;
   }
 
   interface NeuraiAssetsCreateRootParams {
@@ -31,6 +72,16 @@ declare global {
   }
 
   interface NeuraiAssetsCreateSubParams extends NeuraiAssetsCreateRootParams {}
+
+  interface NeuraiAssetsCreateDepinParams {
+    assetName: string;
+    quantity: number;
+    reissuable?: boolean;
+    hasIpfs?: boolean;
+    ipfsHash?: string;
+    toAddress?: string;
+    changeAddress?: string;
+  }
 
   interface NeuraiAssetsCreateUniqueParams {
     rootName: string;
@@ -97,6 +148,7 @@ declare global {
     updateConfig(config: Partial<NeuraiAssetsConfig>): void;
     createRootAsset(params: NeuraiAssetsCreateRootParams): Promise<NeuraiAssetsBuildResult>;
     createSubAsset(params: NeuraiAssetsCreateSubParams): Promise<NeuraiAssetsBuildResult>;
+    createDepinAsset(params: NeuraiAssetsCreateDepinParams): Promise<NeuraiAssetsBuildResult>;
     createUniqueAssets(params: NeuraiAssetsCreateUniqueParams): Promise<NeuraiAssetsBuildResult>;
     createQualifier(params: NeuraiAssetsCreateQualifierParams): Promise<NeuraiAssetsBuildResult>;
     createRestrictedAsset(params: NeuraiAssetsCreateRestrictedParams): Promise<NeuraiAssetsBuildResult>;
@@ -108,6 +160,10 @@ declare global {
     unfreezeAddresses(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
     freezeAssetGlobally(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
     unfreezeAssetGlobally(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
+    checkAddressTag(address: string, qualifierName: string): Promise<boolean>;
+    listTagsForAddress(address: string): Promise<string[]>;
+    listDepinHolders(assetName: string): Promise<unknown[]>;
+    checkDepinValidity(assetName: string, address: string): Promise<unknown>;
     assetExists(assetName: string): Promise<boolean>;
     getAssetType(assetName: string): string;
     getAssetData(assetName: string): Promise<unknown>;

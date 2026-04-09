@@ -36,6 +36,7 @@ async function loadCryptoLibs(): Promise<void> {
   }
   await import('../lib/NeuraiKey.js');
   await import('../lib/NeuraiMessage.js');
+  await import('../lib/NeuraiSignTransaction.js');
   _cryptoLibsLoaded = true;
 }
 
@@ -72,8 +73,18 @@ function hexToBufferLike(hex: string): BufferLike {
   return bytes as BufferLike;
 }
 
+function isPQNetwork(network: string): network is Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'> {
+  return network === 'xna-pq' || network === 'xna-pq-test';
+}
+
+function isLegacySigningNetwork(
+  network: string
+): network is Extract<WalletNetwork, 'xna' | 'xna-test' | 'xna-legacy' | 'xna-legacy-test'> {
+  return network === 'xna' || network === 'xna-test' || network === 'xna-legacy' || network === 'xna-legacy-test';
+}
+
 function getRpcUrl(network: WalletNetwork | string = 'xna'): string {
-  if (network === 'xna-test') {
+  if (NEURAI_UTILS.isTestnetNetwork(network)) {
     return walletSettings.rpcTestnet || NEURAI_CONSTANTS.RPC_URL_TESTNET;
   }
   return walletSettings.rpcMainnet || NEURAI_CONSTANTS.RPC_URL;
@@ -296,34 +307,70 @@ async function signMessageForPage(
       origin: sender?.url ? new URL(sender.url).origin : 'Unknown site'
     });
   }
-  if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
-  if (!walletData.address) return { error: 'No address available' };
+  const network = walletData?.network || 'xna';
+  if (!isPQNetwork(network)) {
+    if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
+  } else {
+    if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
+        !walletData?.mnemonicEnc && !walletData?.mnemonic) {
+      return { error: 'No PQ wallet configured' };
+    }
+  }
+  if (!walletData!.address) return { error: 'No address available' };
 
   try {
     const approval = await requestSignatureApproval({
       signType: 'message',
       origin: sender?.url ? new URL(sender.url).origin : 'Unknown site',
       message: messageText,
-      address: walletData.address,
-      network: walletData.network || 'xna'
+      address: walletData!.address,
+      network
     });
 
     if (!approval?.approved) {
       return { error: approval?.error || 'User rejected signature request' };
     }
 
-    let privateKeyWif: string | null = walletData.privateKey || null;
-    if (!privateKeyWif && walletData.privateKeyEnc) {
-      if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
-      if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
-      privateKeyWif = await NEURAI_UTILS.decryptTextWithPin(walletData.privateKeyEnc, approval.pin);
-    }
-    if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
-
     await loadCryptoLibs();
-    const addrData = NeuraiKey.getAddressByWIF(walletData.network || 'xna', privateKeyWif);
-    const privateKeyBuffer = hexToBufferLike(addrData.privateKey);
-    const signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true) as string;
+
+    let signature: string;
+
+    if (isPQNetwork(network)) {
+      // PQ signing: re-derive ML-DSA-44 keypair from mnemonic
+      const pin = approval.pin || '';
+      let mnemonic: string | null = walletData!.mnemonic || null;
+      if (!mnemonic && walletData!.mnemonicEnc) {
+        if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
+        if (!pin) return { error: 'PIN is required to decrypt wallet key' };
+        mnemonic = await NEURAI_UTILS.decryptTextWithPin(walletData!.mnemonicEnc, pin);
+      }
+      if (!mnemonic) return { error: 'Unable to access wallet mnemonic for PQ signing' };
+
+      let passphrase = '';
+      if (walletData!.passphraseEnc) {
+        passphrase = await NEURAI_UTILS.decryptTextWithPin(walletData!.passphraseEnc, pin) || '';
+      }
+
+      const pqAddr = NeuraiKey.getPQAddress(network, mnemonic, 0, 0, passphrase || undefined);
+      const pqPrivKeyBytes = hexToBufferLike(pqAddr.privateKey);
+      const pqPubKeyBytes = hexToBufferLike(pqAddr.publicKey);
+      signature = NeuraiMessage.signPQMessage(messageText, pqPrivKeyBytes, pqPubKeyBytes);
+    } else if (isLegacySigningNetwork(network)) {
+      // Legacy ECDSA signing
+      let privateKeyWif: string | null = walletData!.privateKey || null;
+      if (!privateKeyWif && walletData!.privateKeyEnc) {
+        if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
+        if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
+        privateKeyWif = await NEURAI_UTILS.decryptTextWithPin(walletData!.privateKeyEnc, approval.pin);
+      }
+      if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
+
+      const addrData = NeuraiKey.getAddressByWIF(network, privateKeyWif);
+      const privateKeyBuffer = hexToBufferLike(addrData.privateKey);
+      signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true) as string;
+    } else {
+      return { error: `Unsupported wallet network: ${network}` };
+    }
 
     // Save to history
     try {
@@ -400,8 +447,16 @@ async function signRawTxForPage(
       origin: sender?.url ? new URL(sender.url).origin : 'Unknown site'
     });
   }
-  if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
-  if (!walletData.address) return { error: 'No address available' };
+  const network = walletData?.network || 'xna';
+  if (!isPQNetwork(network)) {
+    if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
+  } else {
+    if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
+        !walletData?.mnemonicEnc && !walletData?.mnemonic) {
+      return { error: 'No PQ wallet configured' };
+    }
+  }
+  if (!walletData!.address) return { error: 'No address available' };
 
   const origin = sender?.url ? new URL(sender.url).origin : 'Unknown site';
   const sighash = sighashType || 'ALL';
@@ -410,8 +465,8 @@ async function signRawTxForPage(
     signType: 'raw_tx',
     origin,
     message: 'WARNING: This operation signs a raw transaction with your private key.\nOnly approve if you initiated this action from the Neurai Swap marketplace.',
-    address: walletData.address,
-    network: walletData.network || 'xna',
+    address: walletData!.address,
+    network,
     sighashType: sighash,
     inputCount: (utxos || []).length,
     txHex,
@@ -422,37 +477,90 @@ async function signRawTxForPage(
     return { error: approval?.error || 'User rejected raw transaction signing' };
   }
 
-  let privateKeyWif: string | null = walletData.privateKey || null;
-  if (!privateKeyWif && walletData.privateKeyEnc) {
-    if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
-    if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
-    privateKeyWif = await NEURAI_UTILS.decryptTextWithPin(walletData.privateKeyEnc, approval.pin);
-  }
-  if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
-
   try {
-    const rpcUrl = getRpcUrl(walletData.network || 'xna');
-    const response = await fetch(rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '1.0',
-        id: 'neurai-wallet-sign-tx',
-        method: 'signrawtransaction',
-        params: [
-          txHex,
-          utxos || [],            // prevtxs: [{txid, vout, scriptPubKey, amount}]
-          [privateKeyWif],        // privkeys: explicit key for signing
-          sighash,                // sighashtype
-        ]
-      })
-    });
+    await loadCryptoLibs();
 
-    const data = await response.json() as {
-      result: { hex: string; complete: boolean };
-      error?: { message: string } | string;
-    };
-    if (data.error) return { error: typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)) };
+    let signedHex: string;
+    let complete: boolean;
+
+    if (isPQNetwork(network)) {
+      // PQ: sign locally using NeuraiSignTransaction with seedKey
+      const pin = approval.pin || '';
+      let seedKey: string | null = walletData!.seedKey || null;
+      if (!seedKey && walletData!.seedKeyEnc) {
+        if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
+        if (!pin) return { error: 'PIN is required to decrypt wallet key' };
+        seedKey = await NEURAI_UTILS.decryptTextWithPin(walletData!.seedKeyEnc, pin);
+      }
+      // Fallback: re-derive seedKey from mnemonic if not stored directly
+      if (!seedKey) {
+        let mnemonic: string | null = walletData!.mnemonic || null;
+        if (!mnemonic && walletData!.mnemonicEnc) {
+          if (!pin) return { error: 'PIN is required to decrypt wallet key' };
+          mnemonic = await NEURAI_UTILS.decryptTextWithPin(walletData!.mnemonicEnc, pin);
+        }
+        if (!mnemonic) return { error: 'Unable to access wallet key for PQ signing' };
+
+        let passphrase = '';
+        if (walletData!.passphraseEnc) {
+          passphrase = await NEURAI_UTILS.decryptTextWithPin(walletData!.passphraseEnc, pin) || '';
+        }
+        const pqAddr = NeuraiKey.getPQAddress(network, mnemonic, 0, 0, passphrase || undefined);
+        seedKey = pqAddr.seedKey;
+      }
+
+      const signTxUtxos = (utxos || []).map(u => ({
+        address: walletData!.address,
+        assetName: 'XNA',
+        txid: u.txid,
+        outputIndex: u.vout,
+        script: u.scriptPubKey,
+        satoshis: Math.round(u.amount * 1e8),
+        value: Math.round(u.amount * 1e8),
+      }));
+
+      signedHex = NeuraiSignTransaction.sign(
+        network,
+        txHex,
+        signTxUtxos,
+        { [walletData!.address]: { seedKey } }
+      );
+      complete = true;
+    } else {
+      // Legacy: sign via RPC
+      let privateKeyWif: string | null = walletData!.privateKey || null;
+      if (!privateKeyWif && walletData!.privateKeyEnc) {
+        if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
+        if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
+        privateKeyWif = await NEURAI_UTILS.decryptTextWithPin(walletData!.privateKeyEnc, approval.pin);
+      }
+      if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
+
+      const rpcUrl = getRpcUrl(network);
+      const response = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '1.0',
+          id: 'neurai-wallet-sign-tx',
+          method: 'signrawtransaction',
+          params: [
+            txHex,
+            utxos || [],
+            [privateKeyWif],
+            sighash,
+          ]
+        })
+      });
+
+      const data = await response.json() as {
+        result: { hex: string; complete: boolean };
+        error?: { message: string } | string;
+      };
+      if (data.error) return { error: typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)) };
+      signedHex = data.result.hex;
+      complete = data.result.complete;
+    }
 
     // Save to history
     try {
@@ -472,8 +580,8 @@ async function signRawTxForPage(
           sighashType: sighash,
           inputCount: (utxos || []).length,
           txHex,
-          signedTxHex: data.result.hex,
-          complete: data.result.complete,
+          signedTxHex: signedHex,
+          complete,
         });
         if (accountsObj[activeId].history!.length > 50) {
           accountsObj[activeId].history = accountsObj[activeId].history!.slice(0, 50);
@@ -486,8 +594,8 @@ async function signRawTxForPage(
 
     return {
       success: true,
-      signedTxHex: data.result.hex,
-      complete: data.result.complete,
+      signedTxHex: signedHex,
+      complete,
     };
   } catch (error) {
     return { error: (error as Error).message };

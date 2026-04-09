@@ -31,6 +31,12 @@
           <span class="network-pill-dot"></span>
           <span id="networkValue">--</span>
         </div>
+        <button id="openSettingsBtn" class="topbar-icon-btn" type="button" aria-label="Open settings" title="Settings">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path
+              d="M9.6.8l.4 1.7c.3.1.7.3 1 .4L12.6 2l1.6 1.6-.9 1.6c.2.3.3.6.4 1l1.7.4v2.2l-1.7.4c-.1.3-.3.7-.4 1l.9 1.6-1.6 1.6-1.6-.9c-.3.2-.6.3-1 .4l-.4 1.7H7.4L7 13.5c-.3-.1-.7-.3-1-.4l-1.6.9-1.6-1.6.9-1.6c-.2-.3-.3-.6-.4-1L1.6 8.8V6.6l1.7-.4c.1-.3.3-.7.4-1l-.9-1.6L4.4 2l1.6.9c.3-.2.6-.3 1-.4L7.4.8h2.2zM8 5.4A2.6 2.6 0 1 0 8 10.6 2.6 2.6 0 0 0 8 5.4z" />
+          </svg>
+        </button>
         <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
       </div>
     </header>
@@ -112,6 +118,7 @@
               <button class="assets-filter-btn" data-filter="unique" type="button">Unique</button>
               <button class="assets-filter-btn" data-filter="qualifier" type="button">Qualifier</button>
               <button class="assets-filter-btn" data-filter="restricted" type="button">Restricted</button>
+              <button class="assets-filter-btn" data-filter="depin" type="button">DePIN</button>
               <button class="assets-filter-btn" data-filter="owner" type="button">Owner</button>
             </div>
             <div class="balance-panel" id="balancePanelAssets" role="tabpanel">
@@ -184,6 +191,7 @@
               <button class="asset-type-tab" data-type="UNIQUE" type="button" role="tab">NFT</button>
               <button class="asset-type-tab" data-type="QUALIFIER" type="button" role="tab">Qualifier</button>
               <button class="asset-type-tab" data-type="RESTRICTED" type="button" role="tab">Restricted</button>
+              <button class="asset-type-tab" data-type="DEPIN" type="button" role="tab">DePIN</button>
               <button class="asset-type-tab" data-type="REISSUE" type="button" role="tab">Reissue</button>
             </div>
 
@@ -428,6 +436,91 @@
     </div>
   </main>
 
+  <div id="settingsModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="unlock-panel settings-panel">
+      <div class="settings-panel-head">
+        <div>
+          <p class="eyebrow">Preferences</p>
+          <h2 id="settingsTitle">Settings</h2>
+        </div>
+        <button id="closeSettingsBtn" class="topbar-icon-btn settings-close-btn" type="button" aria-label="Close settings">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.3 2.3L8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9 3.3 13.7l-1-1L7 8 2.3 3.3l1-1z" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="settings-grid">
+        <div class="form-group">
+          <label for="themeMode">Theme</label>
+          <select id="themeMode">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">System</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="rpcMainnet">RPC Mainnet URL</label>
+          <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
+        </div>
+
+        <div class="form-group">
+          <label for="rpcTestnet">RPC Testnet URL</label>
+          <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet.neurai.org/rpc" spellcheck="false">
+        </div>
+
+        <div class="form-group">
+          <label for="lockTimeoutMinutes">Auto-lock (minutes)</label>
+          <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="section-intro">
+          <p class="eyebrow">Security</p>
+          <h2 class="settings-section-title">Access PIN</h2>
+        </div>
+        <div class="settings-grid">
+          <div class="form-group">
+            <label>PIN Status</label>
+            <span class="settings-status-pill" id="pinStatusText">Not configured</span>
+          </div>
+          <div class="form-group">
+            <label for="settingsPinOld">Current PIN</label>
+            <input type="password" id="settingsPinOld" placeholder="Required to change PIN" autocomplete="current-password">
+          </div>
+          <div class="form-group">
+            <label for="settingsPinNew">Set / Change PIN</label>
+            <input type="password" id="settingsPinNew" placeholder="4 to 20 characters" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label for="settingsPinConfirm">Confirm new PIN</label>
+            <input type="password" id="settingsPinConfirm" placeholder="Repeat PIN" autocomplete="new-password">
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section settings-danger">
+        <div class="section-intro">
+          <p class="eyebrow eyebrow-warning">Danger Zone</p>
+          <h2 class="settings-section-title">Sensitive actions</h2>
+        </div>
+        <div class="settings-danger-actions">
+          <button class="btn btn-secondary" id="openBackupBtn" type="button">Backup / View Secret Keys</button>
+          <button class="btn btn-danger" id="removeWalletBtn" type="button">Remove All Data & Reset</button>
+        </div>
+      </div>
+
+      <p id="settingsFeedback" class="settings-feedback hidden" aria-live="polite"></p>
+
+      <div class="settings-actions">
+        <button class="btn btn-secondary" id="resetSettingsBtn" type="button">Use Defaults</button>
+        <button class="btn btn-primary" id="saveSettingsBtn" type="button">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
   <div id="unlockModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="unlockTitle">
     <div class="unlock-panel warning-modal">
       <div id="unlockPrimaryView">
@@ -474,6 +567,68 @@
     </div>
   </div>
 
+  <div id="backupModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="backupTitle">
+    <div class="unlock-panel settings-panel">
+      <div class="settings-panel-head">
+        <div>
+          <p class="eyebrow">Backup</p>
+          <h2 id="backupTitle">Wallet Backup</h2>
+        </div>
+        <button id="closeBackupBtn" class="topbar-icon-btn settings-close-btn" type="button" aria-label="Close backup">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.3 2.3L8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9 3.3 13.7l-1-1L7 8 2.3 3.3l1-1z" />
+          </svg>
+        </button>
+      </div>
+
+      <div id="backupAuthSection">
+        <p class="section-copy">Enter your PIN to view your recovery phrase and private key.</p>
+        <div class="form-group">
+          <label for="backupPinInput">Access PIN</label>
+          <input id="backupPinInput" type="password" placeholder="Enter PIN" autocomplete="off">
+        </div>
+        <p class="unlock-error" id="backupError"></p>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="backupUnlockBtn" type="button">Unlock Backup</button>
+        </div>
+      </div>
+
+      <div id="backupDataSection" class="hidden">
+        <div class="form-group hidden" id="backupMnemonicGroup">
+          <label>Recovery Phrase</label>
+          <div class="mnemonic-grid" id="backupMnemonicWords"></div>
+          <button class="btn btn-secondary" id="backupCopyMnemonicBtn" type="button">Copy Phrase</button>
+        </div>
+
+        <div class="form-group hidden" id="backupPassphraseGroup">
+          <label>Passphrase</label>
+          <div class="account-current" id="backupPassphraseText"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="backupWifText">Private key (WIF)</label>
+          <div class="backup-wif-row">
+            <input id="backupWifText" type="password" readonly spellcheck="false">
+            <button class="btn btn-secondary btn-small" id="toggleBackupWifBtn" type="button">Show</button>
+          </div>
+          <button class="btn btn-secondary" id="backupCopyWifBtn" type="button">Copy Private Key</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="removeConfirmModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="removeConfirmTitle">
+    <div class="unlock-panel warning-modal danger-panel">
+      <p class="eyebrow eyebrow-warning">Danger Zone</p>
+      <h2 id="removeConfirmTitle">Remove account data?</h2>
+      <p id="removeConfirmText">This action permanently deletes all configured accounts, secret keys and the current PIN.</p>
+      <div class="settings-actions">
+        <button class="btn btn-secondary" id="cancelRemoveBtn" type="button">Cancel</button>
+        <button class="btn btn-danger" id="confirmRemoveBtn" type="button">Remove Everything</button>
+      </div>
+    </div>
+  </div>
+
   <div id="initialPinModal" class="unlock-modal hidden" role="dialog" aria-modal="true"
     aria-labelledby="initialPinTitle">
     <div class="unlock-panel">
@@ -508,6 +663,14 @@
         <code class="ca-confirm-rawtx hidden" id="caTxRawHex"></code>
       </div>
 
+      <div class="ca-confirm-rawtx-row">
+        <button class="ca-confirm-rawtx-toggle" id="caTxDebugToggle" type="button">
+          <svg width="13" height="13" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1l1.5 3.5H11l-2.75 2 1 3.5L6 8 2.75 10l1-3.5L1 4.5h3.5z"/></svg>
+          Show debug (outputs JSON + unsigned raw)
+        </button>
+        <code class="ca-confirm-rawtx hidden" id="caTxDebugJson" style="white-space:pre-wrap;max-height:240px;overflow:auto"></code>
+      </div>
+
       <p class="create-asset-error hidden" id="caTxConfirmError"></p>
 
       <div class="settings-actions ca-confirm-actions">
@@ -520,7 +683,9 @@
   <script src="../lib/NeuraiKey.js"></script>
   <script src="../lib/NeuraiReader.js"></script>
   <script src="../lib/NeuraiSignESP32.js"></script>
+  <script src="../lib/NeuraiSignTransaction.js"></script>
   <script src="../lib/NeuraiAssets.js"></script>
+  <script src="../lib/NeuraiCreateTransaction.js"></script>
   <script type="module" src="expanded.js"></script>
 </body>
 
