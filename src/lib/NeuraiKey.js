@@ -23928,8 +23928,8 @@ zurdo`.split('\n');
             hrp: "tnq",
             witnessVersion: 1,
             purpose: 100,
-            coinType: 1900,
-            changeIndex: 1,
+            coinType: 1,
+            changeIndex: 0,
             bip32: { private: 70615956, public: 70617039 },
         },
     };
