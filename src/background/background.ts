@@ -1,7 +1,7 @@
 // Neurai Wallet — Background Service Worker
 // Handles balance polling, message signing approval, and RPC calls.
 
-// Static imports are hoisted by the JS engine and do not depend on window.
+import './crypto-preload.js';
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
 import type {
@@ -24,21 +24,6 @@ import type {
   SignRequestDecisionMsg,
   HwSignResultMsg,
 } from '../types/index.js';
-
-// Load UMD crypto libs lazily on first use — avoids top-level await, which causes
-// "Service worker registration failed. Status code: 3" in some Chrome versions.
-let _cryptoLibsLoaded = false;
-async function loadCryptoLibs(): Promise<void> {
-  if (_cryptoLibsLoaded) return;
-  // Alias window before the UMD bundles load — their internal code assumes window exists.
-  if (typeof (globalThis as Record<string, unknown>).window === 'undefined') {
-    (globalThis as Record<string, unknown>).window = globalThis;
-  }
-  await import('../lib/NeuraiKey.js');
-  await import('../lib/NeuraiMessage.js');
-  await import('../lib/NeuraiSignTransaction.js');
-  _cryptoLibsLoaded = true;
-}
 
 // Local type for the Buffer polyfill marker that bitcoinjs-message's bundle expects.
 type BufferLike = Uint8Array & { _isBuffer: true };
@@ -94,6 +79,20 @@ function isHardwareWallet(wallet: WalletData | null): wallet is WalletData & { w
   return wallet?.walletType === 'hardware';
 }
 
+function getPqApprovalAddress(wallet: WalletData, network: Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'>): string {
+  if (!wallet.publicKey) return wallet.address;
+  try {
+    return NeuraiKey.pqPublicKeyToAddress(network, wallet.publicKey);
+  } catch (error) {
+    console.warn('[PQ auth] failed to derive approval address from stored public key', {
+      address: wallet.address,
+      network,
+      error
+    });
+    return wallet.address;
+  }
+}
+
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 async function loadWalletData(): Promise<void> {
@@ -134,6 +133,45 @@ async function persistSessionPinCache(pin: string): Promise<void> {
   } else {
     await chrome.storage.session.remove(NEURAI_CONSTANTS.SESSION_PIN_KEY);
   }
+}
+
+async function syncActiveWalletIdentity(address: string, publicKey?: string): Promise<void> {
+  if (!walletData) return;
+
+  let changed = false;
+  if (walletData.address !== address) {
+    walletData.address = address;
+    changed = true;
+  }
+  if (publicKey && walletData.publicKey !== publicKey) {
+    walletData.publicKey = publicKey;
+    changed = true;
+  }
+  if (!changed) return;
+
+  const updates: Record<string, unknown> = {
+    [NEURAI_CONSTANTS.STORAGE_KEY]: { ...walletData }
+  };
+
+  const result = await chrome.storage.local.get([
+    NEURAI_CONSTANTS.ACCOUNTS_KEY,
+    NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY
+  ]);
+  const accounts = result[NEURAI_CONSTANTS.ACCOUNTS_KEY] as AccountsRecord | undefined;
+  const activeId = result[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] as string | undefined;
+
+  if (accounts && activeId && accounts[activeId]) {
+    updates[NEURAI_CONSTANTS.ACCOUNTS_KEY] = {
+      ...accounts,
+      [activeId]: {
+        ...accounts[activeId],
+        address: walletData.address,
+        publicKey: walletData.publicKey
+      }
+    };
+  }
+
+  await chrome.storage.local.set(updates);
 }
 
 async function getUnlockUntil(): Promise<number> {
@@ -319,11 +357,15 @@ async function signMessageForPage(
   if (!walletData!.address) return { error: 'No address available' };
 
   try {
+    const approvalAddress = isPQNetwork(network)
+      ? getPqApprovalAddress(walletData!, network)
+      : walletData!.address;
+
     const approval = await requestSignatureApproval({
       signType: 'message',
       origin: sender?.url ? new URL(sender.url).origin : 'Unknown site',
       message: messageText,
-      address: walletData!.address,
+      address: approvalAddress,
       network
     });
 
@@ -331,9 +373,8 @@ async function signMessageForPage(
       return { error: approval?.error || 'User rejected signature request' };
     }
 
-    await loadCryptoLibs();
-
     let signature: string;
+    let signingAddress = walletData!.address;
 
     if (isPQNetwork(network)) {
       // PQ signing: re-derive ML-DSA-44 keypair from mnemonic
@@ -355,6 +396,18 @@ async function signMessageForPage(
       const pqPrivKeyBytes = hexToBufferLike(pqAddr.privateKey);
       const pqPubKeyBytes = hexToBufferLike(pqAddr.publicKey);
       signature = NeuraiMessage.signPQMessage(messageText, pqPrivKeyBytes, pqPubKeyBytes);
+      signingAddress = pqAddr.address;
+
+      if (walletData!.address !== pqAddr.address || walletData!.publicKey !== pqAddr.publicKey) {
+        console.warn('[PQ auth] wallet identity mismatch', {
+          storedAddress: walletData!.address,
+          storedPublicKey: walletData!.publicKey || null,
+          derivedAddress: pqAddr.address,
+          derivedPublicKey: pqAddr.publicKey,
+          network,
+        });
+        await syncActiveWalletIdentity(pqAddr.address, pqAddr.publicKey);
+      }
     } else if (isLegacySigningNetwork(network)) {
       // Legacy ECDSA signing
       let privateKeyWif: string | null = walletData!.privateKey || null;
@@ -405,7 +458,7 @@ async function signMessageForPage(
       console.error('Failed to save signature history:', err);
     }
 
-    return { success: true, signature, address: walletData.address };
+    return { success: true, signature, address: signingAddress };
   } catch (error) {
     return { error: (error as Error).message };
   }
@@ -478,8 +531,6 @@ async function signRawTxForPage(
   }
 
   try {
-    await loadCryptoLibs();
-
     let signedHex: string;
     let complete: boolean;
 
@@ -816,7 +867,6 @@ function finalizeHwSignRequest(requestId: string, result: HwSignResult): void {
 
 async function verifyOwnership(address: string, message: string, signature: string): Promise<BackgroundResponse> {
   try {
-    await loadCryptoLibs();
     // NeuraiMessage is declared as a global via ambient .d.ts; the typeof guard
     // is a runtime safety check in case the bundle didn't load.
     if (typeof NeuraiMessage !== 'undefined') {

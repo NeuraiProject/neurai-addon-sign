@@ -1,6 +1,6 @@
 // Ambient declarations for the pre-compiled NeuraiReader bundle.
-// The bundle is loaded via dynamic import() and sets a global on window.
-// export {} makes this file a module so TypeScript allows dynamic import of the .js bundle.
+// The bundle is preloaded statically where needed and exposes a global on globalThis.
+// export {} makes this file a module so TypeScript loads these ambient declarations safely.
 
 export {};
 
