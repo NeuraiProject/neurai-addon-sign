@@ -21503,6 +21503,13 @@ zurdo`.split('\n');
     function hash160(data) {
         return ripemd160(sha256(data));
     }
+    function sha256Hash(data) {
+        return sha256(data);
+    }
+    function taggedHash(tag, data) {
+        const tagHash = sha256(utf8ToBytes(tag));
+        return sha256(concatBytes(tagHash, tagHash, data));
+    }
     function doubleSha256(data) {
         return sha256(sha256(data));
     }
@@ -21543,7 +21550,6 @@ zurdo`.split('\n');
         return Uint8Array.from(mnemonicToSeedSync(mnemonic, passphrase));
     }
     const BITCOIN_SEED_KEY = utf8ToBytes("Bitcoin seed");
-    const HASH160_PREFIX = Uint8Array.from([0x05]);
 
     /**
      * Utils for modular division and fields.
@@ -23708,6 +23714,13 @@ zurdo`.split('\n');
 
     var distExports = requireDist();
 
+    const AUTHSCRIPT_TAG = "NeuraiAuthScript";
+    const AUTHSCRIPT_VERSION = 0x01;
+    const NOAUTH_TYPE = 0x00;
+    const PQ_AUTH_TYPE = 0x01;
+    const LEGACY_AUTH_TYPE = 0x02;
+    const PQ_PUBLIC_KEY_HEADER = Uint8Array.from([0x05]);
+    const DEFAULT_WITNESS_SCRIPT = Uint8Array.from([0x51]);
     function encodeWIF(privateKey, version, compressed = true) {
         const payload = compressed
             ? concatBytes(Uint8Array.from([version]), privateKey, Uint8Array.from([0x01]))
@@ -23764,9 +23777,53 @@ zurdo`.split('\n');
     function bech32mEncode(hrp, witnessVersion, hash) {
         return distExports.bech32m.encode(hrp, [witnessVersion, ...distExports.bech32m.toWords(hash)]);
     }
-    function pqPublicKeyToAddressBytes(publicKey, network) {
-        const serialized = concatBytes(HASH160_PREFIX, publicKey);
-        return bech32mEncode(network.hrp, network.witnessVersion, hash160(serialized));
+    function normalizeWitnessScript(input) {
+        return input ? ensureBytes(input) : Uint8Array.from(DEFAULT_WITNESS_SCRIPT);
+    }
+    function buildAuthDescriptor(authType, publicKey) {
+        if (authType === NOAUTH_TYPE) {
+            return Uint8Array.from([NOAUTH_TYPE]);
+        }
+        if (!publicKey) {
+            throw new Error(`Auth type 0x${authType.toString(16).padStart(2, "0")} requires a public key`);
+        }
+        if (authType === PQ_AUTH_TYPE) {
+            return concatBytes(Uint8Array.from([PQ_AUTH_TYPE]), hash160(concatBytes(PQ_PUBLIC_KEY_HEADER, publicKey)));
+        }
+        if (authType === LEGACY_AUTH_TYPE) {
+            return concatBytes(Uint8Array.from([LEGACY_AUTH_TYPE]), hash160(publicKey));
+        }
+        throw new Error(`Unsupported authType: 0x${String(authType).padStart(2, "0")}`);
+    }
+    function pqPublicKeyToAuthDescriptor(publicKey) {
+        return buildAuthDescriptor(PQ_AUTH_TYPE, publicKey);
+    }
+    function pqPublicKeyToCommitment(publicKey, options = {}) {
+        return pqPublicKeyToCommitmentParts(publicKey, options).commitment;
+    }
+    function authScriptCommitmentParts(authType, publicKey, options = {}) {
+        const witnessScript = normalizeWitnessScript(options.witnessScript);
+        const authDescriptor = buildAuthDescriptor(authType, publicKey);
+        const witnessScriptHash = sha256Hash(witnessScript);
+        const commitment = taggedHash(AUTHSCRIPT_TAG, concatBytes(Uint8Array.from([AUTHSCRIPT_VERSION]), authDescriptor, witnessScriptHash));
+        return {
+            authDescriptor,
+            authType,
+            commitment,
+            witnessScript,
+        };
+    }
+    function pqPublicKeyToCommitmentParts(publicKey, options = {}) {
+        return authScriptCommitmentParts(PQ_AUTH_TYPE, publicKey, options);
+    }
+    function pqPublicKeyToAddressBytes(publicKey, network, options = {}) {
+        return bech32mEncode(network.hrp, network.witnessVersion, pqPublicKeyToCommitment(publicKey, options));
+    }
+    function noAuthToAddressBytes(network, options = {}) {
+        return bech32mEncode(network.hrp, network.witnessVersion, authScriptCommitmentParts(NOAUTH_TYPE, null, options).commitment);
+    }
+    function legacyAuthScriptToAddressBytes(publicKey, network, options = {}) {
+        return bech32mEncode(network.hrp, network.witnessVersion, authScriptCommitmentParts(LEGACY_AUTH_TYPE, publicKey, options).commitment);
     }
     function normalizePublicKey(input) {
         return ensureBytes(input);
@@ -24026,7 +24083,7 @@ zurdo`.split('\n');
         const seed = mnemonicToSeedBytes(mnemonicToSeedSync, mnemonic, passphrase);
         return HDKey.fromMasterSeed(seed, chain.bip32);
     }
-    function getPQAddressByPath(network, hdKey, path) {
+    function getPQAddressByPath(network, hdKey, path, options = {}) {
         const chain = getPQNetwork(network);
         const derived = hdKey.derive(path);
         if (!derived.privateKey) {
@@ -24034,30 +24091,101 @@ zurdo`.split('\n');
         }
         const seed32 = Uint8Array.from(derived.privateKey);
         const { publicKey, secretKey } = ml_dsa44.keygen(seed32);
+        const authScript = pqPublicKeyToCommitmentParts(publicKey, options);
         return {
-            address: pqPublicKeyToAddressBytes(publicKey, chain),
+            address: pqPublicKeyToAddressBytes(publicKey, chain, options),
+            authType: 0x01,
+            authDescriptor: bytesToHex(authScript.authDescriptor),
+            commitment: bytesToHex(authScript.commitment),
             path,
             publicKey: bytesToHex(publicKey),
             privateKey: bytesToHex(secretKey),
             seedKey: bytesToHex(seed32),
+            witnessScript: bytesToHex(authScript.witnessScript),
         };
     }
-    function getPQAddress(network, mnemonic, account, index, passphrase = "") {
+    function getNoAuthAddress(network, options = {}) {
+        const chain = getPQNetwork(network);
+        const parts = authScriptCommitmentParts(0x00, null, options);
+        return {
+            address: noAuthToAddressBytes(chain, options),
+            authType: 0x00,
+            commitment: bytesToHex(parts.commitment),
+            witnessScript: bytesToHex(parts.witnessScript),
+        };
+    }
+    function getLegacyAuthScriptAddress(network, legacyNetwork, mnemonic, account, index, passphrase = "", options = {}) {
+        const pqChain = getPQNetwork(network);
+        const legacyChain = getNetwork(legacyNetwork);
+        const coinType = legacyChain.bip44;
+        const hdKey = getHDKey(legacyNetwork, mnemonic, passphrase);
+        const path = `m/44'/${coinType}'/${account}'/0/${index}`;
+        const derived = hdKey.derive(path);
+        if (!derived.privateKey) {
+            throw new Error("Could not derive private key for path");
+        }
+        const legacyObject = privateKeyToAddressObject(derived.privateKey, legacyChain, path);
+        const publicKeyBytes = ensureBytes(legacyObject.publicKey);
+        const parts = authScriptCommitmentParts(0x02, publicKeyBytes, options);
+        return {
+            address: legacyAuthScriptToAddressBytes(publicKeyBytes, pqChain, options),
+            path,
+            publicKey: legacyObject.publicKey,
+            privateKey: legacyObject.privateKey,
+            WIF: legacyObject.WIF,
+            authType: 0x02,
+            authDescriptor: bytesToHex(parts.authDescriptor),
+            commitment: bytesToHex(parts.commitment),
+            witnessScript: bytesToHex(parts.witnessScript),
+        };
+    }
+    function getLegacyAuthScriptAddressByWIF(network, wif, options = {}) {
+        const pqChain = getPQNetwork(network);
+        const publicKeyHex = publicKeyHexFromWIF(wif);
+        const publicKeyBytes = ensureBytes(publicKeyHex);
+        const parts = authScriptCommitmentParts(0x02, publicKeyBytes, options);
+        return {
+            address: legacyAuthScriptToAddressBytes(publicKeyBytes, pqChain, options),
+            publicKey: publicKeyHex,
+            privateKey: "",
+            WIF: wif,
+            authType: 0x02,
+            authDescriptor: bytesToHex(parts.authDescriptor),
+            commitment: bytesToHex(parts.commitment),
+            witnessScript: bytesToHex(parts.witnessScript),
+        };
+    }
+    function getPQAddress(network, mnemonic, account, index, passphrase = "", options = {}) {
         const chain = getPQNetwork(network);
         const hdKey = getPQHDKey(network, mnemonic, passphrase);
         const path = `m/${chain.purpose}'/${chain.coinType}'/${account}'/${chain.changeIndex}/${index}`;
-        return getPQAddressByPath(network, hdKey, path);
+        return getPQAddressByPath(network, hdKey, path, options);
     }
-    function pqPublicKeyToAddress(network, publicKey) {
+    function pqPublicKeyToAddress(network, publicKey, options = {}) {
         const keyBytes = ensureBytes(publicKey);
         if (keyBytes.length !== 1312) {
             throw new Error("ML-DSA-44 public key must be 1312 bytes");
         }
-        return pqPublicKeyToAddressBytes(keyBytes, getPQNetwork(network));
+        normalizeWitnessScript(options.witnessScript);
+        return pqPublicKeyToAddressBytes(keyBytes, getPQNetwork(network), options);
     }
-    function generatePQAddressObject(network = "xna-pq", passphrase = "") {
+    function pqPublicKeyToCommitmentHex(publicKey, options = {}) {
+        const keyBytes = ensureBytes(publicKey);
+        if (keyBytes.length !== 1312) {
+            throw new Error("ML-DSA-44 public key must be 1312 bytes");
+        }
+        return bytesToHex(pqPublicKeyToCommitment(keyBytes, options));
+    }
+    function pqPublicKeyToAuthDescriptorHex(publicKey) {
+        const keyBytes = ensureBytes(publicKey);
+        if (keyBytes.length !== 1312) {
+            throw new Error("ML-DSA-44 public key must be 1312 bytes");
+        }
+        return bytesToHex(pqPublicKeyToAuthDescriptor(keyBytes));
+    }
+    function generatePQAddressObject(network = "xna-pq", passphrase = "", options = {}) {
         const mnemonic = generateMnemonic();
-        const addressObj = getPQAddress(network, mnemonic, 0, 0, passphrase);
+        const addressObj = getPQAddress(network, mnemonic, 0, 0, passphrase, options);
         return {
             ...addressObj,
             mnemonic,
@@ -24079,7 +24207,12 @@ zurdo`.split('\n');
         getPQAddress,
         getPQAddressByPath,
         getPQHDKey,
+        getNoAuthAddress,
+        getLegacyAuthScriptAddress,
+        getLegacyAuthScriptAddressByWIF,
         pqPublicKeyToAddress,
+        pqPublicKeyToAuthDescriptorHex,
+        pqPublicKeyToCommitmentHex,
         generatePQAddressObject,
     };
 

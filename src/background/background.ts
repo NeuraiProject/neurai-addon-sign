@@ -79,12 +79,12 @@ function isHardwareWallet(wallet: WalletData | null): wallet is WalletData & { w
   return wallet?.walletType === 'hardware';
 }
 
-function getPqApprovalAddress(wallet: WalletData, network: Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'>): string {
+function getAuthScriptPQApprovalAddress(wallet: WalletData, network: Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'>): string {
   if (!wallet.publicKey) return wallet.address;
   try {
     return NeuraiKey.pqPublicKeyToAddress(network, wallet.publicKey);
   } catch (error) {
-    console.warn('[PQ auth] failed to derive approval address from stored public key', {
+    console.warn('[AuthScript PQ] failed to derive approval address from stored public key', {
       address: wallet.address,
       network,
       error
@@ -351,14 +351,14 @@ async function signMessageForPage(
   } else {
     if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
         !walletData?.mnemonicEnc && !walletData?.mnemonic) {
-      return { error: 'No PQ wallet configured' };
+      return { error: 'No AuthScript PQ wallet configured' };
     }
   }
   if (!walletData!.address) return { error: 'No address available' };
 
   try {
     const approvalAddress = isPQNetwork(network)
-      ? getPqApprovalAddress(walletData!, network)
+      ? getAuthScriptPQApprovalAddress(walletData!, network)
       : walletData!.address;
 
     const approval = await requestSignatureApproval({
@@ -377,7 +377,7 @@ async function signMessageForPage(
     let signingAddress = walletData!.address;
 
     if (isPQNetwork(network)) {
-      // PQ signing: re-derive ML-DSA-44 keypair from mnemonic
+      // AuthScript PQ signing: re-derive ML-DSA-44 keypair from mnemonic
       const pin = approval.pin || '';
       let mnemonic: string | null = walletData!.mnemonic || null;
       if (!mnemonic && walletData!.mnemonicEnc) {
@@ -385,7 +385,7 @@ async function signMessageForPage(
         if (!pin) return { error: 'PIN is required to decrypt wallet key' };
         mnemonic = await NEURAI_UTILS.decryptTextWithPin(walletData!.mnemonicEnc, pin);
       }
-      if (!mnemonic) return { error: 'Unable to access wallet mnemonic for PQ signing' };
+      if (!mnemonic) return { error: 'Unable to access wallet mnemonic for AuthScript PQ signing' };
 
       let passphrase = '';
       if (walletData!.passphraseEnc) {
@@ -399,7 +399,7 @@ async function signMessageForPage(
       signingAddress = pqAddr.address;
 
       if (walletData!.address !== pqAddr.address || walletData!.publicKey !== pqAddr.publicKey) {
-        console.warn('[PQ auth] wallet identity mismatch', {
+        console.warn('[AuthScript PQ] wallet identity mismatch', {
           storedAddress: walletData!.address,
           storedPublicKey: walletData!.publicKey || null,
           derivedAddress: pqAddr.address,
@@ -506,7 +506,7 @@ async function signRawTxForPage(
   } else {
     if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
         !walletData?.mnemonicEnc && !walletData?.mnemonic) {
-      return { error: 'No PQ wallet configured' };
+      return { error: 'No AuthScript PQ wallet configured' };
     }
   }
   if (!walletData!.address) return { error: 'No address available' };
@@ -535,7 +535,7 @@ async function signRawTxForPage(
     let complete: boolean;
 
     if (isPQNetwork(network)) {
-      // PQ: sign locally using NeuraiSignTransaction with seedKey
+      // AuthScript PQ: sign locally using NeuraiSignTransaction with seedKey
       const pin = approval.pin || '';
       let seedKey: string | null = walletData!.seedKey || null;
       if (!seedKey && walletData!.seedKeyEnc) {
@@ -550,7 +550,7 @@ async function signRawTxForPage(
           if (!pin) return { error: 'PIN is required to decrypt wallet key' };
           mnemonic = await NEURAI_UTILS.decryptTextWithPin(walletData!.mnemonicEnc, pin);
         }
-        if (!mnemonic) return { error: 'Unable to access wallet key for PQ signing' };
+        if (!mnemonic) return { error: 'Unable to access wallet key for AuthScript PQ signing' };
 
         let passphrase = '';
         if (walletData!.passphraseEnc) {

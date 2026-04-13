@@ -861,6 +861,16 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     }
     var bs58check = bs58checkBase(sha256x2);
 
+    function resolveAddressInput(address) {
+        if (typeof address === 'string') {
+            return String(address).trim();
+        }
+        if (address && typeof address.address === 'string') {
+            return String(address.address).trim();
+        }
+        throw new Error('Address must be a string or an object with an address field');
+    }
+
     const LEGACY_MAINNET_PREFIX = 53;
     const LEGACY_TESTNET_PREFIX = 127;
     const PQ_MAINNET_HRP = 'nq';
@@ -882,7 +892,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         0x72, 0x76, 0x6e, 0x72
     ]);
     function inferNetworkFromAddress(address) {
-        const normalized = String(address || '').trim().toLowerCase();
+        const normalized = resolveAddressInput(address).toLowerCase();
         if (normalized.startsWith(PQ_MAINNET_HRP + '1'))
             return 'xna-pq';
         if (normalized.startsWith(PQ_TESTNET_HRP + '1'))
@@ -895,18 +905,19 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     }
 
     function decodeAddress(address) {
-        const normalized = String(address || '').trim();
+        const normalized = resolveAddressInput(address);
+        const lowered = normalized.toLowerCase();
         if (!normalized)
             throw new Error('Address is required');
-        if (normalized.startsWith(PQ_MAINNET_HRP + '1') || normalized.startsWith(PQ_TESTNET_HRP + '1')) {
+        if (lowered.startsWith(PQ_MAINNET_HRP + '1') || lowered.startsWith(PQ_TESTNET_HRP + '1')) {
             const decoded = distExports.bech32m.decode(normalized);
             const version = decoded.words[0];
             const program = Uint8Array.from(distExports.bech32m.fromWords(decoded.words.slice(1)));
-            if (version !== 1 || program.length !== 20) {
-                throw new Error(`Unsupported PQ address program for ${address}`);
+            if (version !== 1 || program.length !== 32) {
+                throw new Error(`Unsupported AuthScript address program for ${address}`);
             }
-            const network = normalized.startsWith(PQ_TESTNET_HRP + '1') ? 'xna-pq-test' : 'xna-pq';
-            return { address: normalized, type: 'pq', network, hash: program };
+            const network = lowered.startsWith(PQ_TESTNET_HRP + '1') ? 'xna-pq-test' : 'xna-pq';
+            return { address: normalized, type: 'authscript', network, program, commitment: program };
         }
         const payload = Uint8Array.from(bs58check.decode(normalized));
         if (payload.length !== 21) {
@@ -920,6 +931,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             address: normalized,
             type: 'p2pkh',
             network: inferNetworkFromAddress(normalized),
+            program: payload.slice(1),
             hash: payload.slice(1)
         };
     }
@@ -930,29 +942,30 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         }
         return Uint8Array.of(0x76, 0xa9, 0x14, ...destination.hash, 0x88, 0xac);
     }
-    function encodePQWitnessScript(address) {
+    function encodeAuthScriptDestinationScript(address) {
         const destination = decodeAddress(address);
-        if (destination.type !== 'pq') {
-            throw new Error(`Address ${address} is not PQ witness v1`);
+        if (destination.type !== 'authscript') {
+            throw new Error(`Address ${address} is not AuthScript witness v1`);
         }
-        return concatBytes(Uint8Array.of(OP_1), pushData(destination.hash));
+        return concatBytes(Uint8Array.of(OP_1), pushData(destination.commitment));
     }
     function encodeDestinationScript(address) {
         const destination = decodeAddress(address);
-        return destination.type === 'pq'
-            ? encodePQWitnessScript(address)
+        return destination.type === 'authscript'
+            ? encodeAuthScriptDestinationScript(address)
             : encodeP2PKHScript(address);
     }
     function encodeNullAssetDestinationScript(address, mode = 'strict') {
         const destination = decodeAddress(address);
-        if (destination.type === 'pq') {
+        if (destination.type === 'authscript') {
             if (mode === 'hash20') {
-                return concatBytes(Uint8Array.of(OP_XNA_ASSET), pushData(destination.hash));
+                throw new Error('hash20 null-asset mode is not supported for AuthScript destinations');
             }
-            return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_1), pushData(destination.hash));
+            return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_1), pushData(destination.commitment));
         }
         return concatBytes(Uint8Array.of(OP_XNA_ASSET), pushData(destination.hash));
     }
+    const encodePQWitnessScript = encodeAuthScriptDestinationScript;
 
     const OWNER_ASSET_AMOUNT = 100000000n;
     const UNIQUE_ASSET_AMOUNT = 100000000n;
@@ -1221,6 +1234,11 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             outputs.push(createXnaOutput(changeAddress, changeSats));
         }
     }
+    function appendExtraOutputs(outputs, extraOutputs) {
+        if (extraOutputs?.length) {
+            outputs.push(...extraOutputs);
+        }
+    }
     function freezeFlagFromOperation(operation) {
         return operation === 'freeze' ? 1 : 0;
     }
@@ -1242,6 +1260,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         for (const transfer of params.transferMessages ?? []) {
             outputs.push(createTransferWithMessageOutput(transfer));
         }
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createIssueAssetTransaction(params) {
@@ -1258,6 +1277,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             reissuable: params.reissuable ?? true,
             ipfsHash: params.ipfsHash
         }));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createIssueSubAssetTransaction(params) {
@@ -1277,6 +1297,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             reissuable: params.reissuable ?? true,
             ipfsHash: params.ipfsHash
         }));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createIssueDepinTransaction(params) {
@@ -1306,6 +1327,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
                 ipfsHash: params.ipfsHashes?.[index]
             }));
         }
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createIssueQualifierTransaction(params) {
@@ -1323,6 +1345,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             reissuable: false,
             ipfsHash: params.ipfsHash
         }));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createIssueRestrictedTransaction(params) {
@@ -1338,6 +1361,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             reissuable: params.reissuable ?? true,
             ipfsHash: params.ipfsHash
         }));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createReissueTransaction(params) {
@@ -1352,6 +1376,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             reissuable: params.reissuable ?? true,
             ipfsHash: params.ipfsHash
         }));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createReissueRestrictedTransaction(params) {
@@ -1369,6 +1394,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             reissuable: params.reissuable ?? true,
             ipfsHash: params.ipfsHash
         }));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createQualifierTagTransaction(params) {
@@ -1378,6 +1404,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         for (const address of params.targetAddresses) {
             outputs.push(createNullAssetTagOutput(address, params.qualifierName, params.operation, params.nullAssetDestinationMode ?? 'strict'));
         }
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createFreezeAddressesTransaction(params) {
@@ -1387,6 +1414,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         for (const address of params.targetAddresses) {
             outputs.push(createNullAssetRestrictionOutput(address, params.assetName, freezeFlagFromOperation(params.operation), params.nullAssetDestinationMode ?? 'strict'));
         }
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createFreezeAssetTransaction(params) {
@@ -1394,6 +1422,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         appendXnaEnvelope(outputs, undefined, undefined, params.xnaChangeAddress, params.xnaChangeSats);
         outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress, getOwnerTokenName(params.assetName)));
         outputs.push(createGlobalRestrictionOutput(params.assetName, freezeFlagFromOperation(params.operation) + 2));
+        appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createFromOperation(build) {
@@ -1497,6 +1526,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         encodeAssetDataReference: encodeAssetDataReference,
         encodeAssetTransferPayload: encodeAssetTransferPayload,
         encodeAssetTransferScript: encodeAssetTransferScript,
+        encodeAuthScriptDestinationScript: encodeAuthScriptDestinationScript,
         encodeDestinationScript: encodeDestinationScript,
         encodeGlobalRestrictionScript: encodeGlobalRestrictionScript,
         encodeNewAssetPayload: encodeNewAssetPayload,
@@ -1528,6 +1558,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         isRawAssetDataReferenceHex: isRawAssetDataReferenceHex,
         isTxidAssetReference: isTxidAssetReference,
         normalizeVerifierString: normalizeVerifierString,
+        resolveAddressInput: resolveAddressInput,
         serializeInput: serializeInput,
         serializeOutput: serializeOutput,
         xnaToSatoshis: xnaToSatoshis

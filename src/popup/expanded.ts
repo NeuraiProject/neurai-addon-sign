@@ -16,7 +16,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   let hwStatusInterval: ReturnType<typeof setInterval> | null = null;
   let copyAddressFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
   const PAGE_SIZE = 5;
-  const DEBUG_PQ_SIGN = false;
+  const DEBUG_AUTHSCRIPT_SIGN = false;
   const DEBUG_ASSET_OPS = false;
 
   const ASSET_FEES: Record<string, number> = {
@@ -30,7 +30,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     REISSUE_RESTRICTED: 200,
   };
   const localAssetUnitsCache = new Map<string, number>();
-  const PQ_NULL_ASSET_NODE_COMPAT_MODE: NeuraiCreateTransactionNullAssetDestinationMode = 'hash20';
+  const AUTHSCRIPT_NULL_ASSET_MODE: NeuraiCreateTransactionNullAssetDestinationMode = 'strict';
 
   const elements = {
     // Header
@@ -739,7 +739,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const networkLabels: Record<string, string> = {
       'xna': 'Mainnet', 'xna-test': 'Testnet',
       'xna-legacy': 'Mainnet Legacy', 'xna-legacy-test': 'Testnet Legacy',
-      'xna-pq': 'Mainnet PQ', 'xna-pq-test': 'Testnet PQ'
+      'xna-pq': 'Mainnet AuthScript PQ', 'xna-pq-test': 'Testnet AuthScript PQ'
     };
     elements.networkValue.textContent = networkLabels[network] || network;
     elements.accountValue.textContent = 'Neurai_' + state.activeAccountId;
@@ -764,9 +764,18 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     try {
       const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address as string);
-      const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.wallet.address as string, 'XNA');
       const balance = NeuraiReader.formatBalance(balanceData!.balance);
-      const pending = NeuraiReader.formatBalance(pendingDelta);
+
+      // Mempool/pending query may fail for AuthScript addresses (RPC 500).
+      // Isolate so that a mempool error does not prevent the confirmed balance from displaying.
+      let pending = '0';
+      try {
+        const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.wallet.address as string, 'XNA');
+        pending = NeuraiReader.formatBalance(pendingDelta);
+      } catch (_mempoolError) {
+        // getaddressmempool not supported for this address type — show 0 pending
+      }
+
       const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address as string);
       state.assets = normalizeAssetsFromRpc(assetBalance);
       renderAmount(elements.balanceValue, balance, '0');
@@ -2060,8 +2069,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       || /burn/i.test(normalized);
   }
 
-  function logPqDebug(level: 'warn' | 'error', message: string, data?: unknown) {
-    if (!DEBUG_PQ_SIGN) return;
+  function logAuthScriptDebug(level: 'warn' | 'error', message: string, data?: unknown) {
+    if (!DEBUG_AUTHSCRIPT_SIGN) return;
     if (level === 'error') {
       console.error(message, data);
       return;
@@ -2606,7 +2615,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             xnaChangeSats: envelope.xnaChangeSats ?? 0n,
             qualifierChangeAddress: operation.address,
             qualifierChangeAmountRaw: NeuraiCreateTransaction.assetUnitsToRaw(changeQuantity),
-            nullAssetDestinationMode: PQ_NULL_ASSET_NODE_COMPAT_MODE
+            nullAssetDestinationMode: AUTHSCRIPT_NULL_ASSET_MODE
           }
         };
         break;
@@ -2626,7 +2635,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             ownerChangeAddress: operation.address,
             xnaChangeAddress: envelope.xnaChangeAddress,
             xnaChangeSats: envelope.xnaChangeSats,
-            nullAssetDestinationMode: PQ_NULL_ASSET_NODE_COMPAT_MODE
+            nullAssetDestinationMode: AUTHSCRIPT_NULL_ASSET_MODE
           }
         };
         break;
@@ -2745,14 +2754,14 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
 
     if (changeIndex < 0) {
-      throw new Error('Unable to increase PQ relay fee automatically: change output not found.');
+      throw new Error('Unable to increase AuthScript relay fee automatically: change output not found.');
     }
 
     const [changeAddress, changeValueRaw] = Object.entries(adjustedOutputs[changeIndex])[0] as [string, unknown];
     const currentChangeSats = xnaToSatoshis(Number(changeValueRaw || 0));
     const updatedChangeSats = currentChangeSats - additionalFeeSats;
     if (updatedChangeSats <= 0) {
-      throw new Error('Not enough XNA change available to raise the PQ relay fee.');
+      throw new Error('Not enough XNA change available to raise the AuthScript relay fee.');
     }
 
     adjustedOutputs[changeIndex] = { [changeAddress]: satoshisToXna(updatedChangeSats) };
@@ -2774,7 +2783,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     };
   }
 
-  async function ensurePqAssetRelayFee(
+  async function ensureAuthScriptAssetRelayFee(
     buildResult: NeuraiAssetsBuildResult,
     signedHex: string,
     walletAddress: string,
@@ -2808,7 +2817,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       }
 
       const additionalFeeSats = requiredFeeSats - currentFeeSats;
-      logPqDebug('warn', `[${contextLabel}][pq-fee] Rebuilding PQ asset transaction with higher relay fee`, {
+      logAuthScriptDebug('warn', `[${contextLabel}][authscript-fee] Rebuilding AuthScript asset transaction with higher relay fee`, {
         walletAddress,
         vsize,
         feeRate,
@@ -2886,7 +2895,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     )];
   }
 
-  function isPqAddress(address: string): boolean {
+  function isAuthScriptAddress(address: string): boolean {
     const normalized = String(address || '').trim().toLowerCase();
     return normalized.startsWith('nq1') || normalized.startsWith('tnq1');
   }
@@ -3002,18 +3011,18 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         )
       ]);
 
-      const pqTargets = tagOperation.addresses.filter(isPqAddress);
+      const authScriptTargets = tagOperation.addresses.filter(isAuthScriptAddress);
       const checksSummary = checkResults
         .map((entry) => `${entry.target}=${entry.hasTag ? 'true' : 'false'}`)
         .join(', ');
       const listedSummary = addressesForTag.length ? addressesForTag.join(', ') : '[]';
-      const pqNote = pqTargets.length
-        ? ` PQ targets in tx: ${pqTargets.join(', ')}.`
+      const authScriptNote = authScriptTargets.length
+        ? ` AuthScript targets in tx: ${authScriptTargets.join(', ')}.`
         : '';
 
       return `Node diagnostics for ${tagOperation.type} ${tagOperation.qualifierName}: `
         + `checkaddresstag => ${checksSummary}; `
-        + `listaddressesfortag => ${listedSummary}.${pqNote}`;
+        + `listaddressesfortag => ${listedSummary}.${authScriptNote}`;
     } catch (error) {
       return `Unable to load node diagnostics: ${error instanceof Error ? error.message : String(error)}`;
     }
@@ -3532,7 +3541,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
       if (network === 'xna-pq' || network === 'xna-pq-test') {
-        const adjusted = await ensurePqAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'create-asset');
+        const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'create-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
       }
@@ -3846,11 +3855,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       return finalized.txHex;
     } else {
       const network = (wallet.network as string) || 'xna';
-      const isPQWallet = network === 'xna-pq' || network === 'xna-pq-test';
-      if (isPQWallet) {
+      const isAuthScriptPQWallet = network === 'xna-pq' || network === 'xna-pq-test';
+      if (isAuthScriptPQWallet) {
         const seedKey = await getDecryptedPQSeedKey();
         if (!seedKey) {
-          logPqDebug('warn', '[create-asset] Missing PQ signing material', {
+          logAuthScriptDebug('warn', '[create-asset] Missing AuthScript PQ signing material', {
             network,
             hasSeedKey: !!wallet.seedKey,
             hasSeedKeyEnc: !!wallet.seedKeyEnc,
@@ -3862,7 +3871,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             walletType: wallet.walletType || 'software',
             address: wallet.address || null
           });
-          throw new Error('Unable to access PQ wallet key. Make sure the wallet is unlocked.');
+          throw new Error('Unable to access AuthScript PQ wallet key. Make sure the wallet is unlocked.');
         }
 
         const txInputs = parseRawTransactionInputs(rawTx);
@@ -3883,7 +3892,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           };
         });
         try {
-          logPqDebug('warn', '[create-asset][pq-sign] Prepared PQ signing inputs', {
+          logAuthScriptDebug('warn', '[create-asset][authscript-sign] Prepared AuthScript PQ signing inputs', {
             network,
             address: String(wallet.address || ''),
             inputCount: signTxUtxos.length,
@@ -3901,7 +3910,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             { [String(wallet.address || '')]: { seedKey } }
           );
         } catch (error) {
-          logPqDebug('error', '[create-asset][pq-sign] Local PQ signing failed', {
+          logAuthScriptDebug('error', '[create-asset][authscript-sign] Local AuthScript PQ signing failed', {
             network,
             address: String(wallet.address || ''),
             inputCount: signTxUtxos.length,
@@ -4086,11 +4095,15 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           throw new Error('TAG/UNTAG supports at most 10 addresses per transaction.');
         }
         const tagChecks = await Promise.all(
-          addresses.map(async target => ({
-            target,
-            skipPrecheck: isPqAddress(target),
-            hasTag: isPqAddress(target) ? false : await checkQualifierAssigned(neuraiAssets, rpc, target, tokenName)
-          }))
+          addresses.map(async target => {
+            try {
+              const hasTag = await checkQualifierAssigned(neuraiAssets, rpc, target, tokenName);
+              return { target, skipPrecheck: false, hasTag };
+            } catch (_) {
+              // RPC precheck failed (may happen with AuthScript addresses) — skip gracefully
+              return { target, skipPrecheck: true, hasTag: false };
+            }
+          })
         );
         if (type === 'TAG') {
           const alreadyTagged = tagChecks.filter(item => !item.skipPrecheck && item.hasTag).map(item => item.target);
@@ -4171,7 +4184,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
       if (network === 'xna-pq' || network === 'xna-pq-test') {
-        const adjusted = await ensurePqAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'configure-asset');
+        const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'configure-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
       }

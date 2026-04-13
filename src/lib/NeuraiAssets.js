@@ -1040,11 +1040,15 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireNetworks () {
 		if (hasRequiredNetworks) return networks;
 		hasRequiredNetworks = 1;
+		const MAINNET_NETWORKS = ['xna', 'mainnet', 'xna-pq', 'mainnet-pq'];
+		const TESTNET_NETWORKS = ['xna-test', 'testnet', 'regtest', 'xna-pq-test', 'testnet-pq'];
+
 		const NETWORKS = {
 		  MAINNET: {
 		    name: 'xna',
 		    displayName: 'Neurai Mainnet',
 		    addressPrefix: 'N',
+		    authScriptAddressPrefix: 'nq1',
 		    pqAddressPrefix: 'nq1',
 		    assetNameMaxLength: 32,
 		    defaultRPCPort: 19001,
@@ -1055,6 +1059,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    name: 'xna-test',
 		    displayName: 'Neurai Testnet',
 		    addressPrefix: 't',
+		    authScriptAddressPrefix: 'tnq1',
 		    pqAddressPrefix: 'tnq1',
 		    assetNameMaxLength: 32,  // Same as mainnet
 		    defaultRPCPort: 19101,
@@ -1063,8 +1068,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		  },
 		  MAINNET_PQ: {
 		    name: 'xna-pq',
-		    displayName: 'Neurai Mainnet PQ',
+		    displayName: 'Neurai Mainnet AuthScript',
 		    addressPrefix: 'N',
+		    authScriptAddressPrefix: 'nq1',
 		    pqAddressPrefix: 'nq1',
 		    assetNameMaxLength: 32,
 		    defaultRPCPort: 19001,
@@ -1073,8 +1079,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		  },
 		  TESTNET_PQ: {
 		    name: 'xna-pq-test',
-		    displayName: 'Neurai Testnet PQ',
+		    displayName: 'Neurai Testnet AuthScript',
 		    addressPrefix: 't',
+		    authScriptAddressPrefix: 'tnq1',
 		    pqAddressPrefix: 'tnq1',
 		    assetNameMaxLength: 32,
 		    defaultRPCPort: 19101,
@@ -1144,32 +1151,68 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		/**
 		 * Get network configuration
+		 * `xna-pq` / `xna-pq-test` are preserved as compatibility aliases for
+		 * AuthScript address flows on the same mainnet/testnet families.
+		 *
 		 * @param {string} networkName - Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
 		 * @returns {object} Network configuration
 		 */
 		function getNetworkConfig(networkName) {
-		  if (networkName === 'xna' || networkName === 'mainnet') {
-		    return NETWORKS.MAINNET;
-		  } else if (networkName === 'xna-test' || networkName === 'testnet') {
-		    return NETWORKS.TESTNET;
-		  } else if (networkName === 'xna-pq' || networkName === 'mainnet-pq') {
-		    return NETWORKS.MAINNET_PQ;
-		  } else if (networkName === 'xna-pq-test' || networkName === 'testnet-pq') {
-		    return NETWORKS.TESTNET_PQ;
+		  if (MAINNET_NETWORKS.includes(networkName)) {
+		    return networkName === 'xna-pq' || networkName === 'mainnet-pq'
+		      ? NETWORKS.MAINNET_PQ
+		      : NETWORKS.MAINNET;
+		  } else if (TESTNET_NETWORKS.includes(networkName)) {
+		    return networkName === 'xna-pq-test' || networkName === 'testnet-pq'
+		      ? NETWORKS.TESTNET_PQ
+		      : NETWORKS.TESTNET;
 		  } else {
 		    throw new Error(`Unknown network: ${networkName}`);
 		  }
 		}
 
 		/**
-		 * Detect network from address prefix
+		 * Resolve a network name to its chain family.
+		 * AuthScript aliases share the same family as legacy addresses.
+		 *
+		 * @param {string} networkName - Network name
+		 * @returns {'mainnet'|'testnet'} Network family
+		 */
+		function resolveAddressNetworkFamily(networkName) {
+		  if (MAINNET_NETWORKS.includes(networkName)) {
+		    return 'mainnet';
+		  }
+
+		  if (TESTNET_NETWORKS.includes(networkName)) {
+		    return 'testnet';
+		  }
+
+		  throw new Error(`Unknown network: ${networkName}`);
+		}
+
+		/**
+		 * Determine whether two network labels are compatible for address use.
+		 * This treats legacy and AuthScript labels on the same chain as compatible.
+		 *
+		 * @param {string} left - First network name
+		 * @param {string} right - Second network name
+		 * @returns {boolean} True if both belong to the same chain family
+		 */
+		function areAddressNetworksCompatible(left, right) {
+		  return resolveAddressNetworkFamily(left) === resolveAddressNetworkFamily(right);
+		}
+
+		/**
+		 * Detect network from address prefix.
+		 * `nq1...` / `tnq1...` are AuthScript witness-v1 destinations.
+		 *
 		 * @param {string} address - Neurai address
 		 * @returns {string} Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
 		 */
 		function detectNetworkFromAddress(address) {
-		  if (address.startsWith(NETWORKS.MAINNET_PQ.pqAddressPrefix)) {
+		  if (address.startsWith(NETWORKS.MAINNET_PQ.authScriptAddressPrefix)) {
 		    return 'xna-pq';
-		  } else if (address.startsWith(NETWORKS.TESTNET_PQ.pqAddressPrefix)) {
+		  } else if (address.startsWith(NETWORKS.TESTNET_PQ.authScriptAddressPrefix)) {
 		    return 'xna-pq-test';
 		  } else if (address.startsWith('N')) {
 		    return 'xna';
@@ -1182,9 +1225,13 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		networks = {
 		  NETWORKS,
+		  MAINNET_NETWORKS,
+		  TESTNET_NETWORKS,
 		  ASSET_NAME_RULES,
 		  ASSET_LIMITS,
 		  getNetworkConfig,
+		  resolveAddressNetworkFamily,
+		  areAddressNetworksCompatible,
 		  detectNetworkFromAddress
 		};
 		return networks;
@@ -1212,9 +1259,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		} = requireBurnAddresses();
 		const {
 		  NETWORKS,
+		  MAINNET_NETWORKS,
+		  TESTNET_NETWORKS,
 		  ASSET_NAME_RULES,
 		  ASSET_LIMITS,
 		  getNetworkConfig,
+		  resolveAddressNetworkFamily,
+		  areAddressNetworksCompatible,
 		  detectNetworkFromAddress
 		} = requireNetworks();
 
@@ -1237,9 +1288,13 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		  // Networks
 		  NETWORKS,
+		  MAINNET_NETWORKS,
+		  TESTNET_NETWORKS,
 		  ASSET_NAME_RULES,
 		  ASSET_LIMITS,
 		  getNetworkConfig,
+		  resolveAddressNetworkFamily,
+		  areAddressNetworksCompatible,
 		  detectNetworkFromAddress
 		};
 		return constants$1;
@@ -1856,7 +1911,11 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireNetworkDetector () {
 		if (hasRequiredNetworkDetector) return networkDetector;
 		hasRequiredNetworkDetector = 1;
-		const { NETWORKS } = requireConstants();
+		const {
+		  NETWORKS,
+		  areAddressNetworksCompatible,
+		  resolveAddressNetworkFamily
+		} = requireConstants();
 
 		class NetworkDetector {
 		  /**
@@ -1893,18 +1952,18 @@ var NeuraiAssetsBundle = (function (exports) {
 		  /**
 		   * Detect network from address
 		   * @param {string} address - Neurai address
-		   * @returns {string} Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		   * @returns {string} Network label ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
 		   */
 		  static detectFromAddress(address) {
 		    if (!address || typeof address !== 'string') {
 		      throw new Error('Address must be a non-empty string');
 		    }
 
-		    if (address.startsWith(NETWORKS.MAINNET_PQ.pqAddressPrefix)) {
+		    if (address.startsWith(NETWORKS.MAINNET_PQ.authScriptAddressPrefix)) {
 		      return 'xna-pq';
 		    }
 
-		    if (address.startsWith(NETWORKS.TESTNET_PQ.pqAddressPrefix)) {
+		    if (address.startsWith(NETWORKS.TESTNET_PQ.authScriptAddressPrefix)) {
 		      return 'xna-pq-test';
 		    }
 
@@ -1924,31 +1983,32 @@ var NeuraiAssetsBundle = (function (exports) {
 		  /**
 		   * Detect network from multiple addresses
 		   * @param {string[]} addresses - Array of addresses
-		   * @returns {string} Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		   * @returns {string} Network label. Mixed legacy/AuthScript addresses on the same
+		   * chain are normalized to the chain family label (`xna` or `xna-test`).
 		   */
 		  static detectFromAddresses(addresses) {
 		    if (!Array.isArray(addresses) || addresses.length === 0) {
 		      throw new Error('Addresses must be a non-empty array');
 		    }
 
-		    // Detect from first address
-		    const network = this.detectFromAddress(addresses[0]);
+		    const firstNetwork = this.detectFromAddress(addresses[0]);
+		    const family = resolveAddressNetworkFamily(firstNetwork);
 
 		    // Verify all addresses are from the same network
 		    for (let i = 1; i < addresses.length; i++) {
 		      const otherNetwork = this.detectFromAddress(addresses[i]);
-		      if (otherNetwork !== network) {
-		        throw new Error(`Mixed network addresses detected: ${network} and ${otherNetwork}`);
+		      if (!areAddressNetworksCompatible(firstNetwork, otherNetwork)) {
+		        throw new Error(`Mixed network addresses detected: ${firstNetwork} and ${otherNetwork}`);
 		      }
 		    }
 
-		    return network;
+		    return family === 'mainnet' ? 'xna' : 'xna-test';
 		  }
 
 		  /**
 		   * Validate that addresses match expected network
 		   * @param {string[]} addresses - Array of addresses
-		   * @param {string} expectedNetwork - Expected network ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		   * @param {string} expectedNetwork - Expected network label
 		   * @returns {boolean} True if all addresses match network
 		   */
 		  static validateAddressesNetwork(addresses, expectedNetwork) {
@@ -1958,7 +2018,7 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		    for (const address of addresses) {
 		      const network = this.detectFromAddress(address);
-		      if (network !== expectedNetwork) {
+		      if (!areAddressNetworksCompatible(network, expectedNetwork)) {
 		        throw new Error(
 		          `Address ${address} is from ${network} but expected ${expectedNetwork}`
 		        );

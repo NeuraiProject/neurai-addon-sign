@@ -14,13 +14,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@neuraiproject/neurai-assets": "1.2.2",
-    "@neuraiproject/neurai-create-transaction": "0.1.4",
-    "@neuraiproject/neurai-key": "^3.0.1",
-    "@neuraiproject/neurai-message": "^0.9.0",
+    "@neuraiproject/neurai-assets": "1.2.3",
+    "@neuraiproject/neurai-create-transaction": "0.2.0",
+    "@neuraiproject/neurai-key": "^3.1.0",
+    "@neuraiproject/neurai-message": "^0.9.1",
     "@neuraiproject/neurai-reader": "^0.0.9",
     "@neuraiproject/neurai-sign-esp32": "^0.4.0",
-    "@neuraiproject/neurai-sign-transaction": "^1.2.1"
+    "@neuraiproject/neurai-sign-transaction": "^1.2.2"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.38",

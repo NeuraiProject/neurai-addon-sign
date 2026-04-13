@@ -12624,6 +12624,11 @@ var NeuraiMessage = (() => {
   var PQ_PUBLIC_KEY_LENGTH = 1312;
   var PQ_SERIALIZED_PUBKEY_LENGTH = 1 + PQ_PUBLIC_KEY_LENGTH;
   var PQ_SIGNATURE_LENGTH = 2420;
+  var AUTHSCRIPT_PROGRAM_LENGTH = 32;
+  var AUTHSCRIPT_DEFAULT_AUTH_TYPE = 1;
+  var AUTHSCRIPT_DOMAIN_SEPARATOR = 1;
+  var AUTHSCRIPT_DEFAULT_WITNESS_SCRIPT = import_buffer3.Buffer.from([81]);
+  var AUTHSCRIPT_TAG = "NeuraiAuthScript";
   var LEGACY_MESSAGE_PREFIX = String.fromCharCode(import_buffer3.Buffer.byteLength(MESSAGE_MAGIC, "utf8")) + MESSAGE_MAGIC;
   function encodeCompactSize(value) {
     if (!Number.isInteger(value) || value < 0) {
@@ -12680,6 +12685,10 @@ var NeuraiMessage = (() => {
   function hash1602(bytes) {
     return (0, import_create_hash2.default)("ripemd160").update(sha2563(bytes)).digest();
   }
+  function taggedHash(tag, bytes) {
+    const tagHash = sha2563(import_buffer3.Buffer.from(tag, "utf8"));
+    return sha2563(import_buffer3.Buffer.concat([tagHash, tagHash, import_buffer3.Buffer.from(bytes)]));
+  }
   function encodeMessageHash(message) {
     const messageBytes = import_buffer3.Buffer.from(message, "utf8");
     const magicBytes = import_buffer3.Buffer.from(MESSAGE_MAGIC, "utf8");
@@ -12718,6 +12727,19 @@ var NeuraiMessage = (() => {
       version: decoded.words[0],
       program: import_buffer3.Buffer.from(import_bech322.bech32m.fromWords(decoded.words.slice(1)))
     };
+  }
+  function getDefaultPQAuthScriptCommitment(serializedPublicKey) {
+    const authDescriptor = import_buffer3.Buffer.concat([
+      import_buffer3.Buffer.from([AUTHSCRIPT_DEFAULT_AUTH_TYPE]),
+      hash1602(serializedPublicKey)
+    ]);
+    const witnessScriptHash = sha2563(AUTHSCRIPT_DEFAULT_WITNESS_SCRIPT);
+    const preimage = import_buffer3.Buffer.concat([
+      import_buffer3.Buffer.from([AUTHSCRIPT_DOMAIN_SEPARATOR]),
+      authDescriptor,
+      witnessScriptHash
+    ]);
+    return taggedHash(AUTHSCRIPT_TAG, preimage);
   }
   function sign2(message, privateKey, compressed = true) {
     const signature = signLegacyMessage(
@@ -12778,10 +12800,12 @@ var NeuraiMessage = (() => {
         return false;
       }
       const decodedAddress = decodePQAddress(address);
-      if (decodedAddress.version !== 1 || decodedAddress.program.length !== 20) {
+      if (decodedAddress.version !== 1 || decodedAddress.program.length !== AUTHSCRIPT_PROGRAM_LENGTH) {
         return false;
       }
-      const expectedProgram = hash1602(serializedPublicKey);
+      const expectedProgram = getDefaultPQAuthScriptCommitment(
+        serializedPublicKey
+      );
       if (!expectedProgram.equals(decodedAddress.program)) {
         return false;
       }

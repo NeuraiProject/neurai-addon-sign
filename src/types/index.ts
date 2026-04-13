@@ -66,9 +66,9 @@ export interface WalletData {
   privateKey?: string;
   /** AES-GCM encrypted WIF private key — present when PIN is configured */
   privateKeyEnc?: EncryptedSecret;
-  /** PQ seed key (32-byte hex) — only present for PQ wallets without PIN */
+  /** AuthScript PQ seed key (32-byte hex) — only present for AuthScript PQ wallets without PIN */
   seedKey?: string;
-  /** AES-GCM encrypted PQ seed key — present for PQ wallets with PIN */
+  /** AES-GCM encrypted AuthScript PQ seed key — present for AuthScript PQ wallets with PIN */
   seedKeyEnc?: EncryptedSecret;
   /** Unencrypted mnemonic — only present when PIN is not configured */
   mnemonic?: string;
