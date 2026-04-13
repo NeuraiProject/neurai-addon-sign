@@ -237,6 +237,21 @@ textarea {
   gap: 20px;
 }
 
+.active-account-card {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.address-card {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.hero-grid > .stat-card-balance {
+  grid-column: 2;
+  grid-row: 2;
+}
+
 .active-account-card,
 .address-card,
 .portfolio-card {
@@ -250,15 +265,23 @@ textarea {
 
 .portfolio-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+  grid-template-columns: 1fr;
   gap: 20px;
   align-items: start;
+}
+
+.portfolio-grid:has(.hardware-card:not(.hidden)) {
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
 }
 
 .portfolio-side {
   display: grid;
   gap: 16px;
   align-content: start;
+}
+
+.portfolio-side:not(:has(.hardware-card:not(.hidden))) {
+  display: none;
 }
 
 .active-account-head {
@@ -1190,6 +1213,24 @@ select:focus,
   .portfolio-grid,
   .dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .active-account-card {
+    grid-column: auto;
+    grid-row: auto;
+    order: 1;
+  }
+
+  .hero-grid > .stat-card-balance {
+    grid-column: auto;
+    grid-row: auto;
+    order: 2;
+  }
+
+  .address-card {
+    grid-column: auto;
+    grid-row: auto;
+    order: 3;
   }
 
   .topbar {
