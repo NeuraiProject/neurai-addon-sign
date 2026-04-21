@@ -1,6 +1,6 @@
 {
   "name": "neurai-wallet-extension",
-  "version": "0.8.4",
+  "version": "0.9.0",
   "description": "Neurai Sign (XNA) Chrome Extension - Manage wallet, sign messages, check balance",
   "private": true,
   "scripts": {
@@ -11,7 +11,8 @@
     "build:test": "vite build --config vite.config.test.js",
     "sync-libs": "node sync-libs.js",
     "pack": "node build-ext.js && node pack.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:no-rpc-sign": "if grep -rn 'signrawtransaction' src/; then echo 'ERROR: forbidden RPC signing path present'; exit 1; fi"
   },
   "dependencies": {
     "@neuraiproject/neurai-assets": "^1.2.5",

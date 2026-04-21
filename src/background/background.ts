@@ -4,6 +4,9 @@
 import './crypto-preload.js';
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { assertSighashSupported, UnsupportedSighashError, type WalletSigningKind } from '../shared/sighash.js';
+import { isTxComplete } from '../shared/completeness.js';
+import { resolvePrivateKeysForSigning } from './signing-keys.js';
 import type {
   WalletData,
   WalletSettings,
@@ -468,14 +471,23 @@ async function signMessageForPage(
 
 /**
  * Sign a raw transaction on behalf of the page.
- * Security note: The private key (WIF) is sent to the Neurai RPC endpoint over HTTPS.
- * The call goes to the configured RPC URL (Neurai's own infrastructure by default).
- * This is an acceptable trade-off for a self-hosted deployment; native signing
- * (without sending the key) should be implemented in a future improvement.
  *
- * @param txHex - The raw transaction hex to sign
- * @param utxos - [{txid, vout, scriptPubKey, amount}] for inputs being signed
- * @param sighashType - 'ALL', 'SINGLE|ANYONECANPAY', etc.
+ * Signing is performed **locally** via `@neuraiproject/neurai-sign-transaction`
+ * (no WIF ever leaves the extension). The RPC node is used only for prevout
+ * resolution and broadcast, not for signing.
+ *
+ * Sighash support (current version): only `SIGHASH_ALL`. Requests with any
+ * other `sighashType` are rejected with `UnsupportedSighashError` up front;
+ * the addon never silently signs with a different sighash than requested.
+ *
+ * Returned `complete`: true iff every input carries non-empty scriptSig or
+ * witness (present, not validated). See `src/shared/completeness.ts`.
+ *
+ * @param txHex - The raw transaction hex to sign.
+ * @param utxos - [{txid, vout, scriptPubKey, amount}] for inputs the caller
+ *                wants this wallet to sign. Inputs without a matching UTXO
+ *                entry are skipped (and any pre-filled scriptSig preserved).
+ * @param sighashType - Must be 'ALL' in the current version.
  */
 async function signRawTxForPage(
   txHex: string,
@@ -486,12 +498,29 @@ async function signRawTxForPage(
   await loadWalletData();
   await loadWalletSettings();
 
+  const network = walletData?.network || 'xna';
+  const walletKind: WalletSigningKind = isHardwareWallet(walletData)
+    ? 'hardware'
+    : isPQNetwork(network)
+    ? 'pq'
+    : 'legacy';
+
+  // Early rejection of unsupported sighashType — contract §2.2 of
+  // plan-adaptacion-addon-sign-v2.md.
+  try {
+    assertSighashSupported(sighashType || 'ALL', walletKind);
+  } catch (err) {
+    if (err instanceof UnsupportedSighashError) return { error: err.message };
+    throw err;
+  }
+  const sighash = sighashType || 'ALL';
+
   if (isHardwareWallet(walletData)) {
     return requestHardwareSignature({
       type: 'raw_tx',
       txHex,
       utxos: utxos || [],
-      sighashType: sighashType || 'ALL',
+      sighashType: sighash,
       address: walletData.address,
       publicKey: walletData.publicKey,
       network: walletData.network || 'xna',
@@ -500,8 +529,8 @@ async function signRawTxForPage(
       origin: sender?.url ? new URL(sender.url).origin : 'Unknown site'
     });
   }
-  const network = walletData?.network || 'xna';
-  if (!isPQNetwork(network)) {
+
+  if (walletKind === 'legacy') {
     if (!walletData?.privateKey && !walletData?.privateKeyEnc) return { error: 'No wallet configured' };
   } else {
     if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
@@ -512,7 +541,6 @@ async function signRawTxForPage(
   if (!walletData!.address) return { error: 'No address available' };
 
   const origin = sender?.url ? new URL(sender.url).origin : 'Unknown site';
-  const sighash = sighashType || 'ALL';
 
   const approval = await requestSignatureApproval({
     signType: 'raw_tx',
@@ -531,87 +559,39 @@ async function signRawTxForPage(
   }
 
   try {
-    let signedHex: string;
-    let complete: boolean;
-
-    if (isPQNetwork(network)) {
-      // AuthScript PQ: sign locally using NeuraiSignTransaction with seedKey
-      const pin = approval.pin || '';
-      let seedKey: string | null = walletData!.seedKey || null;
-      if (!seedKey && walletData!.seedKeyEnc) {
-        if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
-        if (!pin) return { error: 'PIN is required to decrypt wallet key' };
-        seedKey = await NEURAI_UTILS.decryptTextWithPin(walletData!.seedKeyEnc, pin);
-      }
-      // Fallback: re-derive seedKey from mnemonic if not stored directly
-      if (!seedKey) {
-        let mnemonic: string | null = walletData!.mnemonic || null;
-        if (!mnemonic && walletData!.mnemonicEnc) {
-          if (!pin) return { error: 'PIN is required to decrypt wallet key' };
-          mnemonic = await NEURAI_UTILS.decryptTextWithPin(walletData!.mnemonicEnc, pin);
-        }
-        if (!mnemonic) return { error: 'Unable to access wallet key for AuthScript PQ signing' };
-
-        let passphrase = '';
-        if (walletData!.passphraseEnc) {
-          passphrase = await NEURAI_UTILS.decryptTextWithPin(walletData!.passphraseEnc, pin) || '';
-        }
-        const pqAddr = NeuraiKey.getPQAddress(network, mnemonic, 0, 0, passphrase || undefined);
-        seedKey = pqAddr.seedKey;
-      }
-
-      const signTxUtxos = (utxos || []).map(u => ({
-        address: walletData!.address,
-        assetName: 'XNA',
-        txid: u.txid,
-        outputIndex: u.vout,
-        script: u.scriptPubKey,
-        satoshis: Math.round(u.amount * 1e8),
-        value: Math.round(u.amount * 1e8),
-      }));
-
-      signedHex = NeuraiSignTransaction.sign(
-        network,
-        txHex,
-        signTxUtxos,
-        { [walletData!.address]: { seedKey } }
+    let privateKeys;
+    try {
+      privateKeys = await resolvePrivateKeysForSigning(
+        walletData!,
+        walletSettings,
+        network as WalletNetwork,
+        walletKind as 'legacy' | 'pq',
+        approval.pin || null
       );
-      complete = true;
-    } else {
-      // Legacy: sign via RPC
-      let privateKeyWif: string | null = walletData!.privateKey || null;
-      if (!privateKeyWif && walletData!.privateKeyEnc) {
-        if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
-        if (!approval.pin) return { error: 'PIN is required to decrypt wallet key' };
-        privateKeyWif = await NEURAI_UTILS.decryptTextWithPin(walletData!.privateKeyEnc, approval.pin);
-      }
-      if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
-
-      const rpcUrl = getRpcUrl(network);
-      const response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '1.0',
-          id: 'neurai-wallet-sign-tx',
-          method: 'signrawtransaction',
-          params: [
-            txHex,
-            utxos || [],
-            [privateKeyWif],
-            sighash,
-          ]
-        })
-      });
-
-      const data = await response.json() as {
-        result: { hex: string; complete: boolean };
-        error?: { message: string } | string;
-      };
-      if (data.error) return { error: typeof data.error === 'string' ? data.error : (data.error.message || JSON.stringify(data.error)) };
-      signedHex = data.result.hex;
-      complete = data.result.complete;
+    } catch (err) {
+      return { error: (err as Error).message };
     }
+
+    // Translate UTXOs to the library's expected shape. Single-address scope:
+    // every UTXO is assumed to belong to the active wallet's address
+    // (see plan-adaptacion-addon-sign-v2.md §1.5).
+    const signTxUtxos = (utxos || []).map(u => ({
+      address: walletData!.address,
+      assetName: 'XNA',
+      txid: u.txid,
+      outputIndex: u.vout,
+      script: u.scriptPubKey,
+      satoshis: Math.round(u.amount * 1e8),
+      value: Math.round(u.amount * 1e8),
+    }));
+
+    const signedHex: string = NeuraiSignTransaction.sign(
+      network,
+      txHex,
+      signTxUtxos,
+      privateKeys
+    );
+    const complete: boolean = isTxComplete(signedHex);
 
     // Save to history
     try {

@@ -22,11 +22,17 @@ export const NEURAI_CONSTANTS = Object.freeze({
   RPC_URL:         'https://rpc-depin.neurai.org/rpc',
   RPC_URL_TESTNET: 'https://rpc-testnet.neurai.org/rpc',
 
+  // ── Default block explorer URLs (URL templates with {txid} placeholder) ───
+  EXPLORER_URL_MAINNET: 'https://explorer.neurai.org/tx/{txid}',
+  EXPLORER_URL_TESTNET: 'https://rebel-explorer-testnet.neurai.org/index.html?route=TRANSACTION&id={txid}',
+
   // ── Default settings (frozen so callers must spread before mutating) ──────
   DEFAULT_SETTINGS: Object.freeze({
     theme:              'dark',
     rpcMainnet:         '',
     rpcTestnet:         '',
+    explorerMainnet:    '',
+    explorerTestnet:    '',
     pinHash:            '',
     lockTimeoutMinutes: 10
   } satisfies WalletSettings),

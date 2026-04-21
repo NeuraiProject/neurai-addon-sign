@@ -4,6 +4,12 @@
 //   (from ../lib/ via classic <script> tags)
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import {
+  parseRawTransaction,
+  parseRawTransactionInputs,
+  parseRawTransactionOutputs
+} from '../shared/parse-raw-tx.js';
+import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
 (function () {
@@ -44,6 +50,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     themeMode: document.getElementById('themeMode') as HTMLSelectElement | null,
     rpcMainnet: document.getElementById('rpcMainnet') as HTMLInputElement | null,
     rpcTestnet: document.getElementById('rpcTestnet') as HTMLInputElement | null,
+    explorerMainnet: document.getElementById('explorerMainnet') as HTMLInputElement | null,
+    explorerTestnet: document.getElementById('explorerTestnet') as HTMLInputElement | null,
     lockTimeoutMinutes: document.getElementById('lockTimeoutMinutes') as HTMLInputElement | null,
     settingsFeedback: document.getElementById('settingsFeedback'),
     pinStatusText: document.getElementById('pinStatusText'),
@@ -420,6 +428,28 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       el.appendChild(meta);
 
       if (isRawTx) {
+        const signedHex = ((item as Record<string, unknown>).signedTxHex as string) || ((item as Record<string, unknown>).txHex as string) || '';
+
+        // Explorer link (populated async once the txid is computed).
+        const explorerLink = document.createElement('a');
+        explorerLink.className = 'history-item-explorer-link hidden';
+        explorerLink.target = '_blank';
+        explorerLink.rel = 'noopener noreferrer';
+        explorerLink.textContent = 'View on explorer ↗';
+        el.appendChild(explorerLink);
+
+        const txNetwork = (activeAccount as Record<string, unknown> | undefined)?.network as string | undefined;
+        if (signedHex) {
+          computeTxid(signedHex).then((txid) => {
+            if (!txid) return;
+            const url = resolveExplorerTxUrl(txNetwork, txid, state.settings as WalletSettings | null);
+            if (!url) return;
+            explorerLink.href = url;
+            explorerLink.title = `tx ${txid}`;
+            explorerLink.classList.remove('hidden');
+          }).catch(() => { /* swallow: explorer link is best-effort */ });
+        }
+
         // Expandable raw TX hex block
         const expandBtn = document.createElement('button');
         expandBtn.className = 'history-item-expand-btn';
@@ -435,7 +465,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
         const txHex = document.createElement('div');
         txHex.className = 'history-item-sig history-item-txhex';
-        txHex.textContent = (item as Record<string, unknown>).signedTxHex as string || (item as Record<string, unknown>).txHex as string || '';
+        txHex.textContent = signedHex;
 
         details.appendChild(txLabel);
         details.appendChild(txHex);
@@ -497,6 +527,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (elements.themeMode) elements.themeMode.value = String(settings.theme || C.DEFAULT_SETTINGS.theme);
     if (elements.rpcMainnet) elements.rpcMainnet.value = String(settings.rpcMainnet || '');
     if (elements.rpcTestnet) elements.rpcTestnet.value = String(settings.rpcTestnet || '');
+    if (elements.explorerMainnet) elements.explorerMainnet.value = String(settings.explorerMainnet || '');
+    if (elements.explorerTestnet) elements.explorerTestnet.value = String(settings.explorerTestnet || '');
     if (elements.lockTimeoutMinutes) {
       elements.lockTimeoutMinutes.value = String(
         NEURAI_UTILS.normalizeLockTimeoutMinutes(settings.lockTimeoutMinutes)
@@ -562,6 +594,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         theme: (elements.themeMode?.value || C.DEFAULT_SETTINGS.theme) as Theme,
         rpcMainnet: normalizeOptionalUrl(elements.rpcMainnet?.value || ''),
         rpcTestnet: normalizeOptionalUrl(elements.rpcTestnet?.value || ''),
+        explorerMainnet: normalizeOptionalExplorerUrl(elements.explorerMainnet?.value || ''),
+        explorerTestnet: normalizeOptionalExplorerUrl(elements.explorerTestnet?.value || ''),
         pinHash,
         lockTimeoutMinutes: NEURAI_UTILS.normalizeLockTimeoutMinutes(elements.lockTimeoutMinutes?.value)
       };
@@ -1002,8 +1036,14 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     elements.recentMovementsEmpty.classList.add('hidden');
     const pageItems = paginateItems(state.recentMovements, state.recentMovementsPage);
+    const activeAccount = state.accounts && state.accounts[state.activeAccountId];
+    const txNetwork = (activeAccount as Record<string, unknown> | undefined)?.network as string | undefined;
     elements.recentMovementsList.innerHTML = pageItems.map((item) => {
       const i = item as { direction: string; amountText: string; timestamp: string; confirmations: number; txid: string };
+      const explorerUrl = resolveExplorerTxUrl(txNetwork, i.txid, state.settings as WalletSettings | null);
+      const txidCell = explorerUrl
+        ? `<a class="movement-txid movement-txid--link" href="${escapeHtml(explorerUrl)}" target="_blank" rel="noopener noreferrer" title="View on explorer">${escapeHtml(i.txid)}</a>`
+        : `<div class="movement-txid">${escapeHtml(i.txid)}</div>`;
       return `
       <div class="movement-item">
         <div class="movement-head">
@@ -1014,7 +1054,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           <span>${escapeHtml(i.timestamp)}</span>
           <span>${i.confirmations > 0 ? escapeHtml(String(i.confirmations)) + ' conf' : 'Pending'}</span>
         </div>
-        <div class="movement-txid">${escapeHtml(i.txid)}</div>
+        ${txidCell}
       </div>
     `;
     }).join('');
@@ -1567,6 +1607,26 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     throw new Error('RPC URL must use https:// (http:// only allowed for localhost/127.0.0.1)');
   }
 
+  function normalizeOptionalExplorerUrl(value: string) {
+    // Explorer URLs may contain a literal `{txid}` placeholder that `new URL()`
+    // happily accepts but URL-encodes to `%7Btxid%7D`. We preserve the raw
+    // template by swapping in a dummy host before validating and putting the
+    // placeholder back afterwards.
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return '';
+    const hadPlaceholder = trimmed.includes('{txid}');
+    const probe = hadPlaceholder ? trimmed.replace('{txid}', 'SENTINEL_TXID_0000') : trimmed;
+    const parsed = new URL(probe);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('Explorer URL must use https:// or http://');
+    }
+    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    if (parsed.protocol === 'http:' && !isLocalhost) {
+      throw new Error('Explorer URL must use https:// (http:// only allowed for localhost/127.0.0.1)');
+    }
+    return trimmed;
+  }
+
   function toOriginPattern(url: string) {
     if (!url) return null;
     const parsed = new URL(url);
@@ -1876,78 +1936,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }));
   }
 
-  function parseRawTransaction(txHex: string) {
-    const bytes = hexToBytes(txHex);
-    let offset = 0;
-
-    if (bytes.length < 10) {
-      throw new Error('Invalid raw transaction hex');
-    }
-
-    offset += 4; // version
-
-    // Support both legacy and witness-serialized transactions returned by RPC.
-    const hasWitness = bytes[offset] === 0x00 && bytes[offset + 1] === 0x01;
-    if (hasWitness) offset += 2;
-
-    const inputVarInt = readVarInt(bytes, offset);
-    offset += inputVarInt.size;
-
-    const inputs: Array<{ txid: string; vout: number; sequence: number }> = [];
-    for (let i = 0; i < inputVarInt.value; i += 1) {
-      const txidBytes = bytes.slice(offset, offset + 32);
-      offset += 32;
-      const vout = readUInt32LE(bytes, offset);
-      offset += 4;
-      const scriptLen = readVarInt(bytes, offset);
-      offset += scriptLen.size;
-      offset += scriptLen.value;
-      const sequence = readUInt32LE(bytes, offset);
-      offset += 4;
-
-      inputs.push({
-        txid: bytesToHex([...txidBytes].reverse()),
-        vout,
-        sequence
-      });
-    }
-
-    const outputVarInt = readVarInt(bytes, offset);
-    offset += outputVarInt.size;
-    const outputs: Array<{ value: bigint; scriptHex: string }> = [];
-
-    for (let i = 0; i < outputVarInt.value; i += 1) {
-      const value = readUInt64LE(bytes, offset);
-      offset += 8;
-      const scriptLen = readVarInt(bytes, offset);
-      offset += scriptLen.size;
-      const scriptBytes = bytes.slice(offset, offset + scriptLen.value);
-      offset += scriptLen.value;
-      outputs.push({ value, scriptHex: bytesToHex(scriptBytes) });
-    }
-
-    if (hasWitness) {
-      for (let i = 0; i < inputVarInt.value; i += 1) {
-        const witnessItems = readVarInt(bytes, offset);
-        offset += witnessItems.size;
-        for (let j = 0; j < witnessItems.value; j += 1) {
-          const itemLen = readVarInt(bytes, offset);
-          offset += itemLen.size + itemLen.value;
-        }
-      }
-    }
-
-    return { inputs, outputs };
-  }
-
-  function parseRawTransactionInputs(txHex: string) {
-    return parseRawTransaction(txHex).inputs;
-  }
-
-  function parseRawTransactionOutputs(txHex: string) {
-    return parseRawTransaction(txHex).outputs;
-  }
-
   function calculateRawTransactionFeeSats(txHex: string, enrichedUtxos: Array<{ txid: string; vout: number; rawTxHex: string | null }>) {
     try {
       const inputTotal = (enrichedUtxos || []).reduce((sum, utxo) => {
@@ -1978,49 +1966,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       satoshis: Number(output.value),
       scriptHex: output.scriptHex
     };
-  }
-
-  function hexToBytes(hex: string) {
-    const normalized = String(hex || '').trim();
-    if (!normalized || normalized.length % 2 !== 0) {
-      throw new Error('Invalid raw transaction hex');
-    }
-    const bytes: number[] = [];
-    for (let i = 0; i < normalized.length; i += 2) {
-      bytes.push(parseInt(normalized.slice(i, i + 2), 16));
-    }
-    return bytes;
-  }
-
-  function bytesToHex(bytes: number[]) {
-    return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  }
-
-  function readUInt32LE(bytes: number[], offset: number) {
-    return (
-      bytes[offset] |
-      (bytes[offset + 1] << 8) |
-      (bytes[offset + 2] << 16) |
-      (bytes[offset + 3] << 24)
-    ) >>> 0;
-  }
-
-  function readUInt64LE(bytes: number[], offset: number) {
-    const low = BigInt(readUInt32LE(bytes, offset));
-    const high = BigInt(readUInt32LE(bytes, offset + 4));
-    return low + (high << 32n);
-  }
-
-  function readVarInt(bytes: number[], offset: number) {
-    const first = bytes[offset];
-    if (first < 0xfd) return { value: first, size: 1 };
-    if (first === 0xfd) {
-      return { value: bytes[offset + 1] | (bytes[offset + 2] << 8), size: 3 };
-    }
-    if (first === 0xfe) {
-      return { value: readUInt32LE(bytes, offset + 1), size: 5 };
-    }
-    throw new Error('Unsupported varint in raw transaction');
   }
 
   function parseSighashType(sighashType: unknown) {
@@ -3854,12 +3799,17 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
       return finalized.txHex;
     } else {
+      // Software wallet: sign locally via @neuraiproject/neurai-sign-transaction.
+      // The RPC is only used to resolve prevouts (getrawtransaction), never to sign.
       const network = (wallet.network as string) || 'xna';
       const isAuthScriptPQWallet = network === 'xna-pq' || network === 'xna-pq-test';
+
+      // Resolve key material (same for legacy and PQ; differs only in shape).
+      let privateKeys: Record<string, string | { seedKey: string }>;
       if (isAuthScriptPQWallet) {
         const seedKey = await getDecryptedPQSeedKey();
         if (!seedKey) {
-          logAuthScriptDebug('warn', '[create-asset] Missing AuthScript PQ signing material', {
+          logAuthScriptDebug('warn', '[sign-raw-tx] Missing AuthScript PQ signing material', {
             network,
             hasSeedKey: !!wallet.seedKey,
             hasSeedKeyEnc: !!wallet.seedKeyEnc,
@@ -3873,26 +3823,35 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           });
           throw new Error('Unable to access AuthScript PQ wallet key. Make sure the wallet is unlocked.');
         }
+        privateKeys = { [String(wallet.address || '')]: { seedKey } };
+      } else {
+        const wif = await getDecryptedWif();
+        if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
+        privateKeys = { [String(wallet.address || '')]: wif };
+      }
 
-        const txInputs = parseRawTransactionInputs(rawTx);
-        const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
-        const signTxUtxos = enrichedUtxos.map((utxo) => {
-          const prevout = getPrevoutDetailsFromRawTx(utxo.rawTxHex, Number(utxo.vout));
-          if (!prevout) {
-            throw new Error(`Unable to load prevout data for ${utxo.txid}:${utxo.vout}`);
-          }
-          return {
-            address: String(wallet.address || ''),
-            assetName: 'XNA',
-            txid: utxo.txid,
-            outputIndex: Number(utxo.vout),
-            script: prevout.scriptHex,
-            satoshis: prevout.satoshis,
-            value: prevout.satoshis
-          };
-        });
-        try {
-          logAuthScriptDebug('warn', '[create-asset][authscript-sign] Prepared AuthScript PQ signing inputs', {
+      // Resolve prevouts via RPC, identical for both key types.
+      const txInputs = parseRawTransactionInputs(rawTx);
+      const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
+      const signTxUtxos = enrichedUtxos.map((utxo) => {
+        const prevout = getPrevoutDetailsFromRawTx(utxo.rawTxHex, Number(utxo.vout));
+        if (!prevout) {
+          throw new Error(`Unable to load prevout data for ${utxo.txid}:${utxo.vout}`);
+        }
+        return {
+          address: String(wallet.address || ''),
+          assetName: 'XNA',
+          txid: utxo.txid,
+          outputIndex: Number(utxo.vout),
+          script: prevout.scriptHex,
+          satoshis: prevout.satoshis,
+          value: prevout.satoshis
+        };
+      });
+
+      try {
+        if (isAuthScriptPQWallet) {
+          logAuthScriptDebug('warn', '[sign-raw-tx][authscript-sign] Prepared AuthScript PQ signing inputs', {
             network,
             address: String(wallet.address || ''),
             inputCount: signTxUtxos.length,
@@ -3903,14 +3862,16 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
               scriptHex: input.script
             }))
           });
-          return NeuraiSignTransaction.sign(
-            network,
-            rawTx,
-            signTxUtxos,
-            { [String(wallet.address || '')]: { seedKey } }
-          );
-        } catch (error) {
-          logAuthScriptDebug('error', '[create-asset][authscript-sign] Local AuthScript PQ signing failed', {
+        }
+        return NeuraiSignTransaction.sign(
+          network as NeuraiSignTransactionNetwork,
+          rawTx,
+          signTxUtxos,
+          privateKeys
+        );
+      } catch (error) {
+        if (isAuthScriptPQWallet) {
+          logAuthScriptDebug('error', '[sign-raw-tx][authscript-sign] Local AuthScript PQ signing failed', {
             network,
             address: String(wallet.address || ''),
             inputCount: signTxUtxos.length,
@@ -3922,31 +3883,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             })),
             error: error instanceof Error ? error.message : String(error)
           });
-          throw error;
         }
+        throw error;
       }
-
-      const wif = await getDecryptedWif();
-      if (!wif) throw new Error('Unable to access private key. Make sure the wallet is unlocked.');
-      const signResp = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '1.0', id: 'sign-tx', method: 'signrawtransaction',
-          params: [rawTx, [], [wif], 'ALL'],
-        }),
-      });
-      if (!signResp.ok) throw new Error(`Sign RPC error: ${signResp.status}`);
-      const signData = await signResp.json() as {
-        result?: { hex: string; complete: boolean };
-        error?: { message: string } | string;
-      };
-      if (signData.error) {
-        const msg = typeof signData.error === 'string' ? signData.error : signData.error.message;
-        throw new Error('Signing failed: ' + msg);
-      }
-      if (!signData.result?.complete) throw new Error('Transaction signing incomplete. Check your UTXOs.');
-      return signData.result.hex;
     }
   }
 

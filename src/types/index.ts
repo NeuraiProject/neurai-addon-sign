@@ -31,6 +31,10 @@ export interface WalletSettings {
   theme: Theme;
   rpcMainnet: string;
   rpcTestnet: string;
+  /** Block explorer URL template for mainnet transactions. `{txid}` placeholder. Empty = use built-in default. */
+  explorerMainnet: string;
+  /** Block explorer URL template for testnet transactions. `{txid}` placeholder. Empty = use built-in default. */
+  explorerTestnet: string;
   pinHash: string;
   lockTimeoutMinutes: number;
 }

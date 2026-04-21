@@ -3,6 +3,11 @@
 //   NeuraiKey, NeuraiMessage, NeuraiReader  (from ../lib/ via classic <script> tags)
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import {
+  parseRawTransactionInputs,
+  parseRawTransactionOutputs
+} from '../shared/parse-raw-tx.js';
+import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
 (function () {
@@ -35,6 +40,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     themeMode: document.getElementById('themeMode') as HTMLSelectElement | null,
     rpcMainnet: document.getElementById('rpcMainnet') as HTMLInputElement | null,
     rpcTestnet: document.getElementById('rpcTestnet') as HTMLInputElement | null,
+    explorerMainnet: document.getElementById('explorerMainnet') as HTMLInputElement | null,
+    explorerTestnet: document.getElementById('explorerTestnet') as HTMLInputElement | null,
     lockTimeoutMinutes: document.getElementById('lockTimeoutMinutes') as HTMLInputElement | null,
     pinStatusText: document.getElementById('pinStatusText')!,
     settingsPinOld: document.getElementById('settingsPinOld') as HTMLInputElement | null,
@@ -174,6 +181,28 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       el.appendChild(meta);
 
       if (isRawTx) {
+        const signedHex = (item.signedTxHex || item.txHex || '') as string;
+
+        // Explorer link (populated async once the txid is computed).
+        const explorerLink = document.createElement('a');
+        explorerLink.className = 'history-item-explorer-link hidden';
+        explorerLink.target = '_blank';
+        explorerLink.rel = 'noopener noreferrer';
+        explorerLink.textContent = 'View on explorer ↗';
+        el.appendChild(explorerLink);
+
+        const txNetwork = (activeAccount as Record<string, unknown> | undefined)?.network as string | undefined;
+        if (signedHex) {
+          computeTxid(signedHex).then((txid) => {
+            if (!txid) return;
+            const url = resolveExplorerTxUrl(txNetwork, txid, state.settings as WalletSettings | null);
+            if (!url) return;
+            explorerLink.href = url;
+            explorerLink.title = `tx ${txid}`;
+            explorerLink.classList.remove('hidden');
+          }).catch(() => { /* swallow: explorer link is best-effort */ });
+        }
+
         // Expandable raw TX hex block
         const expandBtn = document.createElement('button');
         expandBtn.className = 'history-item-expand-btn';
@@ -189,7 +218,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
         const txHex = document.createElement('div');
         txHex.className = 'history-item-sig history-item-txhex';
-        txHex.textContent = (item.signedTxHex || item.txHex || '') as string;
+        txHex.textContent = signedHex;
 
         details.appendChild(txLabel);
         details.appendChild(txHex);
@@ -1194,6 +1223,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     elements.themeMode!.value = s.theme as string || C.DEFAULT_SETTINGS.theme;
     elements.rpcMainnet!.value = s.rpcMainnet as string || '';
     elements.rpcTestnet!.value = s.rpcTestnet as string || '';
+    if (elements.explorerMainnet) elements.explorerMainnet.value = s.explorerMainnet as string || '';
+    if (elements.explorerTestnet) elements.explorerTestnet.value = s.explorerTestnet as string || '';
     elements.lockTimeoutMinutes!.value = String(NEURAI_UTILS.normalizeLockTimeoutMinutes(s.lockTimeoutMinutes as number));
     syncPinSettingsUI();
   }
@@ -1233,6 +1264,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
         theme: elements.themeMode!.value || C.DEFAULT_SETTINGS.theme,
         rpcMainnet: normalizeOptionalUrl(elements.rpcMainnet!.value),
         rpcTestnet: normalizeOptionalUrl(elements.rpcTestnet!.value),
+        explorerMainnet: normalizeOptionalExplorerUrl(elements.explorerMainnet?.value || ''),
+        explorerTestnet: normalizeOptionalExplorerUrl(elements.explorerTestnet?.value || ''),
         pinHash,
         lockTimeoutMinutes: NEURAI_UTILS.normalizeLockTimeoutMinutes(elements.lockTimeoutMinutes!.value as unknown as number)
       };
@@ -1499,6 +1532,25 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
     if (parsed.protocol === 'http:' && isLocalhost) return parsed.toString();
     throw new Error('RPC URL must use https:// (http:// only allowed for localhost/127.0.0.1)');
+  }
+
+  function normalizeOptionalExplorerUrl(value: string) {
+    // Explorer URLs may contain a literal `{txid}` placeholder. `new URL()`
+    // URL-encodes it, so we validate with a sentinel and preserve the raw template.
+    const trimmed = (value || '').trim();
+    if (!trimmed) return '';
+    const probe = trimmed.includes('{txid}')
+      ? trimmed.replace('{txid}', 'SENTINEL_TXID_0000')
+      : trimmed;
+    const parsed = new URL(probe);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error('Explorer URL must use https:// or http://');
+    }
+    const isLocalhost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    if (parsed.protocol === 'http:' && !isLocalhost) {
+      throw new Error('Explorer URL must use https:// (http:// only allowed for localhost/127.0.0.1)');
+    }
+    return trimmed;
   }
 
   function toOriginPattern(url: string) {
@@ -1785,63 +1837,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     }));
   }
 
-  function parseRawTransactionInputs(txHex: string) {
-    const bytes = hexToBytes(txHex);
-    let offset = 4;
-    const inputVarInt = readVarInt(bytes, offset);
-    offset += inputVarInt.size;
-
-    const inputs: { txid: string; vout: number; sequence: number }[] = [];
-    for (let i = 0; i < inputVarInt.value; i += 1) {
-      const txidBytes = bytes.slice(offset, offset + 32);
-      offset += 32;
-      const vout = readUInt32LE(bytes, offset);
-      offset += 4;
-      const scriptLen = readVarInt(bytes, offset);
-      offset += scriptLen.size + scriptLen.value;
-      const sequence = readUInt32LE(bytes, offset);
-      offset += 4;
-
-      inputs.push({
-        txid: bytesToHex([...txidBytes].reverse()),
-        vout,
-        sequence
-      });
-    }
-
-    return inputs;
-  }
-
-  function parseRawTransactionOutputs(txHex: string) {
-    const bytes = hexToBytes(txHex);
-    let offset = 4;
-    const inputVarInt = readVarInt(bytes, offset);
-    offset += inputVarInt.size;
-
-    for (let i = 0; i < inputVarInt.value; i += 1) {
-      offset += 32;
-      offset += 4;
-      const scriptLen = readVarInt(bytes, offset);
-      offset += scriptLen.size + scriptLen.value;
-      offset += 4;
-    }
-
-    const outputVarInt = readVarInt(bytes, offset);
-    offset += outputVarInt.size;
-    const outputs: { value: bigint }[] = [];
-
-    for (let i = 0; i < outputVarInt.value; i += 1) {
-      const value = readUInt64LE(bytes, offset);
-      offset += 8;
-      const scriptLen = readVarInt(bytes, offset);
-      offset += scriptLen.size;
-      offset += scriptLen.value;
-      outputs.push({ value });
-    }
-
-    return outputs;
-  }
-
   function calculateRawTransactionFeeSats(txHex: string, enrichedUtxos: { txid: string; vout: number; rawTxHex: string | null }[]) {
     try {
       const inputTotal = (enrichedUtxos || []).reduce((sum, utxo) => {
@@ -1862,49 +1857,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     if (!rawTxHex) return null;
     const output = parseRawTransactionOutputs(rawTxHex)[vout];
     return output ? output.value : null;
-  }
-
-  function hexToBytes(hex: string) {
-    const normalized = String(hex || '').trim();
-    if (!normalized || normalized.length % 2 !== 0) {
-      throw new Error('Invalid raw transaction hex');
-    }
-    const bytes: number[] = [];
-    for (let i = 0; i < normalized.length; i += 2) {
-      bytes.push(parseInt(normalized.slice(i, i + 2), 16));
-    }
-    return bytes;
-  }
-
-  function bytesToHex(bytes: number[]) {
-    return bytes.map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  }
-
-  function readUInt32LE(bytes: number[], offset: number) {
-    return (
-      bytes[offset] |
-      (bytes[offset + 1] << 8) |
-      (bytes[offset + 2] << 16) |
-      (bytes[offset + 3] << 24)
-    ) >>> 0;
-  }
-
-  function readUInt64LE(bytes: number[], offset: number) {
-    const low = BigInt(readUInt32LE(bytes, offset));
-    const high = BigInt(readUInt32LE(bytes, offset + 4));
-    return low + (high << 32n);
-  }
-
-  function readVarInt(bytes: number[], offset: number) {
-    const first = bytes[offset];
-    if (first < 0xfd) return { value: first, size: 1 };
-    if (first === 0xfd) {
-      return { value: bytes[offset + 1] | (bytes[offset + 2] << 8), size: 3 };
-    }
-    if (first === 0xfe) {
-      return { value: readUInt32LE(bytes, offset + 1), size: 5 };
-    }
-    throw new Error('Unsupported varint in raw transaction');
   }
 
   function parseSighashType(sighashType: string) {

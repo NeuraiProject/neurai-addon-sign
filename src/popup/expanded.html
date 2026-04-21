@@ -471,6 +471,18 @@
         </div>
 
         <div class="form-group">
+          <label for="explorerMainnet">Explorer Mainnet URL</label>
+          <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
+          <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="explorerTestnet">Explorer Testnet URL</label>
+          <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/index.html?route=TRANSACTION&id={txid}" spellcheck="false">
+          <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
+        </div>
+
+        <div class="form-group">
           <label for="lockTimeoutMinutes">Auto-lock (minutes)</label>
           <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
         </div>

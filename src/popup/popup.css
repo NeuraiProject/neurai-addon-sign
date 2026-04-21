@@ -735,6 +735,20 @@ body {
   border-color: var(--text-muted);
 }
 
+.history-item-explorer-link {
+  display: inline-block;
+  width: fit-content;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  margin-top: 4px;
+}
+
+.history-item-explorer-link:hover {
+  text-decoration: underline;
+}
+
 .history-item-details {
   display: flex;
   flex-direction: column;
