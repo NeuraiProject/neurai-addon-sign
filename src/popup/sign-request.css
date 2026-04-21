@@ -411,3 +411,26 @@ input {
   word-break: break-all;
   overflow-wrap: anywhere;
 }
+
+/* Covenant cancel section */
+.cancel-refund {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.cancel-refund h3 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.cancel-refund .warn {
+  font-weight: 400;
+  text-transform: none;
+  color: #dc2626;
+  margin-left: 6px;
+}

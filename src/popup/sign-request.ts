@@ -1,5 +1,6 @@
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js';
 
 (function() {
   'use strict';
@@ -34,8 +35,43 @@ import { NEURAI_UTILS } from '../shared/utils.js';
     pinInput: document.getElementById('pinInput') as HTMLInputElement | null,
     errorText: document.getElementById('errorText'),
     rejectBtn: document.getElementById('rejectBtn'),
-    acceptBtn: document.getElementById('acceptBtn') as HTMLButtonElement | null
+    acceptBtn: document.getElementById('acceptBtn') as HTMLButtonElement | null,
+    // Covenant-cancel block
+    covenantCancelBlock: document.getElementById('covenantCancelBlock'),
+    cancelVariant: document.getElementById('cancelVariant'),
+    cancelCovenantRef: document.getElementById('cancelCovenantRef'),
+    cancelAsset: document.getElementById('cancelAsset'),
+    cancelAmount: document.getElementById('cancelAmount'),
+    cancelUnitPrice: document.getElementById('cancelUnitPrice'),
+    cancelSellerLabel: document.getElementById('cancelSellerLabel'),
+    cancelSellerValue: document.getElementById('cancelSellerValue'),
+    cancelSelectorRow: document.getElementById('cancelSelectorRow'),
+    cancelSelectorValue: document.getElementById('cancelSelectorValue'),
+    cancelRefundLabeled: document.getElementById('cancelRefundLabeled'),
+    cancelRefundAddress: document.getElementById('cancelRefundAddress'),
+    cancelRefundBreakdown: document.getElementById('cancelRefundBreakdown'),
+    cancelBreakdownReason: document.getElementById('cancelBreakdownReason'),
+    cancelOutputsList: document.getElementById('cancelOutputsList'),
   };
+
+  function formatAmountRaw(amountRawStr: string): string {
+    // amountRaw is scaled by 1e8; render as decimal with up to 8 fractional digits.
+    try {
+      const raw = BigInt(amountRawStr);
+      const whole = raw / 100000000n;
+      const frac = raw % 100000000n;
+      if (frac === 0n) return whole.toString();
+      const fracStr = frac.toString().padStart(8, '0').replace(/0+$/, '');
+      return `${whole}.${fracStr}`;
+    } catch {
+      return amountRawStr;
+    }
+  }
+
+  function shortHex(hex: string, headN = 10, tailN = 10): string {
+    if (!hex || hex.length <= headN + tailN + 1) return hex || '';
+    return `${hex.slice(0, headN)}…${hex.slice(-tailN)}`;
+  }
 
   let pinRequired = false;
 
@@ -87,9 +123,96 @@ import { NEURAI_UTILS } from '../shared/utils.js';
     pinRequired = !!response.pinRequired;
 
     // Determine signing type and update UI accordingly
+    const isCovenantCancel = request.signType === 'covenant_cancel';
     const isRawTx = request.signType === 'raw_tx';
 
-    if (isRawTx) {
+    if (isCovenantCancel && request.cancelData) {
+      const cd = request.cancelData as CancelApprovalData;
+      elements.pageTitle!.textContent = 'Cancel Covenant Order';
+      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="color:#dc2626"><path d="M10 2a8 8 0 1 0 0 16A8 8 0 0 0 10 2zm3.54 11.46a.75.75 0 1 1-1.06 1.06L10 12.06l-2.48 2.46a.75.75 0 1 1-1.06-1.06L8.94 11 6.46 8.54a.75.75 0 1 1 1.06-1.06L10 9.94l2.48-2.46a.75.75 0 1 1 1.06 1.06L11.06 11l2.48 2.46z"/></svg>`;
+      elements.signTypeBadge!.textContent = 'Cancel partial-fill sell order';
+      elements.signTypeBadge!.className = 'sign-badge sign-badge--rawtx';
+      elements.signTypeValue!.textContent = 'Covenant cancel';
+      elements.signTypeValue!.className = 'sign-type-rawtx';
+      elements.messageCardTitle!.textContent = 'What this does';
+      elements.acceptBtn!.className = 'btn btn-warning';
+
+      // Populate covenant block.
+      elements.covenantCancelBlock!.classList.remove('hidden');
+      elements.cancelVariant!.textContent =
+        cd.variant === 'legacy' ? 'Legacy (ECDSA)' : 'Post-Quantum (ML-DSA-44)';
+      elements.cancelCovenantRef!.textContent = `${cd.covenantTxid}:${cd.covenantVout}`;
+      elements.cancelAsset!.textContent = `${cd.assetName} (tokenId: ${cd.tokenId})`;
+      elements.cancelAmount!.textContent = `${formatAmountRaw(cd.amountRaw)} ${cd.assetName}`;
+      elements.cancelUnitPrice!.textContent = `${formatAmountRaw(cd.unitPriceSats)} XNA`;
+      elements.cancelSellerLabel!.textContent =
+        cd.variant === 'legacy' ? 'Seller PKH' : 'PQ key commitment';
+      elements.cancelSellerValue!.textContent = shortHex(cd.sellerIdentifier, 12, 12);
+      if (cd.txHashSelector !== undefined) {
+        elements.cancelSelectorRow!.classList.remove('hidden');
+        elements.cancelSelectorValue!.textContent = `0x${cd.txHashSelector
+          .toString(16)
+          .padStart(2, '0')}`;
+      }
+
+      if (cd.refund.mode === 'labeled') {
+        elements.cancelRefundLabeled!.classList.remove('hidden');
+        elements.cancelRefundAddress!.textContent =
+          cd.refund.refundAddress ?? `script: ${shortHex(cd.refund.refundScriptHex)}`;
+      } else {
+        elements.cancelRefundBreakdown!.classList.remove('hidden');
+        elements.cancelBreakdownReason!.textContent = `non-standard layout — ${cd.refund.reason}`;
+        cd.refund.outputs.forEach((o: CancelOutputSummary) => {
+          const row = document.createElement('div');
+          row.className = 'utxo-row';
+          const xnaAmount = (o.valueSats / 1e8).toFixed(8).replace(/\.?0+$/, '');
+          row.innerHTML = `
+            <div class="utxo-index">#${o.index}</div>
+            <div class="utxo-fields">
+              <div class="utxo-field"><span>value</span><code>${xnaAmount} XNA</code></div>
+              ${
+                o.asset
+                  ? `<div class="utxo-field"><span>asset</span><code>${o.asset.name} × ${formatAmountRaw(o.asset.amountRaw)}</code></div>`
+                  : ''
+              }
+              <div class="utxo-field"><span>to</span><code>${
+                o.address ?? `script: ${shortHex(o.scriptHex)}`
+              }</code></div>
+            </div>`;
+          elements.cancelOutputsList!.appendChild(row);
+        });
+      }
+
+      // Sighash / inputs rows shared with raw_tx (cosmetic).
+      elements.sighashRow!.classList.remove('hidden');
+      elements.sighashValue!.textContent = request.sighashType || 'ALL';
+      elements.inputsRow!.classList.remove('hidden');
+      elements.inputsValue!.textContent = String(request.inputCount ?? '--');
+
+      // Populate tx hex / utxos section (collapsed by default).
+      elements.txHexValue!.textContent = request.txHex || '(not available)';
+      if (Array.isArray(request.utxos) && request.utxos.length > 0) {
+        request.utxos.forEach((utxo: Record<string, unknown>, i: number) => {
+          const row = document.createElement('div');
+          row.className = 'utxo-row';
+          row.innerHTML = `
+            <div class="utxo-index">#${i + 1}</div>
+            <div class="utxo-fields">
+              <div class="utxo-field"><span>txid</span><code>${utxo.txid || '--'}</code></div>
+              <div class="utxo-field"><span>vout</span><code>${utxo.vout ?? '--'}</code></div>
+              ${utxo.amount != null ? `<div class="utxo-field"><span>amount</span><code>${utxo.amount} XNA</code></div>` : ''}
+            </div>`;
+          elements.utxosList!.appendChild(row);
+        });
+        elements.utxosSection!.classList.remove('hidden');
+      }
+      elements.txDetailsBlock!.classList.remove('hidden');
+      elements.txExpandBtn!.addEventListener('click', () => {
+        const isHidden = elements.txDetails!.classList.toggle('hidden');
+        (elements.txExpandBtn!.firstElementChild as HTMLElement).style.transform = isHidden ? '' : 'rotate(180deg)';
+        elements.txExpandBtn!.childNodes[1].textContent = isHidden ? ' Show transaction details' : ' Hide transaction details';
+      });
+    } else if (isRawTx) {
       elements.pageTitle!.textContent = 'Transaction Signing';
       elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="color:#f59e0b"><path d="M10 2a8 8 0 1 0 0 16A8 8 0 0 0 10 2zm.75 4v4.25l3 1.75-.75 1.25-3.75-2.25V6h1.5z"/><path d="M3.5 10.5h1.25M15.25 10.5H16.5M10 3.5V2.25M10 17.75V16.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
       elements.signTypeBadge!.textContent = 'Raw Transaction';

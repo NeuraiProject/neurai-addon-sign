@@ -96,18 +96,84 @@ export type AccountsRecord = Record<string, WalletData>;
 
 // ── UTXO ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Hint forwarded from a calling dApp to unlock signing of a non-standard
+ * prevout. Currently only the two partial-fill covenant cancel branches are
+ * accepted downstream; every other shape is rejected by the signing lib.
+ * Mirror of the type exported by `@neuraiproject/neurai-sign-transaction`.
+ */
+export type BareScriptSigningHint =
+  | { kind: 'covenant-cancel-legacy' }
+  | { kind: 'covenant-cancel-pq'; txHashSelector: number };
+
 export interface Utxo {
   txid: string;
   vout: number;
   scriptPubKey: string;
   amount: number;
+  /** Optional hint for non-standard prevouts. Passed through to the library. */
+  bareScriptHint?: BareScriptSigningHint;
 }
 
 // ── Signing payloads ──────────────────────────────────────────────────────────
 
+/** One output of the cancel tx as rendered in the approval popup. */
+export interface CancelOutputSummary {
+  index: number;
+  valueSats: number;
+  scriptHex: string;
+  /** Decoded P2PKH / AuthScript v1 address, or null if not decodable. */
+  address: string | null;
+  /** Asset transfer payload parsed from a wrapped output, or null. */
+  asset: { name: string; amountRaw: string } | null;
+}
+
+/**
+ * Summary of the cancel tx refund layout. `mode === 'labeled'` means
+ * output[0] matches the expected shape (same asset + full remanente back
+ * to an address) and the popup shows a "Refund to" row. `mode === 'breakdown'`
+ * means the builder used an unrecognised layout and the popup shows every
+ * output instead.
+ */
+export type CancelRefundSummary =
+  | {
+      mode: 'labeled';
+      refundAddress: string | null;
+      refundScriptHex: string;
+      refundAssetName: string;
+      refundAmountRaw: string;
+    }
+  | {
+      mode: 'breakdown';
+      outputs: CancelOutputSummary[];
+      reason: string;
+    };
+
+/**
+ * Covenant-cancel-specific data attached to the approval payload when
+ * `signType === 'covenant_cancel'`. Populated by the background handler
+ * from `splitAssetWrappedScriptPubKey` + `parsePartialFillScript*` before
+ * the popup is opened.
+ */
+export interface CancelApprovalData {
+  variant: 'legacy' | 'pq';
+  covenantTxid: string;
+  covenantVout: number;
+  covenantScriptHex: string;
+  tokenId: string;
+  unitPriceSats: string;
+  assetName: string;
+  amountRaw: string;
+  /** PKH hex (legacy) or 32-byte commitment hex (pq) of the seller. */
+  sellerIdentifier: string;
+  /** Only set when variant === 'pq'. */
+  txHashSelector?: number;
+  refund: CancelRefundSummary;
+}
+
 /** Payload stored for a pending software-wallet sign request */
 export interface SignApprovalPayload {
-  signType: 'message' | 'raw_tx';
+  signType: 'message' | 'raw_tx' | 'covenant_cancel';
   origin: string;
   message: string;
   address: string;
@@ -116,6 +182,8 @@ export interface SignApprovalPayload {
   inputCount?: number;
   txHex?: string;
   utxos?: Utxo[];
+  /** Only set when signType === 'covenant_cancel'. */
+  cancelData?: CancelApprovalData;
 }
 
 /** Result of the user's approval/rejection decision */

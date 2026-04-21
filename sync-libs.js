@@ -109,6 +109,19 @@ if (fs.existsSync(readerPath)) {
   console.warn('  WARNING: NeuraiReader.js not found in src/lib/');
 }
 
+// 8. NeuraiScripts - copy official browser global bundle from npm
+const neuraiScriptsDest = path.join(DEST, 'NeuraiScripts.js');
+try {
+  const scriptsSource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-scripts', 'dist', 'NeuraiScripts.global.js');
+  copyFile(scriptsSource, neuraiScriptsDest);
+  const size = (fs.statSync(neuraiScriptsDest).size / 1024).toFixed(1);
+  console.log(`  NeuraiScripts.js (${size} KB) - copied from npm global bundle`);
+} catch (err) {
+  console.warn('  WARNING: Failed to copy NeuraiScripts.js browser bundle');
+  console.warn('  Error:', err.message);
+  console.warn('  The existing src/lib/NeuraiScripts.js will be kept (if any).');
+}
+
   console.log('\nDone.');
 }
 

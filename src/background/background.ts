@@ -6,11 +6,16 @@ import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
 import { assertSighashSupported, UnsupportedSighashError, type WalletSigningKind } from '../shared/sighash.js';
 import { isTxComplete } from '../shared/completeness.js';
+import { parseRawTransactionOutputs } from '../shared/parse-raw-tx.js';
+import { decodePrefixAddress } from '../shared/script-to-address.js';
 import { resolvePrivateKeysForSigning } from './signing-keys.js';
 import type {
   WalletData,
   WalletSettings,
   AccountsRecord,
+  CancelApprovalData,
+  CancelOutputSummary,
+  CancelRefundSummary,
   SignApprovalPayload,
   SignApprovalResult,
   HwSignPayload,
@@ -542,17 +547,48 @@ async function signRawTxForPage(
 
   const origin = sender?.url ? new URL(sender.url).origin : 'Unknown site';
 
-  const approval = await requestSignatureApproval({
-    signType: 'raw_tx',
-    origin,
-    message: 'WARNING: This operation signs a raw transaction with your private key.\nOnly approve if you initiated this action from the Neurai Swap marketplace.',
-    address: walletData!.address,
-    network,
-    sighashType: sighash,
-    inputCount: (utxos || []).length,
-    txHex,
-    utxos: utxos || [],
-  });
+  // Detect covenant-cancel hint on any input. If found on input[i], parse
+  // the covenant prevout + refund layout and switch the approval popup to
+  // the dedicated `covenant_cancel` template. Any other inputs in the tx
+  // are still signed normally (for an XNA fee input, for example).
+  const hintedUtxo = (utxos || []).find((u) => u && u.bareScriptHint);
+  let cancelData: CancelApprovalData | null = null;
+  if (hintedUtxo) {
+    try {
+      cancelData = await buildCancelApproval(hintedUtxo, txHex, network);
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  }
+
+  const approval = await requestSignatureApproval(
+    cancelData
+      ? {
+          signType: 'covenant_cancel',
+          origin,
+          message:
+            'Approve this cancellation to retrieve the asset from your still-open partial-fill sell order. The tokens return to your wallet and the order is closed on-chain.',
+          address: walletData!.address,
+          network,
+          sighashType: sighash,
+          inputCount: (utxos || []).length,
+          txHex,
+          utxos: utxos || [],
+          cancelData,
+        }
+      : {
+          signType: 'raw_tx',
+          origin,
+          message:
+            'WARNING: This operation signs a raw transaction with your private key.\nOnly approve if you initiated this action from the Neurai Swap marketplace.',
+          address: walletData!.address,
+          network,
+          sighashType: sighash,
+          inputCount: (utxos || []).length,
+          txHex,
+          utxos: utxos || [],
+        }
+  );
 
   if (!approval?.approved) {
     return { error: approval?.error || 'User rejected raw transaction signing' };
@@ -574,8 +610,10 @@ async function signRawTxForPage(
 
     // Translate UTXOs to the library's expected shape. Single-address scope:
     // every UTXO is assumed to belong to the active wallet's address
-    // (see plan-adaptacion-addon-sign-v2.md §1.5).
-    const signTxUtxos = (utxos || []).map(u => ({
+    // (see plan-adaptacion-addon-sign-v2.md §1.5). `bareScriptHint` is
+    // forwarded verbatim so the library dispatches to its covenant-cancel
+    // branch instead of rejecting the prevout.
+    const signTxUtxos = (utxos || []).map((u) => ({
       address: walletData!.address,
       assetName: 'XNA',
       txid: u.txid,
@@ -583,6 +621,7 @@ async function signRawTxForPage(
       script: u.scriptPubKey,
       satoshis: Math.round(u.amount * 1e8),
       value: Math.round(u.amount * 1e8),
+      ...(u.bareScriptHint ? { bareScriptHint: u.bareScriptHint } : {}),
     }));
 
     const signedHex: string = NeuraiSignTransaction.sign(
@@ -631,6 +670,197 @@ async function signRawTxForPage(
   } catch (error) {
     return { error: (error as Error).message };
   }
+}
+
+/**
+ * Parse a covenant-cancel UTXO + its spending tx's output layout and build
+ * the data shown in the dedicated approval popup. Rejects upfront (throws)
+ * when the prevout is not a valid asset-wrapped partial-fill covenant.
+ *
+ * Per plan-frente-b-covenant-cancel-v2.md §6.1:
+ *   - split asset wrapper   → reject on failure
+ *   - parsePartialFillScript → reject on failure
+ *   - layout(output[0]) check → "labeled" if matches, "breakdown" if not
+ *   - refund address decode → null on unknown shape (popup shows hex)
+ *
+ * Key-match validation (PKH / commitment) is intentionally delegated to
+ * the signing library (`@neuraiproject/neurai-sign-transaction`), which
+ * rejects with a descriptive error if the wallet's key does not match
+ * the covenant's sellerPubKeyHash. Pre-validating here would require
+ * duplicating hash160 into the addon; the library's late rejection is
+ * acceptable because the DEX normally builds the tx with the same wallet
+ * that created the covenant.
+ */
+async function buildCancelApproval(
+  utxo: Utxo,
+  txHex: string,
+  network: WalletNetwork | string
+): Promise<CancelApprovalData> {
+  const hint = utxo.bareScriptHint;
+  if (!hint) {
+    throw new Error('buildCancelApproval called on a utxo without bareScriptHint');
+  }
+
+  const scripts = globalThis.NeuraiScripts;
+  if (!scripts || typeof scripts.splitAssetWrappedScriptPubKey !== 'function') {
+    throw new Error(
+      'NeuraiScripts global not loaded — the covenant-cancel flow requires lib/NeuraiScripts.js'
+    );
+  }
+
+  const split = scripts.splitAssetWrappedScriptPubKey(utxo.scriptPubKey);
+  if (!split.assetTransfer) {
+    throw new Error(
+      `covenant-cancel prevout ${utxo.txid}:${utxo.vout} is not asset-wrapped`
+    );
+  }
+
+  let variant: 'legacy' | 'pq';
+  let tokenId: string;
+  let unitPriceSats: bigint;
+  let sellerIdentifier: string;
+  let txHashSelector: number | undefined;
+
+  if (hint.kind === 'covenant-cancel-legacy') {
+    let parsed: NeuraiScriptsParsedPartialFillOrder;
+    try {
+      parsed = scripts.parsePartialFillScript(split.prefixHex);
+    } catch (err) {
+      throw new Error(
+        `covenant-cancel-legacy prefix is not a valid partial-fill covenant: ${(err as Error).message}`
+      );
+    }
+    variant = 'legacy';
+    tokenId = parsed.tokenId;
+    unitPriceSats = parsed.unitPriceSats;
+    sellerIdentifier = Array.from(parsed.sellerPubKeyHash)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  } else {
+    // kind === 'covenant-cancel-pq' — popup renders the info but the
+    // signing library still rejects the hint until v1.4.0 (handled by
+    // the library, surfaced to the DEX as a post-approval error).
+    let parsed: NeuraiScriptsParsedPartialFillOrderPQ;
+    try {
+      parsed = scripts.parsePartialFillScriptPQ(split.prefixHex);
+    } catch (err) {
+      throw new Error(
+        `covenant-cancel-pq prefix is not a valid PQ partial-fill covenant: ${(err as Error).message}`
+      );
+    }
+    variant = 'pq';
+    tokenId = parsed.tokenId;
+    unitPriceSats = parsed.unitPriceSats;
+    txHashSelector = parsed.txHashSelector;
+    sellerIdentifier = Array.from(parsed.pubKeyCommitment)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  // Parse the tx outputs and classify the refund layout.
+  const parsedOutputs = parseRawTransactionOutputs(txHex);
+  const refund = await classifyRefundLayout(
+    parsedOutputs,
+    tokenId,
+    split.assetTransfer.amountRaw,
+    network
+  );
+
+  return {
+    variant,
+    covenantTxid: utxo.txid,
+    covenantVout: utxo.vout,
+    covenantScriptHex: utxo.scriptPubKey,
+    tokenId,
+    unitPriceSats: unitPriceSats.toString(),
+    assetName: split.assetTransfer.assetName,
+    amountRaw: split.assetTransfer.amountRaw.toString(),
+    sellerIdentifier,
+    ...(txHashSelector !== undefined ? { txHashSelector } : {}),
+    refund,
+  };
+}
+
+async function classifyRefundLayout(
+  outputs: Array<{ value: bigint; scriptHex: string }>,
+  expectedTokenId: string,
+  expectedAmountRaw: bigint,
+  network: WalletNetwork | string
+): Promise<CancelRefundSummary> {
+  const scripts = globalThis.NeuraiScripts;
+  if (outputs.length === 0) {
+    return { mode: 'breakdown', outputs: [], reason: 'transaction has no outputs' };
+  }
+
+  const first = outputs[0];
+  let firstSplit;
+  try {
+    firstSplit = scripts.splitAssetWrappedScriptPubKey(first.scriptHex);
+  } catch (err) {
+    return await renderBreakdown(outputs, network, `output[0] is malformed: ${(err as Error).message}`);
+  }
+
+  if (!firstSplit.assetTransfer) {
+    return await renderBreakdown(outputs, network, 'output[0] is not asset-wrapped');
+  }
+  if (firstSplit.assetTransfer.assetName !== expectedTokenId) {
+    return await renderBreakdown(
+      outputs,
+      network,
+      `output[0] asset ${firstSplit.assetTransfer.assetName} does not match covenant tokenId ${expectedTokenId}`
+    );
+  }
+  if (firstSplit.assetTransfer.amountRaw !== expectedAmountRaw) {
+    return await renderBreakdown(
+      outputs,
+      network,
+      `output[0] amount ${firstSplit.assetTransfer.amountRaw} does not match remanente ${expectedAmountRaw}`
+    );
+  }
+
+  const refundAddress = await decodePrefixAddress(firstSplit.prefixHex, network);
+  return {
+    mode: 'labeled',
+    refundAddress,
+    refundScriptHex: firstSplit.prefixHex,
+    refundAssetName: firstSplit.assetTransfer.assetName,
+    refundAmountRaw: firstSplit.assetTransfer.amountRaw.toString(),
+  };
+}
+
+async function renderBreakdown(
+  outputs: Array<{ value: bigint; scriptHex: string }>,
+  network: WalletNetwork | string,
+  reason: string
+): Promise<CancelRefundSummary> {
+  const scripts = globalThis.NeuraiScripts;
+  const summaries: CancelOutputSummary[] = [];
+  for (let i = 0; i < outputs.length; i += 1) {
+    const out = outputs[i];
+    let prefixHex = out.scriptHex;
+    let asset: CancelOutputSummary['asset'] = null;
+    try {
+      const s = scripts.splitAssetWrappedScriptPubKey(out.scriptHex);
+      prefixHex = s.prefixHex;
+      if (s.assetTransfer) {
+        asset = {
+          name: s.assetTransfer.assetName,
+          amountRaw: s.assetTransfer.amountRaw.toString(),
+        };
+      }
+    } catch {
+      // Keep scriptHex as-is; no asset info.
+    }
+    const addr = await decodePrefixAddress(prefixHex, network);
+    summaries.push({
+      index: i,
+      valueSats: Number(out.value),
+      scriptHex: out.scriptHex,
+      address: addr,
+      asset,
+    });
+  }
+  return { mode: 'breakdown', outputs: summaries, reason };
 }
 
 async function requestSignatureApproval(payload: SignApprovalPayload): Promise<SignApprovalResult> {

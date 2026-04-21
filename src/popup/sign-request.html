@@ -50,6 +50,51 @@
       <pre id="messageValue">--</pre>
     </section>
 
+    <section class="card hidden" id="covenantCancelBlock">
+      <h2>Covenant cancel details</h2>
+      <div class="row">
+        <span>Variant</span>
+        <strong id="cancelVariant">--</strong>
+      </div>
+      <div class="row">
+        <span>Covenant UTXO</span>
+        <code id="cancelCovenantRef">--</code>
+      </div>
+      <div class="row">
+        <span>Asset</span>
+        <strong id="cancelAsset">--</strong>
+      </div>
+      <div class="row">
+        <span>Remaining</span>
+        <strong id="cancelAmount">--</strong>
+      </div>
+      <div class="row">
+        <span>Price per unit</span>
+        <strong id="cancelUnitPrice">--</strong>
+      </div>
+      <div class="row" id="cancelSellerRow">
+        <span id="cancelSellerLabel">Seller PKH</span>
+        <code id="cancelSellerValue">--</code>
+      </div>
+      <div class="row hidden" id="cancelSelectorRow">
+        <span>TX-hash selector</span>
+        <code id="cancelSelectorValue">--</code>
+      </div>
+
+      <div id="cancelRefundLabeled" class="cancel-refund hidden">
+        <h3>Refund</h3>
+        <div class="row">
+          <span>Refund to</span>
+          <code id="cancelRefundAddress">--</code>
+        </div>
+      </div>
+
+      <div id="cancelRefundBreakdown" class="cancel-refund hidden">
+        <h3>Output breakdown <span class="warn" id="cancelBreakdownReason"></span></h3>
+        <div id="cancelOutputsList"></div>
+      </div>
+    </section>
+
     <section class="card hidden" id="txDetailsBlock">
       <button class="tx-expand-btn" id="txExpandBtn" type="button">
         <svg id="txExpandChevron" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 8.5L1.5 4h9L6 8.5z"/></svg>

@@ -5875,16 +5875,16 @@
 		return bs58;
 	}
 
-	var base$1;
+	var base$2;
 	var hasRequiredBase;
 
 	function requireBase () {
-		if (hasRequiredBase) return base$1;
+		if (hasRequiredBase) return base$2;
 		hasRequiredBase = 1;
 
 		var base58 = requireBs58();
 
-		base$1 = function (checksumFn) {
+		base$2 = function (checksumFn) {
 		  // Encode a buffer as a base58-check encoded string
 		  function encode (payload) {
 		    var payloadU8 = Uint8Array.from(payload);
@@ -5930,7 +5930,7 @@
 		    decodeUnsafe: decodeUnsafe
 		  }
 		};
-		return base$1;
+		return base$2;
 	}
 
 	var bs58check;
@@ -6310,15 +6310,15 @@
 
 	var p2wpkh = {};
 
-	var dist$1 = {};
+	var dist$2 = {};
 
-	var hasRequiredDist$1;
+	var hasRequiredDist$2;
 
-	function requireDist$1 () {
-		if (hasRequiredDist$1) return dist$1;
-		hasRequiredDist$1 = 1;
-		Object.defineProperty(dist$1, "__esModule", { value: true });
-		dist$1.bech32m = dist$1.bech32 = void 0;
+	function requireDist$2 () {
+		if (hasRequiredDist$2) return dist$2;
+		hasRequiredDist$2 = 1;
+		Object.defineProperty(dist$2, "__esModule", { value: true });
+		dist$2.bech32m = dist$2.bech32 = void 0;
 		const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 		const ALPHABET_MAP = {};
 		for (let z = 0; z < ALPHABET.length; z++) {
@@ -6484,9 +6484,9 @@
 		        fromWords,
 		    };
 		}
-		dist$1.bech32 = getLibraryFromEncoding('bech32');
-		dist$1.bech32m = getLibraryFromEncoding('bech32m');
-		return dist$1;
+		dist$2.bech32 = getLibraryFromEncoding('bech32');
+		dist$2.bech32m = getLibraryFromEncoding('bech32m');
+		return dist$2;
 	}
 
 	var hasRequiredP2wpkh;
@@ -6501,7 +6501,7 @@
 		const bscript = requireScript();
 		const types_1 = requireTypes();
 		const lazy = requireLazy();
-		const bech32_1 = requireDist$1();
+		const bech32_1 = requireDist$2();
 		const OPS = bscript.OPS;
 		const EMPTY_BUFFER = bufferExports.Buffer.alloc(0);
 		// witness: {signature} {pubKey}
@@ -6650,7 +6650,7 @@
 		const bscript = requireScript();
 		const types_1 = requireTypes();
 		const lazy = requireLazy();
-		const bech32_1 = requireDist$1();
+		const bech32_1 = requireDist$2();
 		const OPS = bscript.OPS;
 		const EMPTY_BUFFER = bufferExports.Buffer.alloc(0);
 		function chunkHasUncompressedPubkey(chunk) {
@@ -7496,7 +7496,7 @@
 		const ecc_lib_1 = requireEcc_lib();
 		const bip341_1 = requireBip341();
 		const lazy = requireLazy();
-		const bech32_1 = requireDist$1();
+		const bech32_1 = requireDist$2();
 		const address_1 = requireAddress();
 		const OPS = bscript.OPS;
 		const TAPROOT_WITNESS_VERSION = 0x01;
@@ -7877,7 +7877,7 @@
 		const payments = requirePayments();
 		const bscript = requireScript();
 		const types_1 = requireTypes();
-		const bech32_1 = requireDist$1();
+		const bech32_1 = requireDist$2();
 		const bs58check = requireBs58check();
 		const FUTURE_SEGWIT_MAX_SIZE = 40;
 		const FUTURE_SEGWIT_MIN_SIZE = 2;
@@ -14562,7 +14562,7 @@
 	// Copyright (c) 2014-2018 The Bitcoin Core developers (base58.cpp)
 	// Distributed under the MIT software license, see the accompanying
 	// file LICENSE or http://www.opensource.org/licenses/mit-license.php.
-	function base (ALPHABET) {
+	function base$1 (ALPHABET) {
 	  if (ALPHABET.length >= 255) { throw new TypeError('Alphabet too long') }
 	  const BASE_MAP = new Uint8Array(256);
 	  for (let j = 0; j < BASE_MAP.length; j++) {
@@ -14681,8 +14681,8 @@
 	  }
 	}
 
-	var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-	var base58 = base(ALPHABET);
+	var ALPHABET$1 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+	var base58 = base$1(ALPHABET$1);
 
 	function bs58checkBase (checksumFn) {
 	    // Encode a buffer as a base58-check encoded string
@@ -15247,7 +15247,7 @@
 	  };
 	}
 
-	var dist = {};
+	var dist$1 = {};
 
 	var secp256k1 = {};
 
@@ -18848,11 +18848,11 @@
 		return utils;
 	}
 
-	var hasRequiredDist;
+	var hasRequiredDist$1;
 
-	function requireDist () {
-		if (hasRequiredDist) return dist;
-		hasRequiredDist = 1;
+	function requireDist$1 () {
+		if (hasRequiredDist$1) return dist$1;
+		hasRequiredDist$1 = 1;
 
 		var secp256k1 = /*@__PURE__*/ requireSecp256k1();
 		var mod = /*@__PURE__*/ requireModular();
@@ -19298,31 +19298,31 @@
 		  return secp256k1.schnorr.verify(signature, h, Q);
 		}
 
-		dist.isPoint = isPoint;
-		dist.isPointCompressed = isPointCompressed;
-		dist.isPrivate = isPrivate;
-		dist.isXOnlyPoint = isXOnlyPoint;
-		dist.pointAdd = pointAdd;
-		dist.pointAddScalar = pointAddScalar;
-		dist.pointCompress = pointCompress;
-		dist.pointFromScalar = pointFromScalar;
-		dist.pointMultiply = pointMultiply;
-		dist.privateAdd = privateAdd;
-		dist.privateNegate = privateNegate;
-		dist.privateSub = privateSub;
-		dist.recover = recover;
-		dist.sign = sign;
-		dist.signRecoverable = signRecoverable;
-		dist.signSchnorr = signSchnorr;
-		dist.verify = verify;
-		dist.verifySchnorr = verifySchnorr;
-		dist.xOnlyPointAddTweak = xOnlyPointAddTweak;
-		dist.xOnlyPointFromPoint = xOnlyPointFromPoint;
-		dist.xOnlyPointFromScalar = xOnlyPointFromScalar;
-		return dist;
+		dist$1.isPoint = isPoint;
+		dist$1.isPointCompressed = isPointCompressed;
+		dist$1.isPrivate = isPrivate;
+		dist$1.isXOnlyPoint = isXOnlyPoint;
+		dist$1.pointAdd = pointAdd;
+		dist$1.pointAddScalar = pointAddScalar;
+		dist$1.pointCompress = pointCompress;
+		dist$1.pointFromScalar = pointFromScalar;
+		dist$1.pointMultiply = pointMultiply;
+		dist$1.privateAdd = privateAdd;
+		dist$1.privateNegate = privateNegate;
+		dist$1.privateSub = privateSub;
+		dist$1.recover = recover;
+		dist$1.sign = sign;
+		dist$1.signRecoverable = signRecoverable;
+		dist$1.signSchnorr = signSchnorr;
+		dist$1.verify = verify;
+		dist$1.verifySchnorr = verifySchnorr;
+		dist$1.xOnlyPointAddTweak = xOnlyPointAddTweak;
+		dist$1.xOnlyPointFromPoint = xOnlyPointFromPoint;
+		dist$1.xOnlyPointFromScalar = xOnlyPointFromScalar;
+		return dist$1;
 	}
 
-	var distExports = requireDist();
+	var distExports = requireDist$1();
 	var index = /*@__PURE__*/getDefaultExportFromCjs(distExports);
 
 	var ecc = /*#__PURE__*/_mergeNamespaces({
@@ -20925,6 +20925,812 @@
 	    securityLevel: 128,
 	}))();
 
+	/**
+	 * Minimal byte helpers. A subset of what `neurai-create-transaction` exposes,
+	 * duplicated here to keep this package free of runtime coupling beyond its
+	 * declared `dependencies` field. All sizes are little-endian, per Neurai.
+	 */
+	function ensureHex(hex, label = 'hex') {
+	    const normalized = String(hex || '').trim().toLowerCase();
+	    if (!/^[0-9a-f]*$/.test(normalized) || normalized.length % 2 !== 0) {
+	        throw new Error(`Invalid ${label}: expected even-length hex string`);
+	    }
+	    return normalized;
+	}
+	function hexToBytes(hex) {
+	    const normalized = ensureHex(hex);
+	    const bytes = new Uint8Array(normalized.length / 2);
+	    for (let i = 0; i < normalized.length; i += 2) {
+	        bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
+	    }
+	    return bytes;
+	}
+	function bytesToHex(bytes) {
+	    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+	}
+	function bytesEqual(a, b) {
+	    if (a.length !== b.length)
+	        return false;
+	    for (let i = 0; i < a.length; i += 1) {
+	        if (a[i] !== b[i])
+	            return false;
+	    }
+	    return true;
+	}
+
+	/**
+	 * Opcode constants for Neurai Script.
+	 *
+	 * Covers:
+	 *  - Classic Script opcodes used by covenants.
+	 *  - New opcodes activated in the `DePIN-Test` branch (BIP 119, BIP 347 and
+	 *    Neurai-specific introspection / asset / arithmetic additions).
+	 *
+	 * Authority: `src/script/script.h` (enum `opcodetype`) in the Neurai repo.
+	 * Reference: `doc/new-opcodes-depin-branch.md`.
+	 *
+	 * Disabled in consensus and intentionally omitted: OP_SUBSTR, OP_LEFT,
+	 * OP_RIGHT, OP_INVERT, OP_AND, OP_OR, OP_XOR, OP_2MUL, OP_2DIV, OP_LSHIFT,
+	 * OP_RSHIFT. Also omitted: OP_VER / OP_VERIF / OP_VERNOTIF (reserved), the
+	 * template-matching pseudo-opcodes (OP_SMALLINTEGER, OP_PUBKEYS,
+	 * OP_PUBKEYHASH, OP_PUBKEY) and OP_INVALIDOPCODE.
+	 */
+	// ---------- Push values ----------
+	const OP_0 = 0x00;
+	const OP_PUSHDATA1 = 0x4c;
+	const OP_PUSHDATA2 = 0x4d;
+	const OP_PUSHDATA4 = 0x4e;
+	const OP_1 = 0x51;
+	const OP_2 = 0x52;
+	const OP_3 = 0x53;
+	const OP_IF = 0x63;
+	const OP_ELSE = 0x67;
+	const OP_ENDIF = 0x68;
+	const OP_VERIFY = 0x69;
+	const OP_DROP = 0x75;
+	const OP_DUP = 0x76;
+	const OP_OVER = 0x78;
+	const OP_SWAP = 0x7c;
+	const OP_EQUALVERIFY = 0x88;
+	const OP_SUB = 0x94;
+	const OP_MUL = 0x95;
+	const OP_GREATERTHANOREQUAL = 0xa2;
+	const OP_HASH160 = 0xa9;
+	const OP_CHECKSIG = 0xac;
+	const OP_TXFIELD = 0xb6;
+	const OP_OUTPUTVALUE = 0xcc;
+	const OP_OUTPUTSCRIPT = 0xcd;
+	// ---------- Asset introspection (DePIN-Test) ----------
+	const OP_OUTPUTASSETFIELD = 0xce;
+	const OP_INPUTASSETFIELD = 0xcf;
+	const OP_XNA_ASSET = 0xc0;
+
+	// base-x encoding / decoding
+	// Copyright (c) 2018 base-x contributors
+	// Copyright (c) 2014-2018 The Bitcoin Core developers (base58.cpp)
+	// Distributed under the MIT software license, see the accompanying
+	// file LICENSE or http://www.opensource.org/licenses/mit-license.php.
+	function base (ALPHABET) {
+	  if (ALPHABET.length >= 255) { throw new TypeError('Alphabet too long') }
+	  const BASE_MAP = new Uint8Array(256);
+	  for (let j = 0; j < BASE_MAP.length; j++) {
+	    BASE_MAP[j] = 255;
+	  }
+	  for (let i = 0; i < ALPHABET.length; i++) {
+	    const x = ALPHABET.charAt(i);
+	    const xc = x.charCodeAt(0);
+	    if (BASE_MAP[xc] !== 255) { throw new TypeError(x + ' is ambiguous') }
+	    BASE_MAP[xc] = i;
+	  }
+	  const BASE = ALPHABET.length;
+	  const LEADER = ALPHABET.charAt(0);
+	  const FACTOR = Math.log(BASE) / Math.log(256); // log(BASE) / log(256), rounded up
+	  const iFACTOR = Math.log(256) / Math.log(BASE); // log(256) / log(BASE), rounded up
+	  function encode (source) {
+	    // eslint-disable-next-line no-empty
+	    if (source instanceof Uint8Array) ; else if (ArrayBuffer.isView(source)) {
+	      source = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+	    } else if (Array.isArray(source)) {
+	      source = Uint8Array.from(source);
+	    }
+	    if (!(source instanceof Uint8Array)) { throw new TypeError('Expected Uint8Array') }
+	    if (source.length === 0) { return '' }
+	    // Skip & count leading zeroes.
+	    let zeroes = 0;
+	    let length = 0;
+	    let pbegin = 0;
+	    const pend = source.length;
+	    while (pbegin !== pend && source[pbegin] === 0) {
+	      pbegin++;
+	      zeroes++;
+	    }
+	    // Allocate enough space in big-endian base58 representation.
+	    const size = ((pend - pbegin) * iFACTOR + 1) >>> 0;
+	    const b58 = new Uint8Array(size);
+	    // Process the bytes.
+	    while (pbegin !== pend) {
+	      let carry = source[pbegin];
+	      // Apply "b58 = b58 * 256 + ch".
+	      let i = 0;
+	      for (let it1 = size - 1; (carry !== 0 || i < length) && (it1 !== -1); it1--, i++) {
+	        carry += (256 * b58[it1]) >>> 0;
+	        b58[it1] = (carry % BASE) >>> 0;
+	        carry = (carry / BASE) >>> 0;
+	      }
+	      if (carry !== 0) { throw new Error('Non-zero carry') }
+	      length = i;
+	      pbegin++;
+	    }
+	    // Skip leading zeroes in base58 result.
+	    let it2 = size - length;
+	    while (it2 !== size && b58[it2] === 0) {
+	      it2++;
+	    }
+	    // Translate the result into a string.
+	    let str = LEADER.repeat(zeroes);
+	    for (; it2 < size; ++it2) { str += ALPHABET.charAt(b58[it2]); }
+	    return str
+	  }
+	  function decodeUnsafe (source) {
+	    if (typeof source !== 'string') { throw new TypeError('Expected String') }
+	    if (source.length === 0) { return new Uint8Array() }
+	    let psz = 0;
+	    // Skip and count leading '1's.
+	    let zeroes = 0;
+	    let length = 0;
+	    while (source[psz] === LEADER) {
+	      zeroes++;
+	      psz++;
+	    }
+	    // Allocate enough space in big-endian base256 representation.
+	    const size = (((source.length - psz) * FACTOR) + 1) >>> 0; // log(58) / log(256), rounded up.
+	    const b256 = new Uint8Array(size);
+	    // Process the characters.
+	    while (psz < source.length) {
+	      // Find code of next character
+	      const charCode = source.charCodeAt(psz);
+	      // Base map can not be indexed using char code
+	      if (charCode > 255) { return }
+	      // Decode character
+	      let carry = BASE_MAP[charCode];
+	      // Invalid character
+	      if (carry === 255) { return }
+	      let i = 0;
+	      for (let it3 = size - 1; (carry !== 0 || i < length) && (it3 !== -1); it3--, i++) {
+	        carry += (BASE * b256[it3]) >>> 0;
+	        b256[it3] = (carry % 256) >>> 0;
+	        carry = (carry / 256) >>> 0;
+	      }
+	      if (carry !== 0) { throw new Error('Non-zero carry') }
+	      length = i;
+	      psz++;
+	    }
+	    // Skip leading zeroes in b256.
+	    let it4 = size - length;
+	    while (it4 !== size && b256[it4] === 0) {
+	      it4++;
+	    }
+	    const vch = new Uint8Array(zeroes + (size - it4));
+	    let j = zeroes;
+	    while (it4 !== size) {
+	      vch[j++] = b256[it4++];
+	    }
+	    return vch
+	  }
+	  function decode (string) {
+	    const buffer = decodeUnsafe(string);
+	    if (buffer) { return buffer }
+	    throw new Error('Non-base' + BASE + ' character')
+	  }
+	  return {
+	    encode,
+	    decodeUnsafe,
+	    decode
+	  }
+	}
+
+	var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+	base(ALPHABET);
+
+	var dist = {};
+
+	var hasRequiredDist;
+
+	function requireDist () {
+		if (hasRequiredDist) return dist;
+		hasRequiredDist = 1;
+		Object.defineProperty(dist, "__esModule", { value: true });
+		dist.bech32m = dist.bech32 = void 0;
+		const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+		const ALPHABET_MAP = {};
+		for (let z = 0; z < ALPHABET.length; z++) {
+		    const x = ALPHABET.charAt(z);
+		    ALPHABET_MAP[x] = z;
+		}
+		function polymodStep(pre) {
+		    const b = pre >> 25;
+		    return (((pre & 0x1ffffff) << 5) ^
+		        (-((b >> 0) & 1) & 0x3b6a57b2) ^
+		        (-((b >> 1) & 1) & 0x26508e6d) ^
+		        (-((b >> 2) & 1) & 0x1ea119fa) ^
+		        (-((b >> 3) & 1) & 0x3d4233dd) ^
+		        (-((b >> 4) & 1) & 0x2a1462b3));
+		}
+		function prefixChk(prefix) {
+		    let chk = 1;
+		    for (let i = 0; i < prefix.length; ++i) {
+		        const c = prefix.charCodeAt(i);
+		        if (c < 33 || c > 126)
+		            return 'Invalid prefix (' + prefix + ')';
+		        chk = polymodStep(chk) ^ (c >> 5);
+		    }
+		    chk = polymodStep(chk);
+		    for (let i = 0; i < prefix.length; ++i) {
+		        const v = prefix.charCodeAt(i);
+		        chk = polymodStep(chk) ^ (v & 0x1f);
+		    }
+		    return chk;
+		}
+		function convert(data, inBits, outBits, pad) {
+		    let value = 0;
+		    let bits = 0;
+		    const maxV = (1 << outBits) - 1;
+		    const result = [];
+		    for (let i = 0; i < data.length; ++i) {
+		        value = (value << inBits) | data[i];
+		        bits += inBits;
+		        while (bits >= outBits) {
+		            bits -= outBits;
+		            result.push((value >> bits) & maxV);
+		        }
+		    }
+		    if (pad) {
+		        if (bits > 0) {
+		            result.push((value << (outBits - bits)) & maxV);
+		        }
+		    }
+		    else {
+		        if (bits >= inBits)
+		            return 'Excess padding';
+		        if ((value << (outBits - bits)) & maxV)
+		            return 'Non-zero padding';
+		    }
+		    return result;
+		}
+		function toWords(bytes) {
+		    return convert(bytes, 8, 5, true);
+		}
+		function fromWordsUnsafe(words) {
+		    const res = convert(words, 5, 8, false);
+		    if (Array.isArray(res))
+		        return res;
+		}
+		function fromWords(words) {
+		    const res = convert(words, 5, 8, false);
+		    if (Array.isArray(res))
+		        return res;
+		    throw new Error(res);
+		}
+		function getLibraryFromEncoding(encoding) {
+		    let ENCODING_CONST;
+		    if (encoding === 'bech32') {
+		        ENCODING_CONST = 1;
+		    }
+		    else {
+		        ENCODING_CONST = 0x2bc830a3;
+		    }
+		    function encode(prefix, words, LIMIT) {
+		        LIMIT = LIMIT || 90;
+		        if (prefix.length + 7 + words.length > LIMIT)
+		            throw new TypeError('Exceeds length limit');
+		        prefix = prefix.toLowerCase();
+		        // determine chk mod
+		        let chk = prefixChk(prefix);
+		        if (typeof chk === 'string')
+		            throw new Error(chk);
+		        let result = prefix + '1';
+		        for (let i = 0; i < words.length; ++i) {
+		            const x = words[i];
+		            if (x >> 5 !== 0)
+		                throw new Error('Non 5-bit word');
+		            chk = polymodStep(chk) ^ x;
+		            result += ALPHABET.charAt(x);
+		        }
+		        for (let i = 0; i < 6; ++i) {
+		            chk = polymodStep(chk);
+		        }
+		        chk ^= ENCODING_CONST;
+		        for (let i = 0; i < 6; ++i) {
+		            const v = (chk >> ((5 - i) * 5)) & 0x1f;
+		            result += ALPHABET.charAt(v);
+		        }
+		        return result;
+		    }
+		    function __decode(str, LIMIT) {
+		        LIMIT = LIMIT || 90;
+		        if (str.length < 8)
+		            return str + ' too short';
+		        if (str.length > LIMIT)
+		            return 'Exceeds length limit';
+		        // don't allow mixed case
+		        const lowered = str.toLowerCase();
+		        const uppered = str.toUpperCase();
+		        if (str !== lowered && str !== uppered)
+		            return 'Mixed-case string ' + str;
+		        str = lowered;
+		        const split = str.lastIndexOf('1');
+		        if (split === -1)
+		            return 'No separator character for ' + str;
+		        if (split === 0)
+		            return 'Missing prefix for ' + str;
+		        const prefix = str.slice(0, split);
+		        const wordChars = str.slice(split + 1);
+		        if (wordChars.length < 6)
+		            return 'Data too short';
+		        let chk = prefixChk(prefix);
+		        if (typeof chk === 'string')
+		            return chk;
+		        const words = [];
+		        for (let i = 0; i < wordChars.length; ++i) {
+		            const c = wordChars.charAt(i);
+		            const v = ALPHABET_MAP[c];
+		            if (v === undefined)
+		                return 'Unknown character ' + c;
+		            chk = polymodStep(chk) ^ v;
+		            // not in the checksum?
+		            if (i + 6 >= wordChars.length)
+		                continue;
+		            words.push(v);
+		        }
+		        if (chk !== ENCODING_CONST)
+		            return 'Invalid checksum for ' + str;
+		        return { prefix, words };
+		    }
+		    function decodeUnsafe(str, LIMIT) {
+		        const res = __decode(str, LIMIT);
+		        if (typeof res === 'object')
+		            return res;
+		    }
+		    function decode(str, LIMIT) {
+		        const res = __decode(str, LIMIT);
+		        if (typeof res === 'object')
+		            return res;
+		        throw new Error(res);
+		    }
+		    return {
+		        decodeUnsafe,
+		        decode,
+		        encode,
+		        toWords,
+		        fromWordsUnsafe,
+		        fromWords,
+		    };
+		}
+		dist.bech32 = getLibraryFromEncoding('bech32');
+		dist.bech32m = getLibraryFromEncoding('bech32m');
+		return dist;
+	}
+
+	requireDist();
+
+	/**
+	 * Asset-transfer wrapper split helper.
+	 *
+	 * Neurai asset UTXOs have a scriptPubKey of the form
+	 *
+	 *     <prefix scriptPubKey bytes> OP_XNA_ASSET <pushdata(payload)> OP_DROP
+	 *
+	 * where `prefix` is the recipient's standard script (typically a P2PKH, an
+	 * AuthScript witness v1, or a bare covenant such as the partial-fill sell
+	 * order), and `payload` serializes a `CAssetTransfer`:
+	 *
+	 *     payload = rvn_prefix (0x72 0x76 0x6e) || type_marker (0x74 transfer)
+	 *             || VarStr(assetName)
+	 *             || int64LE(amountRaw)
+	 *             [ || messageRef (optional) || int64LE(expireTime) (optional) ]
+	 *
+	 * This helper separates the two halves so consumers can validate the prefix
+	 * (e.g. feed it to `parsePartialFillScript`) while independently reading the
+	 * asset data displayed to the user. The optional payload tail
+	 * (`message` + `expireTime`) is tolerated but not exposed — the first
+	 * version only needs `assetName` and `amountRaw`.
+	 *
+	 * Bare (non-wrapped) scriptPubKeys round-trip through this helper by
+	 * returning `prefixHex === input` and `assetTransfer === null`.
+	 */
+	const RVN_MAGIC = Uint8Array.from([0x72, 0x76, 0x6e]); // "rvn"
+	const TRANSFER_TYPE = 0x74;
+	/**
+	 * Walk the script one opcode at a time, skipping pushdata payload bytes,
+	 * until either OP_XNA_ASSET is reached at top level or the end of the
+	 * script. Returns the byte offset of OP_XNA_ASSET, or -1 if not found.
+	 * Throws on truncated pushdata.
+	 */
+	function findTopLevelAssetOpcode(bytes) {
+	    let i = 0;
+	    while (i < bytes.length) {
+	        const op = bytes[i];
+	        if (op === OP_XNA_ASSET)
+	            return i;
+	        // Short direct push: 0x01..0x4b
+	        if (op >= 0x01 && op <= 0x4b) {
+	            const len = op;
+	            const next = i + 1 + len;
+	            if (next > bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: short push of ${len} bytes at offset ${i} exceeds script length`);
+	            }
+	            i = next;
+	            continue;
+	        }
+	        if (op === OP_PUSHDATA1) {
+	            if (i + 1 >= bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: truncated PUSHDATA1 length at offset ${i}`);
+	            }
+	            const len = bytes[i + 1];
+	            const next = i + 2 + len;
+	            if (next > bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: PUSHDATA1 of ${len} bytes at offset ${i} exceeds script length`);
+	            }
+	            i = next;
+	            continue;
+	        }
+	        if (op === OP_PUSHDATA2) {
+	            if (i + 2 >= bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: truncated PUSHDATA2 length at offset ${i}`);
+	            }
+	            const len = bytes[i + 1] | (bytes[i + 2] << 8);
+	            const next = i + 3 + len;
+	            if (next > bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: PUSHDATA2 of ${len} bytes at offset ${i} exceeds script length`);
+	            }
+	            i = next;
+	            continue;
+	        }
+	        if (op === OP_PUSHDATA4) {
+	            if (i + 4 >= bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: truncated PUSHDATA4 length at offset ${i}`);
+	            }
+	            const len = (bytes[i + 1] |
+	                (bytes[i + 2] << 8) |
+	                (bytes[i + 3] << 16) |
+	                (bytes[i + 4] << 24)) >>>
+	                0;
+	            const next = i + 5 + len;
+	            if (next > bytes.length) {
+	                throw new Error(`splitAssetWrappedScriptPubKey: PUSHDATA4 of ${len} bytes at offset ${i} exceeds script length`);
+	            }
+	            i = next;
+	            continue;
+	        }
+	        // Any other opcode (including OP_1..OP_16, OP_DUP, OP_HASH160, etc.) is
+	        // one byte wide in Neurai Script. Advance.
+	        i += 1;
+	    }
+	    return -1;
+	}
+	/**
+	 * Read the pushdata element that sits immediately after OP_XNA_ASSET and
+	 * return its payload bytes together with the cursor position after the
+	 * element. Only direct pushes (1..75) and PUSHDATA1 are accepted — a
+	 * well-formed asset transfer payload fits within 75 bytes for the common
+	 * case and comfortably within 255 bytes even with long names and tails.
+	 * PUSHDATA2 and PUSHDATA4 would signal a malformed or adversarial wrapper.
+	 */
+	function readPayloadPush(bytes, start) {
+	    if (start >= bytes.length) {
+	        throw new Error('splitAssetWrappedScriptPubKey: truncated wrapper — missing payload push');
+	    }
+	    const op = bytes[start];
+	    if (op >= 0x01 && op <= 0x4b) {
+	        const len = op;
+	        const dataStart = start + 1;
+	        const dataEnd = dataStart + len;
+	        if (dataEnd > bytes.length) {
+	            throw new Error(`splitAssetWrappedScriptPubKey: asset payload short push of ${len} bytes exceeds script length`);
+	        }
+	        return { payload: bytes.slice(dataStart, dataEnd), after: dataEnd };
+	    }
+	    if (op === OP_PUSHDATA1) {
+	        if (start + 1 >= bytes.length) {
+	            throw new Error('splitAssetWrappedScriptPubKey: truncated PUSHDATA1 in asset payload');
+	        }
+	        const len = bytes[start + 1];
+	        const dataStart = start + 2;
+	        const dataEnd = dataStart + len;
+	        if (dataEnd > bytes.length) {
+	            throw new Error(`splitAssetWrappedScriptPubKey: asset payload PUSHDATA1 of ${len} bytes exceeds script length`);
+	        }
+	        return { payload: bytes.slice(dataStart, dataEnd), after: dataEnd };
+	    }
+	    throw new Error(`splitAssetWrappedScriptPubKey: asset payload push opcode 0x${op.toString(16)} not accepted (expected 0x01..0x4b or PUSHDATA1)`);
+	}
+	function parseAssetTransferPayload(payload) {
+	    if (payload.length < 4 + 1 + 8) {
+	        // 4 magic+type, 1 varstr length, 8 int64LE amount
+	        throw new Error(`splitAssetWrappedScriptPubKey: asset payload of ${payload.length} bytes is too short`);
+	    }
+	    for (let i = 0; i < 3; i += 1) {
+	        if (payload[i] !== RVN_MAGIC[i]) {
+	            throw new Error(`splitAssetWrappedScriptPubKey: asset payload magic mismatch — expected "rvn" got 0x${payload[0].toString(16)} 0x${payload[1].toString(16)} 0x${payload[2].toString(16)}`);
+	        }
+	    }
+	    if (payload[3] !== TRANSFER_TYPE) {
+	        throw new Error(`splitAssetWrappedScriptPubKey: asset payload type marker 0x${payload[3].toString(16)} is not a transfer (0x74)`);
+	    }
+	    const nameLen = payload[4];
+	    const nameStart = 5;
+	    const nameEnd = nameStart + nameLen;
+	    if (nameEnd + 8 > payload.length) {
+	        throw new Error(`splitAssetWrappedScriptPubKey: asset payload truncated — name length ${nameLen} does not leave room for amount`);
+	    }
+	    let assetName = '';
+	    for (let i = nameStart; i < nameEnd; i += 1) {
+	        assetName += String.fromCharCode(payload[i]);
+	    }
+	    let amountRaw = 0n;
+	    for (let i = 0; i < 8; i += 1) {
+	        amountRaw |= BigInt(payload[nameEnd + i]) << BigInt(8 * i);
+	    }
+	    // Any bytes after nameEnd + 8 form the optional tail (message +
+	    // expireTime). We intentionally ignore them in this first version; the
+	    // raw payload remains available via `payloadHex` if a consumer later
+	    // needs to inspect them.
+	    return { assetName, amountRaw };
+	}
+	/**
+	 * Parse an asset-transfer-wrapped scriptPubKey. Accepts both wrapped and
+	 * bare forms. Throws on structural malformation (truncated pushdata,
+	 * missing OP_DROP after payload, bad magic, unsupported pushdata width).
+	 */
+	function splitAssetWrappedScriptPubKey(spkHex) {
+	    const normalized = ensureHex(spkHex, 'scriptPubKey');
+	    const bytes = hexToBytes(normalized);
+	    const assetOpAt = findTopLevelAssetOpcode(bytes);
+	    if (assetOpAt < 0) {
+	        return { prefixHex: normalized, assetTransfer: null };
+	    }
+	    const prefix = bytes.slice(0, assetOpAt);
+	    const { payload, after } = readPayloadPush(bytes, assetOpAt + 1);
+	    if (after >= bytes.length) {
+	        throw new Error('splitAssetWrappedScriptPubKey: asset wrapper missing trailing OP_DROP');
+	    }
+	    if (bytes[after] !== OP_DROP) {
+	        throw new Error(`splitAssetWrappedScriptPubKey: expected OP_DROP at offset ${after}, got 0x${bytes[after].toString(16)}`);
+	    }
+	    if (after + 1 !== bytes.length) {
+	        throw new Error(`splitAssetWrappedScriptPubKey: ${bytes.length - after - 1} trailing bytes after OP_DROP`);
+	    }
+	    const { assetName, amountRaw } = parseAssetTransferPayload(payload);
+	    return {
+	        prefixHex: bytesToHex(prefix),
+	        assetTransfer: {
+	            assetName,
+	            amountRaw,
+	            payloadHex: bytesToHex(payload),
+	        },
+	    };
+	}
+
+	/**
+	 * Shared parsing primitives for strict covenant parsers. Each covenant
+	 * parser walks the exact byte layout emitted by its builder and fails on
+	 * any deviation; the primitives here centralize the cursor arithmetic,
+	 * pushdata decoding, and CScriptNum decoding so the legacy and PQ parsers
+	 * (and future covenant parsers) cannot drift in rigor.
+	 */
+	function makeCursor(bytes) {
+	    return { bytes, pos: 0 };
+	}
+	/** Consume one byte and verify it equals `expected`. */
+	function expectByte(c, expected, label) {
+	    if (c.pos >= c.bytes.length) {
+	        throw new Error(`parse: unexpected end of script while reading ${label}`);
+	    }
+	    const got = c.bytes[c.pos];
+	    if (got !== expected) {
+	        throw new Error(`parse: expected ${label} = 0x${expected.toString(16)} at offset ${c.pos}, got 0x${got.toString(16)}`);
+	    }
+	    c.pos += 1;
+	}
+	/** Fail if the cursor has not consumed every byte of the script. */
+	function assertTrailing(c) {
+	    if (c.pos !== c.bytes.length) {
+	        throw new Error(`parse: ${c.bytes.length - c.pos} trailing bytes after end of script`);
+	    }
+	}
+	/**
+	 * Read one pushdata element from the cursor. Supports direct pushes
+	 * (1..75 bytes), `OP_PUSHDATA1` and `OP_PUSHDATA2`. `OP_PUSHDATA4` is not
+	 * supported by any current covenant script and would overflow the
+	 * per-element cap anyway. Truncation is checked for all length fields
+	 * and payload ranges.
+	 */
+	function readPush(c, label) {
+	    if (c.pos >= c.bytes.length) {
+	        throw new Error(`parse: unexpected end of script while reading push for ${label}`);
+	    }
+	    const opcode = c.bytes[c.pos];
+	    c.pos += 1;
+	    // Short direct push: 1..75 bytes
+	    if (opcode >= 0x01 && opcode <= 0x4b) {
+	        const len = opcode;
+	        if (c.pos + len > c.bytes.length) {
+	            throw new Error(`parse: short push of ${len} bytes exceeds script length at ${label}`);
+	        }
+	        const data = c.bytes.slice(c.pos, c.pos + len);
+	        c.pos += len;
+	        return data;
+	    }
+	    // OP_PUSHDATA1
+	    if (opcode === 0x4c) {
+	        if (c.pos >= c.bytes.length) {
+	            throw new Error(`parse: truncated PUSHDATA1 length at ${label}`);
+	        }
+	        const len = c.bytes[c.pos];
+	        c.pos += 1;
+	        if (c.pos + len > c.bytes.length) {
+	            throw new Error(`parse: PUSHDATA1 of ${len} bytes exceeds script length at ${label}`);
+	        }
+	        const data = c.bytes.slice(c.pos, c.pos + len);
+	        c.pos += len;
+	        return data;
+	    }
+	    // OP_PUSHDATA2
+	    if (opcode === 0x4d) {
+	        if (c.pos + 2 > c.bytes.length) {
+	            throw new Error(`parse: truncated PUSHDATA2 length at ${label}`);
+	        }
+	        const len = c.bytes[c.pos] | (c.bytes[c.pos + 1] << 8);
+	        c.pos += 2;
+	        if (c.pos + len > c.bytes.length) {
+	            throw new Error(`parse: PUSHDATA2 of ${len} bytes exceeds script length at ${label}`);
+	        }
+	        const data = c.bytes.slice(c.pos, c.pos + len);
+	        c.pos += len;
+	        return data;
+	    }
+	    throw new Error(`parse: expected a pushdata opcode at ${label}, got 0x${opcode.toString(16)} at offset ${c.pos - 1}`);
+	}
+	/**
+	 * Decode a `CScriptNum` byte vector (little-endian sign-magnitude, up to
+	 * 8 bytes) into a BigInt. Empty vector encodes 0.
+	 */
+	function decodeScriptNum(data, label) {
+	    if (data.length === 0)
+	        return 0n;
+	    if (data.length > 8) {
+	        throw new Error(`parse: CScriptNum at ${label} exceeds 8 bytes`);
+	    }
+	    let n = 0n;
+	    for (let i = 0; i < data.length - 1; i += 1) {
+	        n |= BigInt(data[i]) << BigInt(8 * i);
+	    }
+	    const last = data[data.length - 1];
+	    n |= BigInt(last & 0x7f) << BigInt(8 * (data.length - 1));
+	    if (last & 0x80) {
+	        n = -n;
+	    }
+	    return n;
+	}
+	/**
+	 * Read a push as a non-negative CScriptNum. Recognises OP_1..OP_16
+	 * shorthand. `OP_0` is not accepted because the covenant callers use this
+	 * only for values that are strictly positive (prices, selectors, indices).
+	 */
+	function readPushPositiveInt(c, label) {
+	    if (c.pos >= c.bytes.length) {
+	        throw new Error(`parse: end of script at ${label}`);
+	    }
+	    const opcode = c.bytes[c.pos];
+	    if (opcode >= OP_1 && opcode <= 0x60) {
+	        c.pos += 1;
+	        return BigInt(opcode - OP_1 + 1);
+	    }
+	    const data = readPush(c, label);
+	    return decodeScriptNum(data, label);
+	}
+
+	/**
+	 * Parser for the Partial-Fill Sell Order covenant.
+	 *
+	 * Extracts `(sellerPubKeyHash, unitPriceSats, tokenId)` from a scriptPubKey
+	 * that was produced by `buildPartialFillScript`. The parser walks the exact
+	 * byte layout emitted by the builder and fails on any deviation — this is
+	 * deliberate, so a downstream indexer can unambiguously classify a UTXO as
+	 * "partial-fill order" or "unknown script" with no false positives.
+	 */
+	/**
+	 * Parse a covenant scriptPubKey and extract its parameters. Throws with a
+	 * descriptive message if the bytes don't match the partial-fill template.
+	 */
+	function parsePartialFillScript(script, network = 'xna-test') {
+	    const bytes = typeof script === 'string' ? hexToBytes(script) : script;
+	    const c = makeCursor(bytes);
+	    // ───── Cancel branch prefix ─────
+	    expectByte(c, OP_IF, 'OP_IF');
+	    expectByte(c, OP_DUP, 'OP_DUP (cancel)');
+	    expectByte(c, OP_HASH160, 'OP_HASH160');
+	    const sellerPubKeyHash = readPush(c, 'sellerPubKeyHash');
+	    if (sellerPubKeyHash.length !== 20) {
+	        throw new Error(`parse: sellerPubKeyHash is ${sellerPubKeyHash.length} bytes, expected 20`);
+	    }
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (cancel)');
+	    expectByte(c, OP_CHECKSIG, 'OP_CHECKSIG (cancel)');
+	    expectByte(c, OP_ELSE, 'OP_ELSE');
+	    // ───── Payment value check ─────
+	    expectByte(c, OP_DUP, 'OP_DUP (price)');
+	    const unitPriceSats = readPushPositiveInt(c, 'unitPriceSats');
+	    expectByte(c, OP_MUL, 'OP_MUL');
+	    expectByte(c, OP_0, 'OP_0 (payment idx)');
+	    expectByte(c, OP_OUTPUTVALUE, 'OP_OUTPUTVALUE');
+	    expectByte(c, OP_SWAP, 'OP_SWAP');
+	    expectByte(c, OP_GREATERTHANOREQUAL, 'OP_GREATERTHANOREQUAL');
+	    expectByte(c, OP_VERIFY, 'OP_VERIFY (payment)');
+	    // ───── Payment scriptPubKey check ─────
+	    expectByte(c, OP_0, 'OP_0 (spk idx)');
+	    expectByte(c, OP_OUTPUTSCRIPT, 'OP_OUTPUTSCRIPT (payment)');
+	    const sellerSpk = readPush(c, 'sellerScriptPubKey');
+	    // Must be P2PKH with our PKH.
+	    const expectedSpk = new Uint8Array([
+	        OP_DUP, OP_HASH160, 0x14, ...sellerPubKeyHash, OP_EQUALVERIFY, OP_CHECKSIG
+	    ]);
+	    if (!bytesEqual(sellerSpk, expectedSpk)) {
+	        throw new Error('parse: embedded seller scriptPubKey does not match the cancel PKH');
+	    }
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (payment spk)');
+	    // ───── Buyer asset amount check (output 1) ─────
+	    expectByte(c, OP_DUP, 'OP_DUP (buyer amount)');
+	    expectByte(c, OP_1, 'OP_1 (buyer idx)');
+	    expectByte(c, OP_2, 'OP_2 (AMOUNT selector)');
+	    expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer amount)');
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer amount)');
+	    // ───── Buyer asset name check (output 1) ─────
+	    expectByte(c, OP_1, 'OP_1 (buyer idx)');
+	    expectByte(c, OP_1, 'OP_1 (NAME selector)');
+	    expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer name)');
+	    const tokenIdBytes1 = readPush(c, 'tokenId #1');
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer name)');
+	    // ───── Remainder continuity: same scriptPubKey ─────
+	    expectByte(c, OP_2, 'OP_2 (remainder idx)');
+	    expectByte(c, OP_OUTPUTSCRIPT, 'OP_OUTPUTSCRIPT (remainder)');
+	    expectByte(c, OP_3, 'OP_3 (TXFIELD selector)');
+	    expectByte(c, OP_TXFIELD, 'OP_TXFIELD');
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder spk)');
+	    // ───── Remainder tokenId check ─────
+	    expectByte(c, OP_2, 'OP_2 (remainder idx)');
+	    expectByte(c, OP_1, 'OP_1 (NAME selector)');
+	    expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder name)');
+	    const tokenIdBytes2 = readPush(c, 'tokenId #2');
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder name)');
+	    // ───── Remainder amount == input amount - N ─────
+	    expectByte(c, OP_2, 'OP_2 (remainder idx)');
+	    expectByte(c, OP_2, 'OP_2 (AMOUNT selector)');
+	    expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder amount)');
+	    expectByte(c, OP_OVER, 'OP_OVER');
+	    expectByte(c, OP_0, 'OP_0 (input idx)');
+	    expectByte(c, OP_2, 'OP_2 (AMOUNT selector)');
+	    expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD');
+	    expectByte(c, OP_SWAP, 'OP_SWAP');
+	    expectByte(c, OP_SUB, 'OP_SUB');
+	    expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder amount)');
+	    // ───── Tail ─────
+	    expectByte(c, OP_DROP, 'OP_DROP');
+	    expectByte(c, OP_1, 'OP_1 (true)');
+	    expectByte(c, OP_ENDIF, 'OP_ENDIF');
+	    assertTrailing(c);
+	    if (!bytesEqual(tokenIdBytes1, tokenIdBytes2)) {
+	        throw new Error('parse: tokenId bytes differ between buyer and remainder checks');
+	    }
+	    const tokenId = new TextDecoder('utf-8', { fatal: true }).decode(tokenIdBytes1);
+	    return {
+	        network,
+	        sellerPubKeyHash,
+	        unitPriceSats,
+	        tokenId,
+	        scriptHex: bytesToHex(bytes)
+	    };
+	}
+
 	const xna = {
 	    mainnet: {
 	        messagePrefix: "Neurai Signed Message:\n",
@@ -21417,6 +22223,51 @@
 	            isPQ: inputIsPQ,
 	        });
 	        if (!inputIsLegacy && !inputIsPQ) {
+	            const hint = utxo.bareScriptHint;
+	            if (hint?.kind === "covenant-cancel-legacy") {
+	                const split = splitAssetWrappedScriptPubKey(utxo.script);
+	                if (!split.assetTransfer) {
+	                    throw new Error(`covenant-cancel-legacy hint for ${txid}:${vout} requires an asset-wrapped prevout`);
+	                }
+	                let parsed;
+	                try {
+	                    parsed = parsePartialFillScript(split.prefixHex);
+	                }
+	                catch (err) {
+	                    throw new Error(`covenant-cancel-legacy hint for ${txid}:${vout} but prefix is not a recognized partial-fill covenant: ${err.message}`);
+	                }
+	                if (!hasPrivateKeyForAddress(utxo.address)) {
+	                    throw new Error(`Missing private key for covenant cancel at ${txid}:${vout} (seller address ${utxo.address})`);
+	                }
+	                const keyPair = getKeyPairByAddress(utxo.address);
+	                const derivedPKH = hash160(bufferExports.Buffer.from(keyPair.publicKey));
+	                const covenantPKH = bufferExports.Buffer.from(parsed.sellerPubKeyHash);
+	                if (!derivedPKH.equals(covenantPKH)) {
+	                    throw new Error(`covenant cancel key for ${txid}:${vout} does not match the covenant sellerPubKeyHash (got ${derivedPKH.toString("hex")}, expected ${covenantPKH.toString("hex")})`);
+	                }
+	                const sighash = tx.hashForSignature(i, scriptPubKey, HASH_TYPE);
+	                const rawSignature = keyPair.sign(sighash);
+	                const signatureWithHashType = srcExports.script.signature.encode(bufferExports.Buffer.from(rawSignature), HASH_TYPE);
+	                const scriptSig = srcExports.script.compile([
+	                    signatureWithHashType,
+	                    bufferExports.Buffer.from(keyPair.publicKey),
+	                    srcExports.opcodes.OP_1,
+	                ]);
+	                tx.setInputScript(i, scriptSig);
+	                debug({
+	                    step: "covenant-cancel-legacy-signed",
+	                    i,
+	                    prefixLen: split.prefixHex.length / 2,
+	                    tokenId: parsed.tokenId,
+	                    unitPriceSats: parsed.unitPriceSats.toString(),
+	                    assetName: split.assetTransfer.assetName,
+	                    amountRaw: split.assetTransfer.amountRaw.toString(),
+	                });
+	                continue;
+	            }
+	            if (hint?.kind === "covenant-cancel-pq") {
+	                throw new Error(`covenant-cancel-pq hint for ${txid}:${vout} is not implemented in this build (lands in @neuraiproject/neurai-sign-transaction 1.4.0)`);
+	            }
 	            throw new Error(`Unsupported prevout script for ${txid}:${vout}. Only legacy P2PKH and Neurai AuthScript witness v1 are supported`);
 	        }
 	        if (inputIsPQ) {
