@@ -1086,6 +1086,25 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     function encodeAssetTransferScript(address, assetName, amountRaw, message, expireTime) {
         return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeAssetTransferPayload(assetName, amountRaw, message, expireTime)), Uint8Array.of(OP_DROP));
     }
+    /**
+     * Like `encodeAssetTransferScript` but takes a raw scriptPubKey instead of
+     * deriving one from an address. Useful for asset outputs that pay to a
+     * covenant scriptPubKey, a bare non-standard lock, or any prefix for which
+     * the caller already has the scriptPubKey bytes.
+     *
+     * The asset-transfer wrapper is appended exactly as in the address-based
+     * variant: `<recipientScriptPubKey> OP_XNA_ASSET <pushdata(payload)> OP_DROP`.
+     *
+     * Note: this helper only builds the output. Spending inputs whose scriptPubKey
+     * requires witness data (e.g. P2WSH) is not supported by this package — see
+     * `createUnsignedTransaction`, which serializes legacy pre-segwit format only.
+     */
+    function encodeAssetTransferScriptToScript(recipientScriptPubKey, assetName, amountRaw, message, expireTime) {
+        const spkBytes = typeof recipientScriptPubKey === 'string'
+            ? hexToBytes(ensureHex(recipientScriptPubKey, 'recipientScriptPubKey'))
+            : recipientScriptPubKey;
+        return concatBytes(spkBytes, Uint8Array.of(OP_XNA_ASSET), pushData(encodeAssetTransferPayload(assetName, amountRaw, message, expireTime)), Uint8Array.of(OP_DROP));
+    }
     function encodeNewAssetPayload(assetName, quantityRaw, units = 0, reissuable = true, ipfsHash) {
         const encodedIpfs = encodeAssetDataReference(ipfsHash);
         return concatBytes(XNA_ISSUE_PREFIX, serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(units & 0xff, reissuable ? 1 : 0, encodedIpfs.length > 0 ? 1 : 0), encodedIpfs);
@@ -1196,6 +1215,17 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     function createTransferOutput(params) {
         return createAssetTransferOutput(params.address, params.assetName, params.amountRaw);
     }
+    /**
+     * Build a SerializedTxOutput that locks `amountRaw` of `assetName` under an
+     * arbitrary scriptPubKey. `valueSats` is hardcoded to 0n (asset-only outputs
+     * carry no XNA; matches `createAssetTransferOutput` semantics).
+     */
+    function createAssetTransferToScriptOutput(params) {
+        return {
+            valueSats: 0n,
+            scriptPubKeyHex: bytesToHex(encodeAssetTransferScriptToScript(params.scriptPubKeyHex, params.assetName, params.amountRaw, params.message, params.expireTime))
+        };
+    }
 
     function serializeInput(input) {
         const txidBytes = reverseBytes(hexToBytes(input.txid));
@@ -1250,6 +1280,10 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
     }
     function createStandardAssetTransferTransaction(params) {
+        // Output order is fixed:
+        //   payments → transfers → transferMessages → transfersToScript → extraOutputs.
+        // Keep transfersToScript after transferMessages so indices of existing
+        // callers (payments + transfers + transferMessages) remain stable.
         const outputs = [];
         for (const payment of params.payments ?? []) {
             outputs.push(createXnaOutput(payment.address, payment.valueSats));
@@ -1259,6 +1293,9 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         }
         for (const transfer of params.transferMessages ?? []) {
             outputs.push(createTransferWithMessageOutput(transfer));
+        }
+        for (const transfer of params.transfersToScript ?? []) {
+            outputs.push(createAssetTransferToScriptOutput(transfer));
         }
         appendExtraOutputs(outputs, params.extraOutputs);
         return buildTransaction(params.version, params.locktime, params.inputs, outputs);
@@ -1495,6 +1532,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         assertDepinAssetName: assertDepinAssetName,
         assetUnitsToRaw: assetUnitsToRaw,
         createAssetTransferOutput: createAssetTransferOutput,
+        createAssetTransferToScriptOutput: createAssetTransferToScriptOutput,
         createFreezeAddressesTransaction: createFreezeAddressesTransaction,
         createFreezeAssetTransaction: createFreezeAssetTransaction,
         createFromOperation: createFromOperation,
@@ -1526,6 +1564,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         encodeAssetDataReference: encodeAssetDataReference,
         encodeAssetTransferPayload: encodeAssetTransferPayload,
         encodeAssetTransferScript: encodeAssetTransferScript,
+        encodeAssetTransferScriptToScript: encodeAssetTransferScriptToScript,
         encodeAuthScriptDestinationScript: encodeAuthScriptDestinationScript,
         encodeDestinationScript: encodeDestinationScript,
         encodeGlobalRestrictionScript: encodeGlobalRestrictionScript,
