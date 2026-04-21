@@ -97,14 +97,21 @@ export type AccountsRecord = Record<string, WalletData>;
 // ── UTXO ─────────────────────────────────────────────────────────────────────
 
 /**
- * Hint forwarded from a calling dApp to unlock signing of a non-standard
- * prevout. Currently only the two partial-fill covenant cancel branches are
- * accepted downstream; every other shape is rejected by the signing lib.
- * Mirror of the type exported by `@neuraiproject/neurai-sign-transaction`.
+ * Hint forwarded from a calling dApp to unlock signing of a partial-fill
+ * covenant cancel. Covenant UTXOs on-chain are always AuthScript-v1
+ * wrapped (consensus `IsAssetScript` only accepts 25-byte P2PKH or
+ * 34-byte AuthScript-v1 prefixes before an asset wrapper), so the
+ * covenant itself lives in the spend witness, not in the scriptPubKey.
+ * The DEX — which built the covenant — must supply the covenant bytes in
+ * `covenantScriptHex`; the signing lib verifies that
+ * `taggedHash("NeuraiAuthScript", 0x01 || 0x00 || SHA256(covenantScript))`
+ * matches the 32-byte program in the prevout before signing.
+ *
+ * Mirror of the type exported by `@neuraiproject/neurai-sign-transaction@2.0.0`.
  */
 export type BareScriptSigningHint =
-  | { kind: 'covenant-cancel-legacy' }
-  | { kind: 'covenant-cancel-pq'; txHashSelector: number };
+  | { kind: 'covenant-cancel-legacy'; covenantScriptHex: string }
+  | { kind: 'covenant-cancel-pq'; covenantScriptHex: string };
 
 export interface Utxo {
   txid: string;

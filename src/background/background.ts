@@ -675,21 +675,29 @@ async function signRawTxForPage(
 /**
  * Parse a covenant-cancel UTXO + its spending tx's output layout and build
  * the data shown in the dedicated approval popup. Rejects upfront (throws)
- * when the prevout is not a valid asset-wrapped partial-fill covenant.
+ * when the prevout is not asset-wrapped, is not AuthScript v1, or the
+ * hint's `covenantScriptHex` is not a valid partial-fill covenant.
  *
- * Per plan-frente-b-covenant-cancel-v2.md §6.1:
- *   - split asset wrapper   → reject on failure
- *   - parsePartialFillScript → reject on failure
+ * v3 architecture note (neurai-sign-transaction@2.0.0): covenant UTXOs
+ * on-chain are `OP_1 0x20 <commitment> OP_XNA_ASSET ...`, NOT a bare
+ * covenant followed by the asset wrapper — consensus `IsAssetScript`
+ * rejects the latter shape. The covenant bytes live in the spend witness
+ * as the AuthScript-NOAUTH witness script, and the DEX (which built the
+ * covenant) supplies them to us via `hint.covenantScriptHex`.
+ *
+ * Validation done here:
+ *   - split asset wrapper → reject on failure
+ *   - prefix must be a 34-byte AuthScript v1 program → reject
+ *   - parse `hint.covenantScriptHex` with the matching partial-fill parser → reject on failure
  *   - layout(output[0]) check → "labeled" if matches, "breakdown" if not
  *   - refund address decode → null on unknown shape (popup shows hex)
  *
- * Key-match validation (PKH / commitment) is intentionally delegated to
- * the signing library (`@neuraiproject/neurai-sign-transaction`), which
- * rejects with a descriptive error if the wallet's key does not match
- * the covenant's sellerPubKeyHash. Pre-validating here would require
- * duplicating hash160 into the addon; the library's late rejection is
- * acceptable because the DEX normally builds the tx with the same wallet
- * that created the covenant.
+ * Commitment + key-match validation are intentionally delegated to the
+ * signing library: it computes `taggedHash("NeuraiAuthScript", 0x01 ||
+ * 0x00 || SHA256(covenantScriptHex))` and compares to the prevout's
+ * program before signing, and rejects with a clear error on mismatch.
+ * Duplicating that here would require re-implementing tagged hash + the
+ * PKH/commitment key derivation in the addon.
  */
 async function buildCancelApproval(
   utxo: Utxo,
@@ -714,6 +722,15 @@ async function buildCancelApproval(
       `covenant-cancel prevout ${utxo.txid}:${utxo.vout} is not asset-wrapped`
     );
   }
+  // Prefix must be a 34-byte AuthScript v1 program (`OP_1 0x20 <32>`).
+  // Consensus only accepts this shape or a 25-byte P2PKH before an asset
+  // wrapper; a covenant UTXO must be the former.
+  if (split.prefixHex.length !== 68 || split.prefixHex.slice(0, 4) !== '5120') {
+    throw new Error(
+      `covenant-cancel prevout ${utxo.txid}:${utxo.vout} is not AuthScript v1 wrapped ` +
+        `(prefix ${split.prefixHex.slice(0, 10)}…)`
+    );
+  }
 
   let variant: 'legacy' | 'pq';
   let tokenId: string;
@@ -724,10 +741,10 @@ async function buildCancelApproval(
   if (hint.kind === 'covenant-cancel-legacy') {
     let parsed: NeuraiScriptsParsedPartialFillOrder;
     try {
-      parsed = scripts.parsePartialFillScript(split.prefixHex);
+      parsed = scripts.parsePartialFillScript(hint.covenantScriptHex);
     } catch (err) {
       throw new Error(
-        `covenant-cancel-legacy prefix is not a valid partial-fill covenant: ${(err as Error).message}`
+        `covenant-cancel-legacy covenantScriptHex is not a valid legacy partial-fill covenant: ${(err as Error).message}`
       );
     }
     variant = 'legacy';
@@ -737,15 +754,12 @@ async function buildCancelApproval(
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   } else {
-    // kind === 'covenant-cancel-pq' — popup renders the info but the
-    // signing library still rejects the hint until v1.4.0 (handled by
-    // the library, surfaced to the DEX as a post-approval error).
     let parsed: NeuraiScriptsParsedPartialFillOrderPQ;
     try {
-      parsed = scripts.parsePartialFillScriptPQ(split.prefixHex);
+      parsed = scripts.parsePartialFillScriptPQ(hint.covenantScriptHex);
     } catch (err) {
       throw new Error(
-        `covenant-cancel-pq prefix is not a valid PQ partial-fill covenant: ${(err as Error).message}`
+        `covenant-cancel-pq covenantScriptHex is not a valid PQ partial-fill covenant: ${(err as Error).message}`
       );
     }
     variant = 'pq';

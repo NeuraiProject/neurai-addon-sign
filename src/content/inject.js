@@ -47,7 +47,7 @@
   // Expose API to the page
   window.neuraiWallet = {
     isInstalled: true,
-    version: '0.10.0',
+    version: '0.11.0',
 
     getAddress: function() {
       return _request('getAddress');
@@ -77,10 +77,13 @@
      * @param {string} txHex - Unsigned (or partially signed) raw transaction hex
      * @param {Array} utxos - Array of {txid, vout, scriptPubKey, amount[, bareScriptHint]}
      *                        for inputs being signed. `bareScriptHint` is optional and unlocks
-     *                        signing of partial-fill covenant cancel prevouts
-     *                        (`{ kind: 'covenant-cancel-legacy' }` or
-     *                        `{ kind: 'covenant-cancel-pq', txHashSelector: number }`); any
-     *                        other hint shape is rejected by the addon.
+     *                        signing of partial-fill covenant cancel prevouts. Shape:
+     *                          `{ kind: 'covenant-cancel-legacy', covenantScriptHex: string }`
+     *                          `{ kind: 'covenant-cancel-pq',     covenantScriptHex: string }`
+     *                        `covenantScriptHex` must be the bytes of the partial-fill covenant
+     *                        whose `taggedHash("NeuraiAuthScript", 0x01||0x00||SHA256(cov))`
+     *                        equals the prevout's AuthScript-v1 commitment. The DEX that built
+     *                        the covenant supplies these bytes. Any other hint shape is rejected.
      * @param {string} sighashType - e.g. 'ALL', 'SINGLE|ANYONECANPAY'
      * @returns {Promise<{signedTxHex: string, complete: boolean}>}
      */
@@ -98,6 +101,6 @@
 
   // Notify the page that the API is ready
   document.dispatchEvent(new CustomEvent('neuraiWalletReady', {
-    detail: { isInstalled: true, version: '0.10.0' }
+    detail: { isInstalled: true, version: '0.11.0' }
   }));
 })();

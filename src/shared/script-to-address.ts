@@ -82,8 +82,11 @@ async function encodeP2PKHAddress(pkh20: Uint8Array, network: WalletNetwork | st
  * readable address. Returns null when the shape is not supported by this
  * decoder — callers must fall back to showing `scriptHex`.
  *
- * Supported: P2PKH. AuthScript witness v1 (bech32m) is not implemented in
- * v0.10.0 and returns null; v0.11.0 will add it alongside the PQ cancel UX.
+ * Supported: P2PKH. AuthScript witness v1 (bech32m) is not implemented
+ * here and returns null — the popup falls back to showing the scriptHex
+ * for unrecognised shapes. Adding bech32m would let us render PQ
+ * seller refund addresses (`tnq1p...`) as text; worth it once the DEX
+ * routes cancel refunds to AuthScript addresses commonly.
  */
 export async function decodePrefixAddress(
   prefixHex: string,
