@@ -281,6 +281,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     await loadWalletData();
     await loadUnlockState();
     await loadSessionPinState();
+    await tryRestoreSessionPin();
     NEURAI_UTILS.applyTheme(state.settings as Partial<WalletSettings>);
     setupEventListeners();
     syncSettingsForm();
@@ -776,6 +777,44 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     state.sessionPin = state.unlockUntil > Date.now()
       ? String(result[C.SESSION_PIN_KEY] || '')
       : '';
+  }
+
+  async function tryRestoreSessionPin(): Promise<boolean> {
+    if (!state.settings?.pinHash) return false;
+    if (state.sessionPin) return true;
+    if (state.unlockUntil <= Date.now()) return false;
+
+    let recoveredPin = '';
+
+    if (chrome.storage?.session) {
+      try {
+        const result = await chrome.storage.session.get(C.SESSION_PIN_KEY);
+        recoveredPin = String(result[C.SESSION_PIN_KEY] || '');
+      } catch (_) { }
+    }
+
+    if (!recoveredPin) {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: MSG.GET_SESSION_PIN });
+        recoveredPin = String((response && response.pin) || '');
+      } catch (_) { }
+    }
+
+    if (!recoveredPin) return false;
+
+    try {
+      const recoveredHash = await NEURAI_UTILS.hashText(recoveredPin);
+      if (recoveredHash !== state.settings.pinHash) return false;
+      state.sessionPin = recoveredPin;
+      if (chrome.storage?.session) {
+        await new Promise<void>((resolve) => {
+          chrome.storage.session.set({ [C.SESSION_PIN_KEY]: recoveredPin }, resolve);
+        });
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   async function persistSessionPin(pin: string) {
@@ -1314,7 +1353,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     const missingSessionPin = !state.sessionPin;
     const locked = unlockExpired || missingSessionPin;
     if (locked) {
-      if (state.unlockUntil !== 0) {
+      if (unlockExpired && state.unlockUntil !== 0) {
         state.unlockUntil = 0;
         chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 }, () => { });
       }
@@ -1385,8 +1424,12 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
   function startLockWatch() {
     stopLockWatch();
-    state.lockWatchInterval = setInterval(() => {
+    state.lockWatchInterval = setInterval(async () => {
       if (!state.settings?.pinHash || !hasActiveWallet()) return;
+      if (!state.sessionPin && state.unlockUntil > Date.now()) {
+        const restored = await tryRestoreSessionPin();
+        if (restored) return;
+      }
       if (isAddonLocked()) {
         if (elements.unlockModal.classList.contains('hidden')) openUnlockModal();
       }
