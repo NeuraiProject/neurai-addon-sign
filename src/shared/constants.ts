@@ -24,7 +24,7 @@ export const NEURAI_CONSTANTS = Object.freeze({
 
   // ── Default block explorer URLs (URL templates with {txid} placeholder) ───
   EXPLORER_URL_MAINNET: 'https://explorer.neurai.org/tx/{txid}',
-  EXPLORER_URL_TESTNET: 'https://rebel-explorer-testnet.neurai.org/index.html?route=TRANSACTION&id={txid}',
+  EXPLORER_URL_TESTNET: 'https://rebel-explorer-testnet.neurai.org/tx/{txid}',
 
   // ── Default settings (frozen so callers must spread before mutating) ──────
   DEFAULT_SETTINGS: Object.freeze({
