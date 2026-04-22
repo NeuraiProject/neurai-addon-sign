@@ -74,6 +74,64 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
   }
 
   let pinRequired = false;
+  let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
+  let lastRequestedHeight = 0;
+
+  const MIN_POPUP_HEIGHT = 560;
+  const MAX_POPUP_HEIGHT = 920;
+
+  function resizeWindowToContent() {
+    if (!chrome?.windows?.getCurrent || !chrome?.windows?.update) return;
+
+    const doc = document.documentElement;
+    const body = document.body;
+    const contentHeight = Math.max(doc.scrollHeight, body?.scrollHeight || 0);
+    const frameHeight = Math.max(0, window.outerHeight - window.innerHeight);
+    const targetHeight = Math.max(
+      MIN_POPUP_HEIGHT,
+      Math.min(MAX_POPUP_HEIGHT, contentHeight + frameHeight + 4)
+    );
+
+    if (Math.abs(targetHeight - lastRequestedHeight) < 6) return;
+    lastRequestedHeight = targetHeight;
+
+    chrome.windows.getCurrent((currentWindow) => {
+      if (!currentWindow?.id) return;
+      chrome.windows.update(currentWindow.id, { height: targetHeight }, () => {
+        void chrome.runtime.lastError;
+      });
+    });
+  }
+
+  function scheduleWindowResize(delay = 60) {
+    if (resizeDebounce) clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(() => {
+      resizeDebounce = null;
+      resizeWindowToContent();
+    }, delay);
+  }
+
+  function startAutoResizeObservers() {
+    if (typeof ResizeObserver !== 'undefined') {
+      const resizeObserver = new ResizeObserver(() => scheduleWindowResize());
+      resizeObserver.observe(document.documentElement);
+      if (document.body) resizeObserver.observe(document.body);
+    }
+
+    if (document.body && typeof MutationObserver !== 'undefined') {
+      const mutationObserver = new MutationObserver(() => scheduleWindowResize());
+      mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true
+      });
+    }
+
+    window.addEventListener('resize', () => scheduleWindowResize(0));
+    scheduleWindowResize(0);
+    scheduleWindowResize(180);
+  }
 
   function applyThemeFromSettings(settings = {} as Record<string, unknown>) {
     if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
@@ -95,6 +153,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
 
   async function init() {
     await loadTheme();
+    startAutoResizeObservers();
 
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== 'local') return;
@@ -211,6 +270,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
         const isHidden = elements.txDetails!.classList.toggle('hidden');
         (elements.txExpandBtn!.firstElementChild as HTMLElement).style.transform = isHidden ? '' : 'rotate(180deg)';
         elements.txExpandBtn!.childNodes[1].textContent = isHidden ? ' Show transaction details' : ' Hide transaction details';
+        scheduleWindowResize();
       });
     } else if (isRawTx) {
       elements.pageTitle!.textContent = 'Transaction Signing';
@@ -249,6 +309,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
         const isHidden = elements.txDetails!.classList.toggle('hidden');
         (elements.txExpandBtn!.firstElementChild as HTMLElement).style.transform = isHidden ? '' : 'rotate(180deg)';
         elements.txExpandBtn!.childNodes[1].textContent = isHidden ? ' Show transaction details' : ' Hide transaction details';
+        scheduleWindowResize();
       });
     } else {
       elements.pageTitle!.textContent = 'Message Signature';
@@ -270,6 +331,8 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
     if (pinRequired) {
       elements.pinInput!.focus();
     }
+
+    scheduleWindowResize();
   }
 
   async function handleReject() {
@@ -296,6 +359,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
     }
 
     elements.errorText!.textContent = response?.error || 'Unable to approve request.';
+    scheduleWindowResize();
   }
 
   if (document.readyState === 'loading') {

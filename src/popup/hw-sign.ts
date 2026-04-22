@@ -48,6 +48,64 @@ import type { HwSignPayload } from '../types/index.js';
   let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   let connectionPollTimer: ReturnType<typeof setInterval> | null = null;
   let isHwConnected = false;
+  let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
+  let lastRequestedHeight = 0;
+
+  const MIN_POPUP_HEIGHT = 620;
+  const MAX_POPUP_HEIGHT = 980;
+
+  function resizeWindowToContent() {
+    if (!chrome?.windows?.getCurrent || !chrome?.windows?.update) return;
+
+    const doc = document.documentElement;
+    const body = document.body;
+    const contentHeight = Math.max(doc.scrollHeight, body?.scrollHeight || 0);
+    const frameHeight = Math.max(0, window.outerHeight - window.innerHeight);
+    const targetHeight = Math.max(
+      MIN_POPUP_HEIGHT,
+      Math.min(MAX_POPUP_HEIGHT, contentHeight + frameHeight + 4)
+    );
+
+    if (Math.abs(targetHeight - lastRequestedHeight) < 6) return;
+    lastRequestedHeight = targetHeight;
+
+    chrome.windows.getCurrent((currentWindow) => {
+      if (!currentWindow?.id) return;
+      chrome.windows.update(currentWindow.id, { height: targetHeight }, () => {
+        void chrome.runtime.lastError;
+      });
+    });
+  }
+
+  function scheduleWindowResize(delay = 60) {
+    if (resizeDebounce) clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(() => {
+      resizeDebounce = null;
+      resizeWindowToContent();
+    }, delay);
+  }
+
+  function startAutoResizeObservers() {
+    if (typeof ResizeObserver !== 'undefined') {
+      const resizeObserver = new ResizeObserver(() => scheduleWindowResize());
+      resizeObserver.observe(document.documentElement);
+      if (document.body) resizeObserver.observe(document.body);
+    }
+
+    if (document.body && typeof MutationObserver !== 'undefined') {
+      const mutationObserver = new MutationObserver(() => scheduleWindowResize());
+      mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true
+      });
+    }
+
+    window.addEventListener('resize', () => scheduleWindowResize(0));
+    scheduleWindowResize(0);
+    scheduleWindowResize(180);
+  }
 
   function applyThemeFromSettings(settings: Record<string, unknown>) {
     if (typeof NEURAI_UTILS !== 'undefined' && typeof NEURAI_UTILS.applyTheme === 'function') {
@@ -80,6 +138,7 @@ import type { HwSignPayload } from '../types/index.js';
 
   async function init() {
     await loadTheme();
+    startAutoResizeObservers();
     startKeepAlive();
 
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -154,6 +213,7 @@ import type { HwSignPayload } from '../types/index.js';
         const isHidden = elements.txDetails!.classList.toggle('hidden');
         elements.txExpandChevron!.style.transform = isHidden ? '' : 'rotate(180deg)';
         elements.txExpandBtn!.childNodes[1].textContent = isHidden ? ' Show transaction details' : ' Hide transaction details';
+        scheduleWindowResize();
       });
     } else {
       elements.pageTitle!.textContent = 'HW Message Signing';
@@ -167,6 +227,7 @@ import type { HwSignPayload } from '../types/index.js';
     elements.originValue!.textContent = req.origin || '--';
     elements.addressValue!.textContent = req.address || '--';
     elements.networkValue!.textContent = req.network || '--';
+    scheduleWindowResize();
   }
 
   async function refreshConnectionState() {
@@ -188,6 +249,8 @@ import type { HwSignPayload } from '../types/index.js';
       setStatus('waiting', 'Hardware wallet is not connected in the addon.');
       elements.errorText!.textContent = 'You must connect your hardware wallet first from the full wallet view.';
     }
+
+    scheduleWindowResize();
   }
 
   function startConnectionPolling() {
@@ -231,6 +294,7 @@ import type { HwSignPayload } from '../types/index.js';
         await refreshConnectionState();
         setStatus('error', 'Unable to sign with the connected device');
         elements.errorText!.textContent = response?.error || 'Unknown hardware signing error.';
+        scheduleWindowResize();
         return;
       }
 
@@ -243,6 +307,7 @@ import type { HwSignPayload } from '../types/index.js';
       await refreshConnectionState();
       setStatus('error', 'Unable to sign with the connected device');
       elements.errorText!.textContent = (err as Error).message || 'Unknown hardware signing error.';
+      scheduleWindowResize();
     }
   }
 
