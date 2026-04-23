@@ -17,7 +17,7 @@
   "dependencies": {
     "@neuraiproject/neurai-assets": "^1.2.5",
     "@neuraiproject/neurai-create-transaction": "^0.3.0",
-    "@neuraiproject/neurai-key": "^3.1.0",
+    "@neuraiproject/neurai-key": "^4.0.0",
     "@neuraiproject/neurai-message": "^0.9.1",
     "@neuraiproject/neurai-reader": "^0.0.9",
     "@neuraiproject/neurai-scripts": "^0.5.0",
