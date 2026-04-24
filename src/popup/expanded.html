@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 
 <head>
   <meta charset="UTF-8">
@@ -450,7 +450,7 @@
         </button>
       </div>
 
-      <div class="settings-grid">
+      <div class="settings-grid settings-grid--compact">
         <div class="form-group">
           <label for="themeMode">Theme</label>
           <select id="themeMode">
@@ -461,31 +461,41 @@
         </div>
 
         <div class="form-group">
-          <label for="rpcMainnet">RPC Mainnet URL</label>
-          <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
-        </div>
-
-        <div class="form-group">
-          <label for="rpcTestnet">RPC Testnet URL</label>
-          <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet.neurai.org/rpc" spellcheck="false">
-        </div>
-
-        <div class="form-group">
-          <label for="explorerMainnet">Explorer Mainnet URL</label>
-          <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
-          <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
-        </div>
-
-        <div class="form-group">
-          <label for="explorerTestnet">Explorer Testnet URL</label>
-          <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
-          <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
-        </div>
-
-        <div class="form-group">
           <label for="lockTimeoutMinutes">Auto-lock (minutes)</label>
           <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
         </div>
+      </div>
+
+      <div class="settings-network-grid">
+        <section class="settings-network-card" aria-labelledby="settingsMainnetTitle">
+          <h3 id="settingsMainnetTitle">Mainnet</h3>
+
+          <div class="form-group">
+            <label for="rpcMainnet">RPC Mainnet URL</label>
+            <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
+          </div>
+
+          <div class="form-group">
+            <label for="explorerMainnet">Explorer Mainnet URL</label>
+            <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
+            <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
+          </div>
+        </section>
+
+        <section class="settings-network-card" aria-labelledby="settingsTestnetTitle">
+          <h3 id="settingsTestnetTitle">Testnet</h3>
+
+          <div class="form-group">
+            <label for="rpcTestnet">RPC Testnet URL</label>
+            <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet.neurai.org/rpc" spellcheck="false">
+          </div>
+
+          <div class="form-group">
+            <label for="explorerTestnet">Explorer Testnet URL</label>
+            <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
+            <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
+          </div>
+        </section>
       </div>
 
       <div class="settings-section">
@@ -493,23 +503,9 @@
           <p class="eyebrow">Security</p>
           <h2 class="settings-section-title">Access PIN</h2>
         </div>
-        <div class="settings-grid">
-          <div class="form-group">
-            <label>PIN Status</label>
-            <span class="settings-status-pill" id="pinStatusText">Not configured</span>
-          </div>
-          <div class="form-group">
-            <label for="settingsPinOld">Current PIN</label>
-            <input type="password" id="settingsPinOld" placeholder="Required to change PIN" autocomplete="current-password">
-          </div>
-          <div class="form-group">
-            <label for="settingsPinNew">Set / Change PIN</label>
-            <input type="password" id="settingsPinNew" placeholder="4 to 20 characters" autocomplete="new-password">
-          </div>
-          <div class="form-group">
-            <label for="settingsPinConfirm">Confirm new PIN</label>
-            <input type="password" id="settingsPinConfirm" placeholder="Repeat PIN" autocomplete="new-password">
-          </div>
+        <div class="settings-pin-card">
+          <p>Update the PIN used to unlock the addon and encrypt wallet secrets.</p>
+          <button class="btn btn-secondary" id="openChangePinBtn" type="button">Change PIN</button>
         </div>
       </div>
 
@@ -574,6 +570,44 @@
             type="button">Back</button>
           <button class="btn btn-primary btn-small unlock-reset-confirm-btn" id="unlockResetConfirmBtn"
             type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="changePinModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="changePinTitle">
+    <div class="unlock-panel warning-modal">
+      <div id="changePinCurrentView">
+        <p class="eyebrow">Security</p>
+        <h2 id="changePinTitle">Change PIN</h2>
+        <p>Enter your current PIN before setting a new one.</p>
+        <div class="form-group">
+          <label for="changePinCurrentInput">Current PIN</label>
+          <input id="changePinCurrentInput" type="password" placeholder="Enter current PIN" autocomplete="current-password">
+        </div>
+        <p id="changePinCurrentError" class="unlock-error"></p>
+        <div class="settings-actions">
+          <button id="cancelChangePinBtn" class="btn btn-secondary" type="button">Cancel</button>
+          <button id="verifyChangePinBtn" class="btn btn-primary" type="button">Continue</button>
+        </div>
+      </div>
+
+      <div id="changePinNewView" class="hidden">
+        <p class="eyebrow">Security</p>
+        <h2>Set New PIN</h2>
+        <p>Choose a new PIN between 4 and 20 characters.</p>
+        <div class="form-group">
+          <label for="changePinNewInput">New PIN</label>
+          <input id="changePinNewInput" type="password" placeholder="4 to 20 characters" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="changePinConfirmInput">Confirm new PIN</label>
+          <input id="changePinConfirmInput" type="password" placeholder="Repeat PIN" autocomplete="new-password">
+        </div>
+        <p id="changePinNewError" class="unlock-error"></p>
+        <div class="settings-actions">
+          <button id="backChangePinBtn" class="btn btn-secondary" type="button">Back</button>
+          <button id="saveChangePinBtn" class="btn btn-primary" type="button">Save PIN</button>
         </div>
       </div>
     </div>

@@ -103,7 +103,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     backupPassphraseText: document.getElementById('backupPassphraseText')!,
     backupWifText: document.getElementById('backupWifText') as HTMLInputElement | null,
     toggleBackupWifBtn: document.getElementById('toggleBackupWifBtn'),
-    backupCopyWifBtn: document.getElementById('backupCopyWifBtn')!
+    backupCopyWifBtn: document.getElementById('backupCopyWifBtn')!,
+    addonFooter: document.getElementById('addonFooter')
   };
 
   // ── History ───────────────────────────────────────────────────────────────
@@ -277,6 +278,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   // ── Initialization ────────────────────────────────────────────────────────
 
   async function init() {
+    syncAddonVersion();
     await loadSettings();
     await loadWalletData();
     await loadUnlockState();
@@ -301,6 +303,11 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       window.close();
       return;
     }
+  }
+
+  function syncAddonVersion() {
+    const version = chrome.runtime.getManifest().version;
+    if (elements.addonFooter) elements.addonFooter.textContent = `Neurai Sign v${version}`;
   }
 
   function handleOpenExpandedView() {

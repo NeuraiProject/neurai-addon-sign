@@ -890,7 +890,7 @@ async function requestSignatureApproval(payload: SignApprovalPayload): Promise<S
 
     pendingSignRequests.set(requestId, { payload, resolve, timeout, windowId: null });
 
-    chrome.windows.create({ url: approvalUrl, type: 'popup', width: 460, height: 640 }, (win) => {
+    chrome.windows.create({ url: approvalUrl, type: 'popup', width: 500, height: 680 }, (win) => {
       const pending = pendingSignRequests.get(requestId);
       if (pending) pending.windowId = win?.id || null;
     });

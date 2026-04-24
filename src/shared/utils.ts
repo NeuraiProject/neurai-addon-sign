@@ -106,7 +106,7 @@ function normalizeLockTimeoutMinutes(value: unknown): number {
  */
 function applyTheme(settings: Partial<WalletSettings>): void {
   if (typeof document === 'undefined') return;
-  const selected = (settings && settings.theme) || 'dark';
+  const selected = (settings && settings.theme) || 'light';
   let theme = selected as string;
   if (selected === 'system') {
     theme = (typeof window !== 'undefined' &&

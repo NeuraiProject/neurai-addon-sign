@@ -1,6 +1,6 @@
 {
   "name": "neurai-wallet-extension",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Neurai Sign (XNA) Chrome Extension - Manage wallet, sign messages, check balance",
   "private": true,
   "scripts": {

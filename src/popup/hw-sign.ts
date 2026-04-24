@@ -112,7 +112,7 @@ import type { HwSignPayload } from '../types/index.js';
       NEURAI_UTILS.applyTheme((settings || {}) as Parameters<typeof NEURAI_UTILS.applyTheme>[0]);
       return;
     }
-    const selected = ((settings || {}).theme as string) || 'dark';
+    const selected = ((settings || {}).theme as string) || 'light';
     const theme = selected === 'system'
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       : selected;

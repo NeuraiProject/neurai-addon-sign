@@ -139,7 +139,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
       return;
     }
 
-    const selected = (settings.theme as string) || 'dark';
+    const selected = (settings.theme as string) || 'light';
     const theme = selected === 'system'
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       : selected;

@@ -47,7 +47,7 @@
   // Expose API to the page
   window.neuraiWallet = {
     isInstalled: true,
-    version: '0.11.0',
+    version: '0.12.1',
 
     getAddress: function() {
       return _request('getAddress');
@@ -101,6 +101,6 @@
 
   // Notify the page that the API is ready
   document.dispatchEvent(new CustomEvent('neuraiWalletReady', {
-    detail: { isInstalled: true, version: '0.11.0' }
+    detail: { isInstalled: true, version: '0.12.1' }
   }));
 })();

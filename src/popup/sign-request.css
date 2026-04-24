@@ -36,7 +36,7 @@ body {
 body {
   margin: 0;
   min-height: 100%;
-  padding: 12px;
+  padding: 18px;
   display: flex;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
@@ -45,8 +45,10 @@ body {
 
 .panel {
   width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .head h1 {
@@ -64,7 +66,7 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 10px;
+  padding: 14px;
 }
 
 .row {
@@ -138,13 +140,14 @@ input {
 
 .actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  padding-bottom: 2px;
 }
 
 .btn {
   flex: 1;
   border-radius: 10px;
-  padding: 9px 12px;
+  padding: 11px 14px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -236,6 +239,20 @@ input {
   font-size: 12px;
   color: var(--muted);
   padding-left: 26px;
+}
+
+@media (max-width: 360px), (max-height: 560px) {
+  body {
+    padding: 14px;
+  }
+
+  .panel {
+    gap: 10px;
+  }
+
+  .card {
+    padding: 12px;
+  }
 }
 
 /* === Sign type header === */

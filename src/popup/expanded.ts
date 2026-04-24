@@ -54,10 +54,19 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     explorerTestnet: document.getElementById('explorerTestnet') as HTMLInputElement | null,
     lockTimeoutMinutes: document.getElementById('lockTimeoutMinutes') as HTMLInputElement | null,
     settingsFeedback: document.getElementById('settingsFeedback'),
-    pinStatusText: document.getElementById('pinStatusText'),
-    settingsPinOld: document.getElementById('settingsPinOld') as HTMLInputElement | null,
-    settingsPinNew: document.getElementById('settingsPinNew') as HTMLInputElement | null,
-    settingsPinConfirm: document.getElementById('settingsPinConfirm') as HTMLInputElement | null,
+    openChangePinBtn: document.getElementById('openChangePinBtn') as HTMLButtonElement | null,
+    changePinModal: document.getElementById('changePinModal'),
+    changePinCurrentView: document.getElementById('changePinCurrentView'),
+    changePinNewView: document.getElementById('changePinNewView'),
+    changePinCurrentInput: document.getElementById('changePinCurrentInput') as HTMLInputElement | null,
+    changePinNewInput: document.getElementById('changePinNewInput') as HTMLInputElement | null,
+    changePinConfirmInput: document.getElementById('changePinConfirmInput') as HTMLInputElement | null,
+    changePinCurrentError: document.getElementById('changePinCurrentError'),
+    changePinNewError: document.getElementById('changePinNewError'),
+    cancelChangePinBtn: document.getElementById('cancelChangePinBtn') as HTMLButtonElement | null,
+    verifyChangePinBtn: document.getElementById('verifyChangePinBtn') as HTMLButtonElement | null,
+    backChangePinBtn: document.getElementById('backChangePinBtn') as HTMLButtonElement | null,
+    saveChangePinBtn: document.getElementById('saveChangePinBtn') as HTMLButtonElement | null,
     openBackupBtn: document.getElementById('openBackupBtn') as HTMLButtonElement | null,
     removeWalletBtn: document.getElementById('removeWalletBtn') as HTMLButtonElement | null,
     backupModal: document.getElementById('backupModal'),
@@ -239,6 +248,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     cardMode: 'CREATE' as 'CREATE' | 'CONFIGURE',
     pendingSignedTx: null as { hex: string; rpcUrl: string; buildResult: NeuraiAssetsBuildResult } | null,
   };
+  let verifiedChangePinCurrent = '';
 
   // ── Initialization ─────────────────────────────────────────────────────────
 
@@ -274,6 +284,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (elements.closeSettingsBtn) elements.closeSettingsBtn.addEventListener('click', closeSettingsModal);
     if (elements.saveSettingsBtn) elements.saveSettingsBtn.addEventListener('click', handleSaveSettings);
     if (elements.resetSettingsBtn) elements.resetSettingsBtn.addEventListener('click', handleResetSettings);
+    if (elements.openChangePinBtn) elements.openChangePinBtn.addEventListener('click', openChangePinModal);
+    if (elements.cancelChangePinBtn) elements.cancelChangePinBtn.addEventListener('click', closeChangePinModal);
+    if (elements.verifyChangePinBtn) elements.verifyChangePinBtn.addEventListener('click', handleVerifyChangePin);
+    if (elements.backChangePinBtn) elements.backChangePinBtn.addEventListener('click', showChangePinCurrentStep);
+    if (elements.saveChangePinBtn) elements.saveChangePinBtn.addEventListener('click', handleSaveChangedPin);
     if (elements.openBackupBtn) elements.openBackupBtn.addEventListener('click', openBackupModal);
     if (elements.removeWalletBtn) elements.removeWalletBtn.addEventListener('click', openRemoveConfirmModal);
     if (elements.settingsModal) {
@@ -282,6 +297,21 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       });
     }
     if (elements.closeBackupBtn) elements.closeBackupBtn.addEventListener('click', closeBackupModal);
+    if (elements.changePinCurrentInput) {
+      elements.changePinCurrentInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleVerifyChangePin();
+      });
+    }
+    if (elements.changePinConfirmInput) {
+      elements.changePinConfirmInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') handleSaveChangedPin();
+      });
+    }
+    if (elements.changePinModal) {
+      elements.changePinModal.addEventListener('click', (e) => {
+        if (e.target === elements.changePinModal) closeChangePinModal();
+      });
+    }
     if (elements.backupUnlockBtn) elements.backupUnlockBtn.addEventListener('click', handleBackupUnlock);
     if (elements.backupCopyMnemonicBtn) elements.backupCopyMnemonicBtn.addEventListener('click', copyBackupMnemonic);
     if (elements.toggleBackupWifBtn) elements.toggleBackupWifBtn.addEventListener('click', toggleBackupWifVisibility);
@@ -513,6 +543,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   function openSettingsModal() {
+    stopAutoRefresh();
     syncSettingsForm();
     clearSettingsFeedback();
     elements.settingsModal?.classList.remove('hidden');
@@ -521,6 +552,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function closeSettingsModal() {
     elements.settingsModal?.classList.add('hidden');
     clearSettingsFeedback();
+    if (hasActiveWallet() && !isAddonLocked()) startAutoRefresh();
   }
 
   function syncSettingsForm() {
@@ -539,18 +571,94 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   function syncPinSettingsUI() {
-    const hasPin = !!state.settings?.pinHash;
-    if (elements.pinStatusText) {
-      elements.pinStatusText.textContent = hasPin ? 'Active' : 'Not configured';
-      elements.pinStatusText.classList.toggle('active', hasPin);
-    }
-    if (elements.settingsPinOld) elements.settingsPinOld.value = '';
-    if (elements.settingsPinNew) elements.settingsPinNew.value = '';
-    if (elements.settingsPinConfirm) elements.settingsPinConfirm.value = '';
     if (elements.openBackupBtn) {
       const isHardware = state.wallet?.walletType === 'hardware';
       elements.openBackupBtn.disabled = !!isHardware;
       elements.openBackupBtn.title = isHardware ? 'Hardware wallet secrets stay on the device' : '';
+    }
+  }
+
+  function openChangePinModal() {
+    verifiedChangePinCurrent = '';
+    if (elements.changePinCurrentInput) elements.changePinCurrentInput.value = '';
+    if (elements.changePinNewInput) elements.changePinNewInput.value = '';
+    if (elements.changePinConfirmInput) elements.changePinConfirmInput.value = '';
+    if (elements.changePinCurrentError) elements.changePinCurrentError.textContent = '';
+    if (elements.changePinNewError) elements.changePinNewError.textContent = '';
+    showChangePinCurrentStep();
+    elements.changePinModal?.classList.remove('hidden');
+    window.setTimeout(() => elements.changePinCurrentInput?.focus(), 0);
+  }
+
+  function closeChangePinModal() {
+    verifiedChangePinCurrent = '';
+    elements.changePinModal?.classList.add('hidden');
+    if (elements.changePinCurrentError) elements.changePinCurrentError.textContent = '';
+    if (elements.changePinNewError) elements.changePinNewError.textContent = '';
+  }
+
+  function showChangePinCurrentStep() {
+    verifiedChangePinCurrent = '';
+    elements.changePinCurrentView?.classList.remove('hidden');
+    elements.changePinNewView?.classList.add('hidden');
+    if (elements.changePinNewInput) elements.changePinNewInput.value = '';
+    if (elements.changePinConfirmInput) elements.changePinConfirmInput.value = '';
+    if (elements.changePinCurrentError) elements.changePinCurrentError.textContent = '';
+    if (elements.changePinNewError) elements.changePinNewError.textContent = '';
+    window.setTimeout(() => elements.changePinCurrentInput?.focus(), 0);
+  }
+
+  function showChangePinNewStep() {
+    elements.changePinCurrentView?.classList.add('hidden');
+    elements.changePinNewView?.classList.remove('hidden');
+    if (elements.changePinNewError) elements.changePinNewError.textContent = '';
+    window.setTimeout(() => elements.changePinNewInput?.focus(), 0);
+  }
+
+  async function handleVerifyChangePin() {
+    if (elements.changePinCurrentError) elements.changePinCurrentError.textContent = '';
+    const currentPin = (elements.changePinCurrentInput?.value || '').trim();
+
+    try {
+      if (!state.settings?.pinHash) throw new Error('PIN is not configured.');
+      if (!currentPin) throw new Error('Current PIN is required.');
+      const currentHash = await NEURAI_UTILS.hashText(currentPin);
+      if (currentHash !== state.settings.pinHash) throw new Error('Current PIN is invalid.');
+      verifiedChangePinCurrent = currentPin;
+      showChangePinNewStep();
+    } catch (error) {
+      if (elements.changePinCurrentError) {
+        elements.changePinCurrentError.textContent = (error as Error).message;
+      }
+    }
+  }
+
+  async function handleSaveChangedPin() {
+    if (elements.changePinNewError) elements.changePinNewError.textContent = '';
+    const newPin = (elements.changePinNewInput?.value || '').trim();
+    const confirmPin = (elements.changePinConfirmInput?.value || '').trim();
+
+    try {
+      if (!verifiedChangePinCurrent) throw new Error('Verify your current PIN first.');
+      if (newPin.length < 4 || newPin.length > 20) throw new Error('PIN must be 4 to 20 characters.');
+      if (newPin !== confirmPin) throw new Error('PIN confirmation does not match.');
+
+      await reencryptAllWalletKeys(verifiedChangePinCurrent, newPin);
+      state.settings = {
+        ...state.settings,
+        pinHash: await NEURAI_UTILS.hashText(newPin)
+      };
+      await persistSessionPin(newPin);
+      await unlockForConfiguredTimeout();
+      await saveAccountsData(newPin);
+      await saveSettings();
+      await notifySettingsUpdated();
+      closeChangePinModal();
+      setSettingsFeedback('PIN updated.', 'success');
+    } catch (error) {
+      if (elements.changePinNewError) {
+        elements.changePinNewError.textContent = (error as Error).message;
+      }
     }
   }
 
@@ -570,26 +678,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
   async function handleSaveSettings() {
     try {
-      const currentPin = (elements.settingsPinOld?.value || '').trim();
-      const newPin = (elements.settingsPinNew?.value || '').trim();
-      const confirmPin = (elements.settingsPinConfirm?.value || '').trim();
-      const hasExistingPin = !!state.settings?.pinHash;
-      let pinHash = state.settings?.pinHash || '';
-
-      if (newPin) {
-        if (newPin.length < 4 || newPin.length > 20) throw new Error('PIN must be 4 to 20 characters');
-        if (newPin !== confirmPin) throw new Error('PIN confirmation does not match');
-        if (hasExistingPin) {
-          if (!currentPin) throw new Error('Current PIN is required to change PIN');
-          const currentHash = await NEURAI_UTILS.hashText(currentPin);
-          if (currentHash !== state.settings.pinHash) throw new Error('Current PIN is invalid');
-        }
-        await reencryptAllWalletKeys(hasExistingPin ? currentPin : null, newPin);
-        await persistSessionPin(newPin);
-        await unlockForConfiguredTimeout();
-        pinHash = await NEURAI_UTILS.hashText(newPin);
-      }
-
       state.settings = {
         ...state.settings,
         theme: (elements.themeMode?.value || C.DEFAULT_SETTINGS.theme) as Theme,
@@ -597,7 +685,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         rpcTestnet: normalizeOptionalUrl(elements.rpcTestnet?.value || ''),
         explorerMainnet: normalizeOptionalExplorerUrl(elements.explorerMainnet?.value || ''),
         explorerTestnet: normalizeOptionalExplorerUrl(elements.explorerTestnet?.value || ''),
-        pinHash,
         lockTimeoutMinutes: NEURAI_UTILS.normalizeLockTimeoutMinutes(elements.lockTimeoutMinutes?.value)
       };
 
@@ -607,7 +694,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       await notifySettingsUpdated();
       NEURAI_UTILS.applyTheme(state.settings);
       syncPinSettingsUI();
-      setSettingsFeedback(newPin ? 'Settings saved. PIN updated.' : 'Settings saved.', 'success');
+      setSettingsFeedback('Settings saved.', 'success');
 
       if (hasActiveWallet() && !isAddonLocked()) {
         await refreshBalance();

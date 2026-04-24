@@ -161,7 +161,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       NEURAI_UTILS.applyTheme(settings || {});
       return;
     }
-    var selected = ((settings || {}).theme) || 'dark';
+    var selected = ((settings || {}).theme) || 'light';
     var theme: string = selected === 'system'
       ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
       : selected;
