@@ -22009,6 +22009,11 @@
 	const NOAUTH_TYPE = 0x00;
 	const PQ_AUTHSCRIPT_TYPE = 0x01;
 	const LEGACY_AUTHSCRIPT_TYPE = 0x02;
+	// Neurai asset wrapper opcode: <destination scriptPubKey> OP_XNA_ASSET <pushdata> OP_DROP.
+	// Asset-wrapped outputs always carry nValue = 0 on-chain (the asset quantity
+	// lives in the pushdata payload), which is what the node puts into the
+	// BIP-143 sighash. See `getSighashAmount` below.
+	const OP_XNA_ASSET = 0xc0;
 	const PQ_PUBLIC_KEY_LENGTH = 1312;
 	const PQ_SECRET_KEY_LENGTH = 2560;
 	const PQ_KEYDATA_LENGTH = 3872;
@@ -22073,6 +22078,49 @@
 	        throw new Error(`Invalid amount for UTXO ${utxo.txid}:${utxo.outputIndex}`);
 	    }
 	    return amount;
+	}
+	/**
+	 * Returns the nValue that the consensus layer puts into the BIP-143 sighash
+	 * preimage for this UTXO.
+	 *
+	 * Neurai / Ravencoin asset UTXOs are indexed under `getaddressutxos` with
+	 * `satoshis = assetAmount` (legacy Ravencoin convention). The real on-chain
+	 * `nValue` for any asset transfer / issue / reissue / owner output is 0,
+	 * and that 0 is what the node puts into the sighash. Passing
+	 * `utxo.satoshis` directly (the asset quantity) produces a sighash that
+	 * diverges from the node and the signature fails consensus verification
+	 * with `WITNESS_PROGRAM_MISMATCH`.
+	 *
+	 * The script itself is the source of truth: if the scriptPubKey has an
+	 * `OP_XNA_ASSET` byte right after the destination prefix (P2PKH = 25 bytes,
+	 * AuthScript v1 = 34 bytes), the output is asset-wrapped and its nValue
+	 * is 0.
+	 *
+	 * Non-standard prefixes (covenants, bare scripts, unknown witness
+	 * versions) fall through to `getUTXOAmount`; callers that supply a
+	 * `bareScriptHint` are expected to provide a UTXO whose `satoshis` field
+	 * already reflects the real nValue.
+	 */
+	function getSighashAmount(utxo) {
+	    if (typeof utxo.script !== "string" || utxo.script.length === 0) {
+	        return getUTXOAmount(utxo);
+	    }
+	    let scriptPubKey;
+	    try {
+	        scriptPubKey = bufferFromHex(utxo.script, `scriptPubKey for ${utxo.txid}:${utxo.outputIndex}`);
+	    }
+	    catch {
+	        return getUTXOAmount(utxo);
+	    }
+	    const assetOffset = isLegacyScript(scriptPubKey)
+	        ? LEGACY_PREFIX_LENGTH
+	        : isPQScript(scriptPubKey)
+	            ? AUTHSCRIPT_PREFIX_LENGTH
+	            : -1;
+	    if (assetOffset >= 0 && scriptPubKey.length > assetOffset && scriptPubKey[assetOffset] === OP_XNA_ASSET) {
+	        return 0;
+	    }
+	    return getUTXOAmount(utxo);
 	}
 	function sha256(buffer) {
 	    return bufferExports.Buffer.from(srcExports.crypto.sha256(buffer));
@@ -22438,7 +22486,7 @@
 	            if (!hasPrivateKeyForAddress(utxo.address)) {
 	                throw new Error(`Missing private key for covenant cancel at ${txid}:${vout} (address ${utxo.address})`);
 	            }
-	            const amount = getUTXOAmount(utxo);
+	            const amount = getSighashAmount(utxo);
 	            if (hint.kind === "covenant-cancel-legacy") {
 	                let parsed;
 	                try {
@@ -22581,7 +22629,7 @@
 	            }
 	            else if (spendTemplate.authType === PQ_AUTHSCRIPT_TYPE) {
 	                const pqMaterial = getPQMaterialByAddress(utxo.address);
-	                const sighash = hashForAuthScript(tx, i, spendTemplate.witnessScript, getUTXOAmount(utxo), HASH_TYPE, spendTemplate.authType);
+	                const sighash = hashForAuthScript(tx, i, spendTemplate.witnessScript, getSighashAmount(utxo), HASH_TYPE, spendTemplate.authType);
 	                const signature = bufferExports.Buffer.from(ml_dsa44.sign(new Uint8Array(sighash), new Uint8Array(pqMaterial.secretKey), {
 	                    extraEntropy: false,
 	                }));
@@ -22596,7 +22644,7 @@
 	            }
 	            else {
 	                const keyPair = getKeyPairByAddress(utxo.address);
-	                const sighash = hashForAuthScript(tx, i, spendTemplate.witnessScript, getUTXOAmount(utxo), HASH_TYPE, spendTemplate.authType);
+	                const sighash = hashForAuthScript(tx, i, spendTemplate.witnessScript, getSighashAmount(utxo), HASH_TYPE, spendTemplate.authType);
 	                const rawSignature = keyPair.sign(sighash);
 	                const signatureWithHashType = srcExports.script.signature.encode(bufferExports.Buffer.from(rawSignature), HASH_TYPE);
 	                witnessStack = [

@@ -10,6 +10,46 @@ import {
   parseRawTransactionOutputs
 } from '../shared/parse-raw-tx.js';
 import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
+import {
+  formatAmountParts,
+  renderAmount,
+  formatAssetAmount,
+  formatSatoshisToXna,
+  xnaToSatoshis,
+  satoshisToXna,
+} from './expanded/format.js';
+import {
+  isLikelyBurnAddress,
+  resolveBurnOperationType,
+  findExpectedBurnAddress,
+  findXnaEnvelope,
+} from './expanded/burn-detection.js';
+import {
+  getAssetType,
+  normalizeAssetsFromRpc,
+  cloneAssetOutputs,
+  normalizeAssetOutputEntries,
+  asObjectRecord,
+  asStringValue,
+  asOptionalStringValue,
+  asBooleanFlag,
+  asOptionalNumberValue,
+  asBigIntValue,
+  logicalAssetQuantityToRaw,
+  toTxInputs,
+  maybeIpfsHash,
+  findLogicalOutput,
+  findTransferOutput,
+  inferLocalOperationTypeFromOutputs,
+  parseUniqueAddresses,
+  isAuthScriptAddress,
+  normalizeQualifierTags,
+  tokenizeVerifier,
+  evaluateVerifierAgainstTags,
+  explainSimpleVerifierFailure,
+} from './expanded/asset-utils.js';
+import { state } from './expanded/state.js';
+import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
 (function () {
@@ -38,216 +78,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   const localAssetUnitsCache = new Map<string, number>();
   const AUTHSCRIPT_NULL_ASSET_MODE: NeuraiCreateTransactionNullAssetDestinationMode = 'strict';
 
-  const elements = {
-    // Header
-    openSettingsBtn: document.getElementById('openSettingsBtn') as HTMLButtonElement | null,
-    refreshBtn: document.getElementById('refreshBtn')!,
-    headerSubtitle: document.getElementById('headerSubtitle')!,
-    settingsModal: document.getElementById('settingsModal'),
-    closeSettingsBtn: document.getElementById('closeSettingsBtn') as HTMLButtonElement | null,
-    saveSettingsBtn: document.getElementById('saveSettingsBtn') as HTMLButtonElement | null,
-    resetSettingsBtn: document.getElementById('resetSettingsBtn') as HTMLButtonElement | null,
-    themeMode: document.getElementById('themeMode') as HTMLSelectElement | null,
-    rpcMainnet: document.getElementById('rpcMainnet') as HTMLInputElement | null,
-    rpcTestnet: document.getElementById('rpcTestnet') as HTMLInputElement | null,
-    explorerMainnet: document.getElementById('explorerMainnet') as HTMLInputElement | null,
-    explorerTestnet: document.getElementById('explorerTestnet') as HTMLInputElement | null,
-    lockTimeoutMinutes: document.getElementById('lockTimeoutMinutes') as HTMLInputElement | null,
-    settingsFeedback: document.getElementById('settingsFeedback'),
-    openChangePinBtn: document.getElementById('openChangePinBtn') as HTMLButtonElement | null,
-    changePinModal: document.getElementById('changePinModal'),
-    changePinCurrentView: document.getElementById('changePinCurrentView'),
-    changePinNewView: document.getElementById('changePinNewView'),
-    changePinCurrentInput: document.getElementById('changePinCurrentInput') as HTMLInputElement | null,
-    changePinNewInput: document.getElementById('changePinNewInput') as HTMLInputElement | null,
-    changePinConfirmInput: document.getElementById('changePinConfirmInput') as HTMLInputElement | null,
-    changePinCurrentError: document.getElementById('changePinCurrentError'),
-    changePinNewError: document.getElementById('changePinNewError'),
-    cancelChangePinBtn: document.getElementById('cancelChangePinBtn') as HTMLButtonElement | null,
-    verifyChangePinBtn: document.getElementById('verifyChangePinBtn') as HTMLButtonElement | null,
-    backChangePinBtn: document.getElementById('backChangePinBtn') as HTMLButtonElement | null,
-    saveChangePinBtn: document.getElementById('saveChangePinBtn') as HTMLButtonElement | null,
-    openBackupBtn: document.getElementById('openBackupBtn') as HTMLButtonElement | null,
-    removeWalletBtn: document.getElementById('removeWalletBtn') as HTMLButtonElement | null,
-    backupModal: document.getElementById('backupModal'),
-    closeBackupBtn: document.getElementById('closeBackupBtn') as HTMLButtonElement | null,
-    backupAuthSection: document.getElementById('backupAuthSection'),
-    backupDataSection: document.getElementById('backupDataSection'),
-    backupPinInput: document.getElementById('backupPinInput') as HTMLInputElement | null,
-    backupError: document.getElementById('backupError'),
-    backupUnlockBtn: document.getElementById('backupUnlockBtn') as HTMLButtonElement | null,
-    backupMnemonicGroup: document.getElementById('backupMnemonicGroup'),
-    backupMnemonicWords: document.getElementById('backupMnemonicWords'),
-    backupCopyMnemonicBtn: document.getElementById('backupCopyMnemonicBtn') as HTMLButtonElement | null,
-    backupPassphraseGroup: document.getElementById('backupPassphraseGroup'),
-    backupPassphraseText: document.getElementById('backupPassphraseText'),
-    backupWifText: document.getElementById('backupWifText') as HTMLInputElement | null,
-    toggleBackupWifBtn: document.getElementById('toggleBackupWifBtn') as HTMLButtonElement | null,
-    backupCopyWifBtn: document.getElementById('backupCopyWifBtn') as HTMLButtonElement | null,
-    removeConfirmModal: document.getElementById('removeConfirmModal'),
-    removeConfirmText: document.getElementById('removeConfirmText'),
-    cancelRemoveBtn: document.getElementById('cancelRemoveBtn') as HTMLButtonElement | null,
-    confirmRemoveBtn: document.getElementById('confirmRemoveBtn') as HTMLButtonElement | null,
-
-    // Sections
-    setupSection: document.getElementById('setupSection'),
-    mnemonicSection: document.getElementById('mnemonicSection')!,
-    walletSection: document.getElementById('walletSection')!,
-
-    // Wallet display
-    copyAddressBtn: document.getElementById('copyAddressBtn')!,
-    changeAccountBtn: document.getElementById('changeAccountBtn') as HTMLButtonElement | null,
-    newAccountBtn: document.getElementById('newAccountBtn') as HTMLButtonElement | null,
-    networkValue: document.getElementById('networkValue')!,
-    accountValue: document.getElementById('accountValue')!,
-    statusValue: document.getElementById('statusValue')!,
-    addressValue: document.getElementById('addressValue')!,
-    balanceValue: document.getElementById('balanceValue')!,
-    pendingValue: document.getElementById('pendingValue')!,
-    balancePanelAssets: document.getElementById('balancePanelAssets'),
-    assetsList: document.getElementById('assetsList')!,
-    assetsEmpty: document.getElementById('assetsEmpty')!,
-    assetsPager: document.getElementById('assetsPager'),
-    assetsPrevBtn: document.getElementById('assetsPrevBtn') as HTMLButtonElement | null,
-    assetsNextBtn: document.getElementById('assetsNextBtn') as HTMLButtonElement | null,
-    assetsPageLabel: document.getElementById('assetsPageLabel'),
-    assetsFilterBar: document.getElementById('assetsFilterBar'),
-    historyList: document.getElementById('historyList')!,
-    historyEmpty: document.getElementById('historyEmpty')!,
-    unlockModal: document.getElementById('unlockModal')!,
-    unlockPinInput: document.getElementById('unlockPinInput') as HTMLInputElement,
-    unlockError: document.getElementById('unlockError')!,
-    unlockConfirmBtn: document.getElementById('unlockConfirmBtn')!,
-    unlockPrimaryView: document.getElementById('unlockPrimaryView')!,
-    unlockForgotPinLink: document.getElementById('unlockForgotPinLink')!,
-    unlockResetView: document.getElementById('unlockResetView')!,
-    unlockResetInput: document.getElementById('unlockResetInput') as HTMLInputElement,
-    unlockResetMessage: document.getElementById('unlockResetMessage')!,
-    unlockResetCancelBtn: document.getElementById('unlockResetCancelBtn')!,
-    unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn')!,
-
-    hardwareCard: document.getElementById('hardwareCard'),
-    hwStatusDot: document.getElementById('hwStatusDot'),
-    hwStatusText: document.getElementById('hwStatusText'),
-    hwReconnectBtn: document.getElementById('hwReconnectBtn') as HTMLButtonElement | null,
-    recentMovementsList: document.getElementById('recentMovementsList')!,
-    recentMovementsEmpty: document.getElementById('recentMovementsEmpty')!,
-    recentMovementsPager: document.getElementById('recentMovementsPager'),
-    recentMovementsPrevBtn: document.getElementById('recentMovementsPrevBtn') as HTMLButtonElement | null,
-    recentMovementsNextBtn: document.getElementById('recentMovementsNextBtn') as HTMLButtonElement | null,
-    recentMovementsPageLabel: document.getElementById('recentMovementsPageLabel'),
-    historyPager: document.getElementById('historyPager'),
-    historyPrevBtn: document.getElementById('historyPrevBtn') as HTMLButtonElement | null,
-    historyNextBtn: document.getElementById('historyNextBtn') as HTMLButtonElement | null,
-    historyPageLabel: document.getElementById('historyPageLabel'),
-    createAssetCard: document.getElementById('createAssetCard'),
-    assetTypeTabs: document.getElementById('assetTypeTabs'),
-    caAssetNameGroup: document.getElementById('caAssetNameGroup'),
-    caAssetName: document.getElementById('caAssetName') as HTMLInputElement | null,
-    caAssetNameHint: document.getElementById('caAssetNameHint'),
-    caParentSelectGroup: document.getElementById('caParentSelectGroup'),
-    caParentSelectLabel: document.getElementById('caParentSelectLabel'),
-    caParentSelect: document.getElementById('caParentSelect') as HTMLSelectElement | null,
-    caLoadParentsBtn: document.getElementById('caLoadParentsBtn') as HTMLButtonElement | null,
-    caParentSelectHint: document.getElementById('caParentSelectHint'),
-    caRestrictedBaseGroup: document.getElementById('caRestrictedBaseGroup'),
-    caRestrictedBaseSelect: document.getElementById('caRestrictedBaseSelect') as HTMLSelectElement | null,
-    caLoadRestrictedBasesBtn: document.getElementById('caLoadRestrictedBasesBtn') as HTMLButtonElement | null,
-    caRestrictedBaseHint: document.getElementById('caRestrictedBaseHint'),
-    caSubNameGroup: document.getElementById('caSubNameGroup'),
-    caSubName: document.getElementById('caSubName') as HTMLInputElement | null,
-    caTagGroup: document.getElementById('caTagGroup'),
-    caTag: document.getElementById('caTag') as HTMLInputElement | null,
-    caQuantityGroup: document.getElementById('caQuantityGroup'),
-    caQuantityLabel: document.getElementById('caQuantityLabel'),
-    caQuantity: document.getElementById('caQuantity') as HTMLInputElement | null,
-    caUnitsGroup: document.getElementById('caUnitsGroup'),
-    caUnits: document.getElementById('caUnits') as HTMLSelectElement | null,
-    caReissuableGroup: document.getElementById('caReissuableGroup'),
-    caReissuable: document.getElementById('caReissuable') as HTMLInputElement | null,
-    caReissuableLabel: document.getElementById('caReissuableLabel'),
-    caVerifierGroup: document.getElementById('caVerifierGroup'),
-    caVerifier: document.getElementById('caVerifier') as HTMLInputElement | null,
-    caVerifierSelect: document.getElementById('caVerifierSelect') as HTMLSelectElement | null,
-    caLoadVerifiersBtn: document.getElementById('caLoadVerifiersBtn') as HTMLButtonElement | null,
-    caVerifierAddBtn: document.getElementById('caVerifierAddBtn') as HTMLButtonElement | null,
-    caVerifierNegateBtn: document.getElementById('caVerifierNegateBtn') as HTMLButtonElement | null,
-    caVerifierAndBtn: document.getElementById('caVerifierAndBtn') as HTMLButtonElement | null,
-    caVerifierOrBtn: document.getElementById('caVerifierOrBtn') as HTMLButtonElement | null,
-    caVerifierClearBtn: document.getElementById('caVerifierClearBtn') as HTMLButtonElement | null,
-    caVerifierPreview: document.getElementById('caVerifierPreview'),
-    caVerifierHint: document.getElementById('caVerifierHint'),
-    caIpfsHash: document.getElementById('caIpfsHash') as HTMLInputElement | null,
-    caFeeValue: document.getElementById('caFeeValue'),
-    caError: document.getElementById('caError'),
-    caCreateBtn: document.getElementById('caCreateBtn') as HTMLButtonElement | null,
-    caResult: document.getElementById('caResult'),
-    caTxid: document.getElementById('caTxid'),
-    caNewBtn: document.getElementById('caNewBtn') as HTMLButtonElement | null,
-    caTxConfirmModal: document.getElementById('caTxConfirmModal'),
-    caTxOutputsList: document.getElementById('caTxOutputsList'),
-    caTxRawToggle: document.getElementById('caTxRawToggle') as HTMLButtonElement | null,
-    caTxRawHex: document.getElementById('caTxRawHex'),
-    caTxDebugToggle: document.getElementById('caTxDebugToggle') as HTMLButtonElement | null,
-    caTxDebugJson: document.getElementById('caTxDebugJson'),
-    caTxConfirmError: document.getElementById('caTxConfirmError'),
-    caTxCancelBtn: document.getElementById('caTxCancelBtn') as HTMLButtonElement | null,
-    caTxBroadcastBtn: document.getElementById('caTxBroadcastBtn') as HTMLButtonElement | null,
-    // Card mode toggle
-    assetModeToggle: document.getElementById('assetModeToggle'),
-    caCardTitle: document.getElementById('caCardTitle'),
-    caCardCopy: document.getElementById('caCardCopy'),
-    createAssetPanel: document.getElementById('createAssetPanel'),
-    configureAssetPanel: document.getElementById('configureAssetPanel'),
-    // Configure panel
-    cfTypeTabs: document.getElementById('cfTypeTabs'),
-    cfOwnerTokenGroup: document.getElementById('cfOwnerTokenGroup'),
-    cfOwnerTokenLabel: document.getElementById('cfOwnerTokenLabel'),
-    cfOwnerTokenSelect: document.getElementById('cfOwnerTokenSelect') as HTMLSelectElement | null,
-    cfOwnerTokenHint: document.getElementById('cfOwnerTokenHint'),
-    cfLoadTokensBtn: document.getElementById('cfLoadTokensBtn') as HTMLButtonElement | null,
-    cfAddressesGroup: document.getElementById('cfAddressesGroup'),
-    cfAddresses: document.getElementById('cfAddresses') as HTMLTextAreaElement | null,
-    cfGlobalGroup: document.getElementById('cfGlobalGroup'),
-    cfGlobal: document.getElementById('cfGlobal') as HTMLInputElement | null,
-    cfQuantityGroup: document.getElementById('cfQuantityGroup'),
-    cfQuantity: document.getElementById('cfQuantity') as HTMLInputElement | null,
-    cfChangeVerifierGroup: document.getElementById('cfChangeVerifierGroup'),
-    cfChangeVerifier: document.getElementById('cfChangeVerifier') as HTMLInputElement | null,
-    cfNewVerifierGroup: document.getElementById('cfNewVerifierGroup'),
-    cfNewVerifier: document.getElementById('cfNewVerifier') as HTMLInputElement | null,
-    cfReissuableGroup: document.getElementById('cfReissuableGroup'),
-    cfReissuable: document.getElementById('cfReissuable') as HTMLInputElement | null,
-    cfNewIpfsGroup: document.getElementById('cfNewIpfsGroup'),
-    cfNewIpfs: document.getElementById('cfNewIpfs') as HTMLInputElement | null,
-    cfFeeRow: document.getElementById('cfFeeRow'),
-    cfFeeValue: document.getElementById('cfFeeValue'),
-    cfError: document.getElementById('cfError'),
-    cfApplyBtn: document.getElementById('cfApplyBtn') as HTMLButtonElement | null,
-  };
-
-  let state = {
-    wallet: null as Record<string, unknown> | null,
-    accounts: null as Record<string, Record<string, unknown> | null> | null,
-    activeAccountId: '1',
-    settings: { ...C.DEFAULT_SETTINGS } as WalletSettings,
-    assets: [] as unknown[],
-    assetsPage: 0,
-    assetsFilter: 'all' as string,
-    recentMovements: [] as unknown[],
-    recentMovementsPage: 0,
-    historyPage: 0,
-    unlockUntil: 0,
-    sessionPin: '',
-    autoRefreshInterval: null as ReturnType<typeof setInterval> | null,
-    isRefreshingBalance: false,
-    lockWatchInterval: null as ReturnType<typeof setInterval> | null,
-    lastUnlockTouchAt: 0,
-    createAssetType: 'ROOT' as string,
-    configAssetType: 'TAG' as string,
-    cardMode: 'CREATE' as 'CREATE' | 'CONFIGURE',
-    pendingSignedTx: null as { hex: string; rpcUrl: string; buildResult: NeuraiAssetsBuildResult } | null,
-  };
   let verifiedChangePinCurrent = '';
 
   // ── Initialization ─────────────────────────────────────────────────────────
@@ -917,76 +747,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     } finally {
       state.isRefreshingBalance = false;
     }
-  }
-
-  function formatAmountParts(value: unknown, fallback = '0') {
-    const raw = String(value ?? '').trim();
-    if (!raw || raw === '--') return { integer: '--', decimals: '' };
-    const normalized = raw.replace(/,/g, '');
-    if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
-      return { integer: fallback, decimals: '' };
-    }
-    const [intPart, decPart = ''] = normalized.split('.');
-    return { integer: intPart, decimals: decPart.replace(/0+$/, '') };
-  }
-
-  function renderAmount(element: HTMLElement, value: unknown, fallback = '0') {
-    const { integer, decimals } = formatAmountParts(value, fallback);
-    element.textContent = '';
-    const intNode = document.createElement('span');
-    intNode.className = 'amount-int';
-    intNode.textContent = integer;
-    element.appendChild(intNode);
-    if (decimals) {
-      const decNode = document.createElement('span');
-      decNode.className = 'amount-dec';
-      decNode.textContent = '.' + decimals;
-      element.appendChild(decNode);
-    }
-  }
-
-  function formatAssetAmount(amount: unknown, decimals: number) {
-    const fixed = Number(amount || 0).toFixed(decimals);
-    const trimmed = fixed.replace(/\.?0+$/, '');
-    return trimmed || '0';
-  }
-
-  function normalizeAssetsFromRpc(assetBalance: unknown) {
-    let rows: unknown[] = [];
-    if (Array.isArray(assetBalance)) {
-      rows = assetBalance;
-    } else if (assetBalance && Array.isArray((assetBalance as Record<string, unknown>).assets)) {
-      rows = (assetBalance as Record<string, unknown[]>).assets;
-    } else if (assetBalance && typeof assetBalance === 'object') {
-      rows = Object.keys(assetBalance as object).map((assetName) => ({
-        assetName,
-        balance: (assetBalance as Record<string, unknown>)[assetName]
-      }));
-    }
-
-    return rows
-      .map((asset) => {
-        const a = asset as Record<string, unknown>;
-        const name = String(a.assetName || a.name || '').trim();
-        if (!name || name.toUpperCase() === 'XNA') return null;
-        const decimals = (typeof a.divisible === 'boolean')
-          ? (a.divisible ? 8 : 0)
-          : 8;
-        const amount = Number(a.balance || 0) / Math.pow(10, decimals);
-        return { name, amountText: formatAssetAmount(amount, decimals) };
-      })
-      .filter(Boolean)
-      .sort((a, b) => (a as { name: string }).name.localeCompare((b as { name: string }).name, undefined, { sensitivity: 'base' }));
-  }
-
-  function getAssetType(name: string): string {
-    if (name.endsWith('!')) return 'owner';
-    if (name.startsWith('$')) return 'restricted';
-    if (name.startsWith('#')) return 'qualifier';
-    if (name.startsWith('&')) return 'depin';
-    if (name.includes('#')) return 'unique';
-    if (name.includes('/')) return 'sub';
-    return 'root';
   }
 
   function renderAssetsList() {
@@ -2123,26 +1883,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     return Math.floor((normalized.length * 3) / 4) - padding;
   }
 
-  function formatSatoshisToXna(satoshis: bigint | number) {
-    return (Number(satoshis) / 1e8).toFixed(8);
-  }
-
-  function xnaToSatoshis(amount: number) {
-    return Math.round(Number(amount || 0) * 1e8);
-  }
-
-  function satoshisToXna(amount: number) {
-    return amount / 1e8;
-  }
-
-  function isLikelyBurnAddress(address: string) {
-    const normalized = String(address || '').trim();
-    if (!normalized) return false;
-    return /^N[bB]/.test(normalized)
-      || /^t[Bb]/.test(normalized)
-      || /burn/i.test(normalized);
-  }
-
   function logAuthScriptDebug(level: 'warn' | 'error', message: string, data?: unknown) {
     if (!DEBUG_AUTHSCRIPT_SIGN) return;
     if (level === 'error') {
@@ -2189,193 +1929,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     });
   }
 
-  function cloneAssetOutputs(outputs: NeuraiAssetsBuildResult['outputs']) {
-    const normalized = Array.isArray(outputs)
-      ? outputs
-      : Object.entries(outputs || {}).map(([address, value]) => ({ [address]: value }));
-    return normalized.map((output) => JSON.parse(JSON.stringify(output)) as Record<string, unknown>);
-  }
-
-  function normalizeAssetOutputEntries(outputs: NeuraiAssetsBuildResult['outputs'] | Array<Record<string, unknown>>) {
-    const normalized = Array.isArray(outputs)
-      ? outputs
-      : Object.entries(outputs || {}).map(([address, value]) => ({ [address]: value }));
-
-    return normalized.map((output) => {
-      const [address, value] = Object.entries(output)[0] || ['', undefined];
-      return {
-        address: String(address || ''),
-        value,
-        output
-      };
-    });
-  }
-
-  function asObjectRecord(value: unknown, label: string): Record<string, unknown> {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error(`Invalid ${label} output while building local raw transaction.`);
-    }
-    return value as Record<string, unknown>;
-  }
-
-  function asStringValue(value: unknown): string {
-    return String(value ?? '').trim();
-  }
-
-  function asOptionalStringValue(value: unknown): string | undefined {
-    const normalized = asStringValue(value);
-    return normalized || undefined;
-  }
-
-  function asBooleanFlag(value: unknown, fallback = false): boolean {
-    if (value === undefined || value === null || value === '') return fallback;
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'number') return value !== 0;
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase();
-      if (!normalized) return fallback;
-      if (normalized === '0' || normalized === 'false' || normalized === 'no') return false;
-      return true;
-    }
-    return Boolean(value);
-  }
-
-  function asOptionalNumberValue(value: unknown): number | undefined {
-    if (value === undefined || value === null || value === '') return undefined;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
-  }
-
-  function asBigIntValue(value: unknown, label: string): bigint {
-    if (typeof value === 'bigint') return value;
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return BigInt(Math.trunc(value));
-    }
-    const normalized = String(value ?? '').trim();
-    if (!normalized) {
-      throw new Error(`Missing ${label} while building local raw transaction.`);
-    }
-    return BigInt(normalized);
-  }
-
-  function logicalAssetQuantityToRaw(value: unknown, _units: number): bigint {
-    // `asset_quantity` from NeuraiAssets outputs is already encoded in raw asset units.
-    return asBigIntValue(value, 'asset quantity');
-  }
-
-  function toTxInputs(inputs: Array<{ txid: string; vout: number }>) {
-    return inputs.map((input) => ({
-      txid: input.txid,
-      vout: input.vout
-    }));
-  }
-
-  function resolveBurnOperationType(operationType: string) {
-    switch (operationType) {
-      case 'ISSUE_ROOT':
-      case 'ISSUE_SUB':
-      case 'ISSUE_UNIQUE':
-      case 'ISSUE_DEPIN':
-      case 'ISSUE_QUALIFIER':
-      case 'ISSUE_SUB_QUALIFIER':
-      case 'ISSUE_RESTRICTED':
-      case 'REISSUE':
-      case 'REISSUE_RESTRICTED':
-        return operationType;
-      case 'TAG_ADDRESSES':
-        return 'TAG_ADDRESS';
-      case 'UNTAG_ADDRESSES':
-        return 'UNTAG_ADDRESS';
-      default:
-        return null;
-    }
-  }
-
-  function findExpectedBurnAddress(
-    entries: Array<{ address: string; value: unknown }>,
-    operationType: string
-  ) {
-    const burnOperationType = resolveBurnOperationType(operationType);
-    if (!burnOperationType) return undefined;
-
-    const sampleAddress = entries.find((entry) => entry.address)?.address;
-    if (!sampleAddress) return undefined;
-
-    try {
-      const network = NeuraiCreateTransaction.inferNetworkFromAnyAddress(sampleAddress);
-      return NeuraiCreateTransaction.getBurnAddressForOperation(network, burnOperationType);
-    } catch (_) {
-      return undefined;
-    }
-  }
-
-  function findXnaEnvelope(
-    entries: Array<{ address: string; value: unknown }>,
-    operationType: string
-  ) {
-    let burnAddress: string | undefined;
-    let burnAmountSats: bigint | undefined;
-    let xnaChangeAddress: string | undefined;
-    let xnaChangeSats: bigint | undefined;
-    const expectedBurnAddress = findExpectedBurnAddress(entries, operationType);
-
-    for (const entry of entries) {
-      if (typeof entry.value !== 'number') continue;
-      if (entry.address === expectedBurnAddress || isLikelyBurnAddress(entry.address)) {
-        burnAddress = entry.address;
-        burnAmountSats = NeuraiCreateTransaction.xnaToSatoshis(Number(entry.value || 0));
-        continue;
-      }
-      if (!xnaChangeAddress) {
-        xnaChangeAddress = entry.address;
-        xnaChangeSats = NeuraiCreateTransaction.xnaToSatoshis(Number(entry.value || 0));
-      }
-    }
-
-    return { burnAddress, burnAmountSats, xnaChangeAddress, xnaChangeSats };
-  }
-
-  function findLogicalOutput(
-    entries: ReturnType<typeof normalizeAssetOutputEntries>,
-    key: string
-  ): { address: string; payload: Record<string, unknown> } | null {
-    for (const entry of entries) {
-      if (!entry.value || typeof entry.value !== 'object' || Array.isArray(entry.value)) continue;
-      const container = entry.value as Record<string, unknown>;
-      const payload = container[key];
-      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
-        return {
-          address: entry.address,
-          payload: payload as Record<string, unknown>
-        };
-      }
-    }
-    return null;
-  }
-
-  function findTransferOutput(entries: ReturnType<typeof normalizeAssetOutputEntries>) {
-    for (const entry of entries) {
-      if (!entry.value || typeof entry.value !== 'object' || Array.isArray(entry.value)) continue;
-      const container = entry.value as Record<string, unknown>;
-      if (!container.transfer || typeof container.transfer !== 'object' || Array.isArray(container.transfer)) continue;
-      const transfers = Object.entries(container.transfer as Record<string, unknown>);
-      if (transfers.length === 0) continue;
-      const [assetName, amount] = transfers[0];
-      return {
-        address: entry.address,
-        assetName,
-        amount
-      };
-    }
-    return null;
-  }
-
-  function maybeIpfsHash(payload: Record<string, unknown>, flagKey: string, hashKey: string) {
-    return asBooleanFlag(payload[flagKey], false)
-      ? asOptionalStringValue(payload[hashKey])
-      : asOptionalStringValue(payload[hashKey]);
-  }
-
   async function resolveAssetUnits(
     rpc: ((method: string, params: unknown[]) => Promise<unknown>) | undefined,
     assetName: string,
@@ -2397,32 +1950,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     } catch (_) { }
 
     return fallback;
-  }
-
-  function inferLocalOperationTypeFromOutputs(outputs: NeuraiAssetsBuildResult['outputs'] | Array<Record<string, unknown>>) {
-    const entries = normalizeAssetOutputEntries(outputs);
-    if (findLogicalOutput(entries, 'issue_unique')) return 'ISSUE_UNIQUE';
-    if (findLogicalOutput(entries, 'issue_restricted')) return 'ISSUE_RESTRICTED';
-    if (findLogicalOutput(entries, 'issue_qualifier')) return 'ISSUE_QUALIFIER';
-    if (findLogicalOutput(entries, 'reissue_restricted')) return 'REISSUE_RESTRICTED';
-    if (findLogicalOutput(entries, 'reissue')) return 'REISSUE';
-    if (findLogicalOutput(entries, 'tag_addresses')) return 'TAG_ADDRESSES';
-    if (findLogicalOutput(entries, 'untag_addresses')) return 'UNTAG_ADDRESSES';
-    if (findLogicalOutput(entries, 'freeze_addresses')) return 'FREEZE_ADDRESSES';
-    if (findLogicalOutput(entries, 'unfreeze_addresses')) return 'UNFREEZE_ADDRESSES';
-    if (findLogicalOutput(entries, 'freeze_asset')) return 'FREEZE_ASSET';
-    if (findLogicalOutput(entries, 'unfreeze_asset')) return 'UNFREEZE_ASSET';
-
-    const issue = findLogicalOutput(entries, 'issue');
-    if (issue) {
-      const issuePayload = issue.payload;
-      const assetName = asStringValue(issuePayload.asset_name);
-      if (assetName.startsWith('&')) return 'ISSUE_DEPIN';
-      if (assetName.includes('/')) return 'ISSUE_SUB';
-      return 'ISSUE_ROOT';
-    }
-
-    return null;
   }
 
   async function createLocalAssetRawTransaction(params: {
@@ -2960,20 +2487,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     renderVerifierPreview();
   }
 
-  function parseUniqueAddresses(rawAddresses: string): string[] {
-    return [...new Set(
-      rawAddresses
-        .split(/\r?\n/)
-        .map((address) => address.trim())
-        .filter(Boolean)
-    )];
-  }
-
-  function isAuthScriptAddress(address: string): boolean {
-    const normalized = String(address || '').trim().toLowerCase();
-    return normalized.startsWith('nq1') || normalized.startsWith('tnq1');
-  }
-
   async function checkQualifierAssigned(
     neuraiAssets: NeuraiAssets,
     rpc: (method: string, params: unknown[]) => Promise<unknown>,
@@ -2995,15 +2508,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     } catch (_) {
       return false;
     }
-  }
-
-  function normalizeQualifierTags(raw: unknown): string[] {
-    const tags = Array.isArray(raw)
-      ? raw
-      : (raw && typeof raw === 'object' ? Object.keys(raw as Record<string, unknown>) : []);
-    return tags
-      .map((tag) => String(tag || '').trim().toUpperCase())
-      .filter((tag) => tag.startsWith('#'));
   }
 
   async function callRpcUrl<T = unknown>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
@@ -3213,97 +2717,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     } finally {
       elements.caLoadRestrictedBasesBtn!.disabled = false;
     }
-  }
-
-  function tokenizeVerifier(verifierString: string) {
-    const normalized = verifierString.trim().toUpperCase();
-    const tokenPattern = /\s*(!?#[A-Z0-9_/]+|[()&|])\s*/gy;
-    const tokens: string[] = [];
-    let lastIndex = 0;
-
-    while (lastIndex < normalized.length) {
-      tokenPattern.lastIndex = lastIndex;
-      const match = tokenPattern.exec(normalized);
-      if (!match) {
-        throw new Error(`Invalid verifier token near: "${normalized.slice(lastIndex)}"`);
-      }
-      tokens.push(match[1]);
-      lastIndex = tokenPattern.lastIndex;
-    }
-
-    return tokens;
-  }
-
-  function evaluateVerifierAgainstTags(verifierString: string, addressTags: string[]) {
-    const tags = new Set(addressTags.map(tag => String(tag || '').trim().toUpperCase()).filter(Boolean));
-    const tokens = tokenizeVerifier(verifierString);
-    let index = 0;
-
-    function parseExpression(): boolean {
-      let value = parseTerm();
-      while (tokens[index] === '|') {
-        index += 1;
-        value = value || parseTerm();
-      }
-      return value;
-    }
-
-    function parseTerm(): boolean {
-      let value = parseFactor();
-      while (tokens[index] === '&') {
-        index += 1;
-        value = value && parseFactor();
-      }
-      return value;
-    }
-
-    function parseFactor(): boolean {
-      const token = tokens[index];
-      if (!token) throw new Error('Unexpected end of verifier expression');
-
-      if (token === '(') {
-        index += 1;
-        const value = parseExpression();
-        if (tokens[index] !== ')') throw new Error('Unbalanced parentheses in verifier expression');
-        index += 1;
-        return value;
-      }
-
-      if (token.startsWith('!#')) {
-        index += 1;
-        return !tags.has(token.slice(1));
-      }
-
-      if (token.startsWith('#')) {
-        index += 1;
-        return tags.has(token);
-      }
-
-      throw new Error(`Unsupported verifier token: ${token}`);
-    }
-
-    const result = parseExpression();
-    if (index !== tokens.length) {
-      throw new Error(`Unexpected verifier token: ${tokens[index]}`);
-    }
-    return result;
-  }
-
-  function explainSimpleVerifierFailure(verifierString: string, addressTags: string[]) {
-    const normalized = verifierString.trim().toUpperCase();
-    const tags = new Set(addressTags.map(tag => String(tag || '').trim().toUpperCase()).filter(Boolean));
-
-    if (/^#[A-Z0-9_/]+$/.test(normalized)) {
-      return tags.has(normalized) ? null : `Missing tag: ${normalized}`;
-    }
-
-    const negated = normalized.match(/^!#([A-Z0-9_/]+)$/);
-    if (negated) {
-      const tag = `#${negated[1]}`;
-      return tags.has(tag) ? `Address has forbidden tag: ${tag}` : null;
-    }
-
-    return null;
   }
 
   function updateCreateAssetUI() {
