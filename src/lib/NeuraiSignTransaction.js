@@ -20990,6 +20990,7 @@
 	const OP_EQUALVERIFY = 0x88;
 	const OP_SUB = 0x94;
 	const OP_MUL = 0x95;
+	const OP_GREATERTHAN = 0xa0;
 	const OP_GREATERTHANOREQUAL = 0xa2;
 	const OP_SHA256 = 0xa8;
 	const OP_HASH160 = 0xa9;
@@ -21008,6 +21009,15 @@
 	// scriptPubKey. Symmetric to TXFIELD_AUTHSCRIPT_COMMITMENT for inputs;
 	// ignores any trailing OP_XNA_ASSET asset wrapper bytes.
 	const OP_OUTPUTAUTHCOMMITMENT = 0xd5;
+	// ---------- Chain context introspection (NIP-026) ----------
+	// Pushes chain-context fields (block height, median time, etc.) selected
+	// by a single-byte selector consumed from the stack.
+	const OP_CHAINCONTEXT = 0xd7;
+	// ---------- Selectors for OP_CHAINCONTEXT ----------
+	// Valid selector bytes consumed by OP_CHAINCONTEXT. HEIGHT is the candidate
+	// confirmation block height; MTP is the previous block's median time past.
+	const CHAINCONTEXT_HEIGHT = 0x01;
+	const CHAINCONTEXT_MTP = 0x02;
 
 	// base-x encoding / decoding
 	// Copyright (c) 2018 base-x contributors
@@ -21489,6 +21499,35 @@
 	    }
 	    return data[0];
 	}
+	function modeForSelector(selector) {
+	    if (selector === CHAINCONTEXT_HEIGHT)
+	        return 'height';
+	    if (selector === CHAINCONTEXT_MTP)
+	        return 'mtp';
+	    throw new Error('expiration OP_CHAINCONTEXT selector must be HEIGHT (0x01) or MTP (0x02)');
+	}
+	function readOptionalExpirationGate(c, nextOpcodeWithoutGate, label) {
+	    if (c.pos >= c.bytes.length || c.bytes[c.pos] === nextOpcodeWithoutGate) {
+	        return undefined;
+	    }
+	    const value = readPushPositiveInt(c, `expiration value (${label})`);
+	    if (value <= 0n) {
+	        throw new Error(`parse: expiration value (${label}) must be > 0`);
+	    }
+	    const selector = readPushUint8(c, `expiration selector (${label})`);
+	    const mode = modeForSelector(selector);
+	    expectByte(c, OP_CHAINCONTEXT, `OP_CHAINCONTEXT (${label})`);
+	    expectByte(c, OP_GREATERTHAN, `OP_GREATERTHAN (${label})`);
+	    expectByte(c, OP_VERIFY, `OP_VERIFY (${label})`);
+	    return { mode, value };
+	}
+	function assertSameExpiration(a, b, label) {
+	    if (a === undefined && b === undefined)
+	        return;
+	    if (a === undefined || b === undefined || a.mode !== b.mode || a.value !== b.value) {
+	        throw new Error(`parse: expiration differs between ${label}`);
+	    }
+	}
 
 	/**
 	 * Parser for the Partial-Fill Sell Order covenant (three-branch).
@@ -21523,6 +21562,7 @@
 	    expectByte(c, OP_ELSE, 'OP_ELSE (outer → fill)');
 	    // ═════ Inner IF — Full-fill branch ═════
 	    expectByte(c, OP_IF, 'OP_IF (inner full-fill)');
+	    const expirationFull = readOptionalExpirationGate(c, OP_0, 'full');
 	    // N = inputAmount
 	    expectByte(c, OP_0, 'OP_0 (input idx, full)');
 	    expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
@@ -21564,6 +21604,7 @@
 	    expectByte(c, OP_1, 'OP_1 (true, full)');
 	    expectByte(c, OP_ELSE, 'OP_ELSE (inner → partial fill)');
 	    // ═════ Inner ELSE — Partial-fill branch ═════
+	    const expirationPartial = readOptionalExpirationGate(c, OP_DUP, 'partial');
 	    // Payment value
 	    expectByte(c, OP_DUP, 'OP_DUP (price, partial)');
 	    const unitPriceSatsPartial = readPushPositiveInt(c, 'unitPriceSats (partial)');
@@ -21634,12 +21675,14 @@
 	    if (unitPriceSatsFull !== unitPriceSatsPartial) {
 	        throw new Error('parse: unitPriceSats differs between full-fill and partial-fill branches');
 	    }
+	    assertSameExpiration(expirationFull, expirationPartial, 'full-fill and partial-fill branches');
 	    const tokenId = new TextDecoder('utf-8', { fatal: true }).decode(tokenIdFull);
 	    return {
 	        network,
 	        sellerPubKeyHash,
 	        unitPriceSats: unitPriceSatsFull,
 	        tokenId,
+	        expiration: expirationFull,
 	        scriptHex: bytesToHex(bytes)
 	    };
 	}
@@ -21669,6 +21712,7 @@
 	    expectByte(c, OP_ELSE, 'OP_ELSE (outer → fill)');
 	    // ═════ Inner IF — Full-fill branch ═════
 	    expectByte(c, OP_IF, 'OP_IF (inner full-fill)');
+	    const expirationFull = readOptionalExpirationGate(c, OP_0, 'full');
 	    expectByte(c, OP_0, 'OP_0 (input idx, full)');
 	    expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
 	    expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD (full)');
@@ -21698,6 +21742,7 @@
 	    expectByte(c, OP_1, 'OP_1 (true, full)');
 	    expectByte(c, OP_ELSE, 'OP_ELSE (inner → partial fill)');
 	    // ═════ Inner ELSE — Partial-fill branch ═════
+	    const expirationPartial = readOptionalExpirationGate(c, OP_DUP, 'partial');
 	    expectByte(c, OP_DUP, 'OP_DUP (price, partial)');
 	    const unitPriceSatsPartial = readPushPositiveInt(c, 'unitPriceSats (partial)');
 	    expectByte(c, OP_MUL, 'OP_MUL (partial)');
@@ -21759,6 +21804,7 @@
 	    if (unitPriceSatsFull !== unitPriceSatsPartial) {
 	        throw new Error('parse-pq: unitPriceSats differs between full-fill and partial-fill branches');
 	    }
+	    assertSameExpiration(expirationFull, expirationPartial, 'full-fill and partial-fill branches');
 	    const tokenId = new TextDecoder('utf-8', { fatal: true }).decode(tokenIdFull);
 	    return {
 	        network,
@@ -21766,6 +21812,7 @@
 	        tokenId,
 	        unitPriceSats: unitPriceSatsFull,
 	        txHashSelector,
+	        expiration: expirationFull,
 	        paymentScriptPubKey: paymentScriptPubKeyFull,
 	        scriptHex: bytesToHex(bytes)
 	    };
