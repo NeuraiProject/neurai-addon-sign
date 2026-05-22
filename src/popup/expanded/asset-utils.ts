@@ -110,9 +110,58 @@ export function asBigIntValue(value: unknown, label: string): bigint {
   return BigInt(normalized);
 }
 
-// `asset_quantity` from NeuraiAssets outputs is already encoded in raw asset units.
-export function logicalAssetQuantityToRaw(value: unknown, _units: number): bigint {
-  return asBigIntValue(value, 'asset quantity');
+// NeuraiAssets >=1.3.0 emits `asset_quantity` (and `localRawBuild.*Raw` fields)
+// as the user-facing display amount — the daemon's createrawtransaction handles
+// the 10^8 scaling. The PQ rebuild path in this addon does NOT go through the
+// daemon, so we have to apply the 10^8 multiplication ourselves before encoding
+// the script bytes. We also enforce divisibility by 10^(8 - units) so callers
+// fail fast instead of broadcasting an invalid script.
+export function logicalAssetQuantityToRaw(value: unknown, units: number): bigint {
+  const raw = userAmountToRawSats(value);
+  const safeUnits = Number.isFinite(units) && units >= 0 && units <= 8 ? Math.trunc(units) : 0;
+  const step = 10n ** BigInt(8 - safeUnits);
+  if (raw % step !== 0n) {
+    throw new Error(
+      `Asset quantity ${String(value)} is not divisible by the smallest unit (10^-${safeUnits}) of an asset with units=${safeUnits}.`
+    );
+  }
+  return raw;
+}
+
+// NeuraiAssets >=1.3.0 fills `localRawBuild.params.*Raw` fields with the same
+// user-facing amount instead of the raw sats value the script encoder expects.
+// Rescale every known *Raw field in place. `quantityRaw` uses the asset's
+// `units`; qualifier-related amounts are always units=0.
+const LOCAL_RAW_AMOUNT_FIELDS = ['quantityRaw', 'changeQuantityRaw', 'qualifierChangeAmountRaw'] as const;
+
+export function rescaleLocalRawBuildParams<T extends Record<string, unknown>>(params: T): T {
+  const unitsRaw = (params as Record<string, unknown>).units;
+  const units = typeof unitsRaw === 'number' && Number.isFinite(unitsRaw) ? Math.trunc(unitsRaw) : 0;
+  for (const key of LOCAL_RAW_AMOUNT_FIELDS) {
+    const value = (params as Record<string, unknown>)[key];
+    if (value === undefined || value === null) continue;
+    const fieldUnits = key === 'quantityRaw' ? units : 0;
+    (params as Record<string, unknown>)[key] = logicalAssetQuantityToRaw(value, fieldUnits);
+  }
+  return params;
+}
+
+function userAmountToRawSats(value: unknown): bigint {
+  if (typeof value === 'bigint') return value * 100000000n;
+  const text = String(value ?? '').trim();
+  if (!text) throw new Error('Missing asset quantity while building local raw transaction.');
+  if (!/^-?\d+(\.\d+)?$/.test(text)) {
+    throw new Error(`Invalid asset quantity: ${text}`);
+  }
+  const negative = text.startsWith('-');
+  const unsigned = negative ? text.slice(1) : text;
+  const [intPart, fracPart = ''] = unsigned.split('.');
+  if (fracPart.length > 8) {
+    throw new Error(`Asset quantity has more than 8 decimal places: ${text}`);
+  }
+  const paddedFrac = (fracPart + '00000000').slice(0, 8);
+  const combined = BigInt(intPart + paddedFrac);
+  return negative ? -combined : combined;
 }
 
 export function toTxInputs(inputs: Array<{ txid: string; vout: number }>) {

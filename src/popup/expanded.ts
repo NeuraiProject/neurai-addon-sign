@@ -36,6 +36,7 @@ import {
   asOptionalNumberValue,
   asBigIntValue,
   logicalAssetQuantityToRaw,
+  rescaleLocalRawBuildParams,
   toTxInputs,
   maybeIpfsHash,
   findLogicalOutput,
@@ -1970,10 +1971,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (params.localRawBuild) {
       const build: NeuraiAssetsLocalRawBuild = {
         operationType: params.localRawBuild.operationType,
-        params: {
+        params: rescaleLocalRawBuildParams({
           ...params.localRawBuild.params,
           inputs: txInputs
-        }
+        })
       };
 
       if (envelope.burnAddress && envelope.burnAmountSats !== undefined) {
@@ -3009,8 +3010,16 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const parentOwnerToken = elements.caParentSelect!.value;
         if (!parentOwnerToken) throw new Error('Select an asset from the dropdown.');
         const assetName = parentOwnerToken.endsWith('!') ? parentOwnerToken.slice(0, -1) : parentOwnerToken;
-        const addQty = Number(elements.caQuantity!.value);
+        const rawQty = elements.caQuantity!.value.trim();
+        const addQty = Number(rawQty);
         if (!addQty || addQty <= 0) throw new Error('Additional quantity must be greater than 0.');
+        const assetUnits = await resolveAssetUnits(rpc, assetName, 0);
+        const fractionDigits = rawQty.includes('.') ? rawQty.split('.')[1]!.length : 0;
+        if (fractionDigits > assetUnits) {
+          throw new Error(
+            `Asset ${assetName} has ${assetUnits} decimal${assetUnits === 1 ? '' : 's'}; quantity "${rawQty}" has ${fractionDigits}. Use at most ${assetUnits} decimal place${assetUnits === 1 ? '' : 's'}.`
+          );
+        }
         result = await neuraiAssets.reissueAsset({
           assetName,
           quantity: addQty,
@@ -3630,8 +3639,16 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           });
         }
       } else if (type === 'REISSUE_RESTRICTED') {
-        const qty = Number(elements.cfQuantity!.value);
+        const rawQty = elements.cfQuantity!.value.trim();
+        const qty = Number(rawQty);
         if (!qty || qty <= 0) throw new Error('Additional quantity must be greater than 0.');
+        const assetUnits = await resolveAssetUnits(rpc, tokenName, 0);
+        const fractionDigits = rawQty.includes('.') ? rawQty.split('.')[1]!.length : 0;
+        if (fractionDigits > assetUnits) {
+          throw new Error(
+            `Asset ${tokenName} has ${assetUnits} decimal${assetUnits === 1 ? '' : 's'}; quantity "${rawQty}" has ${fractionDigits}. Use at most ${assetUnits} decimal place${assetUnits === 1 ? '' : 's'}.`
+          );
+        }
         const changeVerifier = elements.cfChangeVerifier!.checked;
         result = await neuraiAssets.reissueRestrictedAsset({
           assetName: tokenName,
