@@ -991,6 +991,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     });
     elements.portfolioBalancePanel?.classList.toggle('hidden', view !== 'balance');
     elements.portfolioSendPanel?.classList.toggle('hidden', view !== 'send');
+    elements.portfolioAssetsPanel?.classList.toggle('hidden', view !== 'assets');
     if (view === 'send') populateSendAssetSelect();
   }
 

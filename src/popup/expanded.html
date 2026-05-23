@@ -121,6 +121,10 @@
               <span class="portfolio-tab-eyebrow">Transfer</span>
               <span class="portfolio-tab-title">Send</span>
             </button>
+            <button class="portfolio-view-tab" data-view="assets" type="button" role="tab" aria-selected="false">
+              <span class="portfolio-tab-eyebrow">Blockchain</span>
+              <span class="portfolio-tab-title">Assets</span>
+            </button>
           </div>
         </div>
 
@@ -204,28 +208,28 @@
             </div>
           </section>
         </div>
-      </section>
 
-      <section class="card create-asset-card" id="createAssetCard">
-        <div class="create-asset-sidebar">
-          <div class="asset-mode-toggle" id="assetModeToggle">
-            <button class="asset-mode-btn active" data-mode="CREATE" type="button">Create Asset</button>
-            <button class="asset-mode-btn" data-mode="CONFIGURE" type="button">Configure Asset</button>
-          </div>
+        <div class="portfolio-view-panel hidden" id="portfolioAssetsPanel" role="tabpanel">
+          <div class="create-asset-card" id="createAssetCard">
+            <div class="create-asset-sidebar">
+              <div class="asset-mode-toggle" id="assetModeToggle">
+                <button class="asset-mode-btn active" data-mode="CREATE" type="button">Create Asset</button>
+                <button class="asset-mode-btn" data-mode="CONFIGURE" type="button">Configure Asset</button>
+              </div>
 
-          <div class="section-intro">
-            <p class="eyebrow">Blockchain</p>
-            <h2 id="caCardTitle">Create Asset</h2>
-            <p class="section-copy" id="caCardCopy">Issue new tokens or NFTs on the Neurai network.</p>
-          </div>
+              <div class="section-intro">
+                <p class="eyebrow">Blockchain</p>
+                <h2 id="caCardTitle">Create Asset</h2>
+                <p class="section-copy" id="caCardCopy">Issue new tokens or NFTs on the Neurai network.</p>
+              </div>
 
-          <div class="create-asset-side-note">
-            <p class="panel-label">Asset tools</p>
-            <p>Use issuance for new assets and switch to configure when you need to tag, freeze or reissue existing ones.</p>
-          </div>
-        </div>
+              <div class="create-asset-side-note">
+                <p class="panel-label">Asset tools</p>
+                <p>Use issuance for new assets and switch to configure when you need to tag, freeze or reissue existing ones.</p>
+              </div>
+            </div>
 
-        <div class="create-asset-body">
+            <div class="create-asset-body">
           <!-- CREATE panel -->
           <div id="createAssetPanel" class="create-asset-panel">
             <div class="asset-type-tabs" id="assetTypeTabs" role="tablist">
@@ -435,8 +439,10 @@
               <button class="btn btn-secondary btn-small" id="caNewBtn" type="button">Done</button>
             </div>
           </div>
+            </div>
+          </div>
         </div>
-      </section>
+      </section><!-- /.portfolio-card -->
 
       <div class="dashboard-grid">
         <section class="card recent-moves-card">

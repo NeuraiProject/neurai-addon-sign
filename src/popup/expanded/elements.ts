@@ -78,6 +78,7 @@ export const elements = {
   portfolioViewTabs: document.getElementById('portfolioViewTabs'),
   portfolioBalancePanel: document.getElementById('portfolioBalancePanel'),
   portfolioSendPanel: document.getElementById('portfolioSendPanel'),
+  portfolioAssetsPanel: document.getElementById('portfolioAssetsPanel'),
   sendModeToggle: document.getElementById('sendModeToggle'),
   sendAssetGroup: document.getElementById('sendAssetGroup'),
   sendAssetSelect: document.getElementById('sendAssetSelect') as HTMLSelectElement | null,
