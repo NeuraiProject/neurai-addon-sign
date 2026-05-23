@@ -1559,6 +1559,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     state.historyPage = 0;
     state.recentMovementsPage = 0;
 
+    resetAccountSpecificUi();
+
     await chrome.storage.local.set({
       [C.ACTIVE_ACCOUNT_KEY]: state.activeAccountId,
       [C.STORAGE_KEY]: targetWallet
@@ -1566,6 +1568,89 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     showWalletSection();
     await refreshBalance();
+  }
+
+  // Wipe every piece of UI state that belongs to the previously active account
+  // (form values, populated selects, success banners, mid-flight TX). Without
+  // this, switching accounts leaves the previous account's data, recipients,
+  // or pending broadcast confirmation visible — and the user could accidentally
+  // sign a TX against the new account using inputs typed for the old one.
+  function resetAccountSpecificUi() {
+    // Clear any in-flight signed TX and the confirm modal.
+    state.pendingSignedTx = null;
+    elements.caTxConfirmModal?.classList.add('hidden');
+    if (elements.caTxConfirmError) {
+      elements.caTxConfirmError.textContent = '';
+      elements.caTxConfirmError.classList.add('hidden');
+    }
+
+    // Portfolio: drop cached balances/movements so stale data isn't shown
+    // until refreshBalance() repopulates them. Reset filter to "all".
+    state.assets = [];
+    state.recentMovements = [];
+    state.assetsFilter = 'all';
+    if (elements.assetsFilterBar) {
+      elements.assetsFilterBar.querySelectorAll('.assets-filter-btn').forEach((b) => {
+        b.classList.toggle('active', (b as HTMLElement).dataset.filter === 'all');
+      });
+    }
+    if (elements.assetsList) elements.assetsList.innerHTML = '';
+
+    // Default the portfolio tab back to "Portfolio" overview.
+    switchPortfolioView('balance');
+
+    // Send panel — wipe recipients, error, success banner, asset select.
+    resetSendForm();
+    const xnaBtn = elements.sendModeToggle?.querySelector('.asset-mode-btn[data-mode="xna"]') as HTMLElement | null;
+    setSendMode(xnaBtn?.dataset.mode || 'xna');
+    if (elements.sendAssetSelect) elements.sendAssetSelect.innerHTML = '<option value="">-- Select asset --</option>';
+
+    // Asset card — return to CREATE mode + ROOT type.
+    state.createAssetType = 'ROOT';
+    state.configAssetType = 'TAG';
+    updateCardMode('CREATE');
+    updateCreateAssetUI();
+    updateConfigureAssetUI();
+
+    // Create-asset form fields and populated selects (parent owner tokens,
+    // restricted-base options, verifier tags) are all wallet-scoped.
+    if (elements.caAssetName) elements.caAssetName.value = '';
+    if (elements.caSubName) elements.caSubName.value = '';
+    if (elements.caTag) elements.caTag.value = '';
+    if (elements.caQuantity) elements.caQuantity.value = '';
+    if (elements.caIpfsHash) elements.caIpfsHash.value = '';
+    if (elements.caVerifier) elements.caVerifier.value = '';
+    if (elements.caReissuable) elements.caReissuable.checked = true;
+    if (elements.caParentSelect) elements.caParentSelect.innerHTML = '<option value="">-- Select asset --</option>';
+    if (elements.caRestrictedBaseSelect) elements.caRestrictedBaseSelect.innerHTML = '<option value="">-- Select root asset --</option>';
+    if (elements.caVerifierSelect) elements.caVerifierSelect.innerHTML = '<option value="">-- Select qualifier tag --</option>';
+    if (elements.caParentSelectHint) elements.caParentSelectHint.textContent = 'Loading your owner tokens…';
+    if (elements.caRestrictedBaseHint) elements.caRestrictedBaseHint.textContent = 'Select the root asset you control to issue its restricted version.';
+    if (elements.caVerifierHint) elements.caVerifierHint.textContent = 'Load qualifier tags linked to this account to build the verifier expression.';
+    renderVerifierPreview();
+    if (elements.caError) { elements.caError.textContent = ''; elements.caError.classList.add('hidden'); }
+    if (elements.caResult) elements.caResult.classList.add('hidden');
+    if (elements.caCreateBtn) {
+      elements.caCreateBtn.classList.remove('hidden');
+      elements.caCreateBtn.disabled = false;
+      elements.caCreateBtn.textContent = 'Create Asset';
+    }
+
+    // Configure-asset form fields.
+    if (elements.cfAddresses) elements.cfAddresses.value = '';
+    if (elements.cfQuantity) elements.cfQuantity.value = '';
+    if (elements.cfNewVerifier) elements.cfNewVerifier.value = '';
+    if (elements.cfNewIpfs) elements.cfNewIpfs.value = '';
+    if (elements.cfGlobal) elements.cfGlobal.checked = false;
+    if (elements.cfChangeVerifier) elements.cfChangeVerifier.checked = false;
+    if (elements.cfReissuable) elements.cfReissuable.checked = true;
+    if (elements.cfOwnerTokenSelect) elements.cfOwnerTokenSelect.innerHTML = '<option value="">-- Select asset --</option>';
+    if (elements.cfOwnerTokenHint) elements.cfOwnerTokenHint.textContent = 'Select a type above then click Refresh';
+    if (elements.cfError) { elements.cfError.textContent = ''; elements.cfError.classList.add('hidden'); }
+    if (elements.cfApplyBtn) {
+      elements.cfApplyBtn.classList.remove('hidden');
+      elements.cfApplyBtn.disabled = false;
+    }
   }
 
   function findNextEmptyAccountId() {
