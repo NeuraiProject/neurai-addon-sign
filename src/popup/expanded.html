@@ -110,56 +110,99 @@
         </div>
       </section>
 
-      <section class="card portfolio-card">
-        <div class="section-intro">
-          <p class="eyebrow">Overview</p>
-          <h2>Portfolio</h2>
+      <section class="portfolio-card">
+        <div class="portfolio-tabs-head">
+          <div class="portfolio-view-tabs" id="portfolioViewTabs" role="tablist">
+            <button class="portfolio-view-tab active" data-view="balance" type="button" role="tab" aria-selected="true">
+              <span class="portfolio-tab-eyebrow">Overview</span>
+              <span class="portfolio-tab-title">Portfolio</span>
+            </button>
+            <button class="portfolio-view-tab" data-view="send" type="button" role="tab" aria-selected="false">
+              <span class="portfolio-tab-eyebrow">Transfer</span>
+              <span class="portfolio-tab-title">Send</span>
+            </button>
+          </div>
         </div>
 
-        <div class="portfolio-grid">
-          <section class="card balance-card">
+        <div class="portfolio-view-panel" id="portfolioBalancePanel" role="tabpanel">
+          <div class="portfolio-grid">
+            <section class="balance-card">
+              <div class="section-intro">
+                <h2>Assets Balance</h2>
+                <p class="section-copy">Assets detected for the active address.</p>
+              </div>
+              <div class="assets-filter-bar" id="assetsFilterBar">
+                <button class="assets-filter-btn active" data-filter="all" type="button">All</button>
+                <button class="assets-filter-btn" data-filter="root" type="button">Root</button>
+                <button class="assets-filter-btn" data-filter="sub" type="button">Sub</button>
+                <button class="assets-filter-btn" data-filter="unique" type="button">Unique</button>
+                <button class="assets-filter-btn" data-filter="qualifier" type="button">Qualifier</button>
+                <button class="assets-filter-btn" data-filter="restricted" type="button">Restricted</button>
+                <button class="assets-filter-btn" data-filter="depin" type="button">DePIN</button>
+                <button class="assets-filter-btn" data-filter="owner" type="button">Owner</button>
+              </div>
+              <div class="balance-panel" id="balancePanelAssets" role="tabpanel">
+                <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
+                <div class="assets-list" id="assetsList"></div>
+              </div>
+              <div class="pager hidden" id="assetsPager">
+                <button class="btn btn-secondary btn-small pager-btn" id="assetsPrevBtn" type="button">←</button>
+                <span class="pager-label" id="assetsPageLabel">1 / 1</span>
+                <button class="btn btn-secondary btn-small pager-btn" id="assetsNextBtn" type="button">→</button>
+              </div>
+            </section>
+
+            <div class="portfolio-side">
+              <section class="card hardware-card hidden" id="hardwareCard">
+                <div class="section-intro">
+                  <p class="eyebrow">Hardware</p>
+                  <h2>Hardware Wallet</h2>
+                </div>
+                <div class="hardware-status-line">
+                  <span class="status-dot-expanded" id="hwStatusDot" title="Disconnected"></span>
+                  <div class="hardware-status-copy">
+                    <strong id="hwStatusText">--</strong>
+                    <span id="statusValue">--</span>
+                  </div>
+                </div>
+                <button class="btn btn-secondary btn-small hidden" id="hwReconnectBtn" type="button">Reconnect</button>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <div class="portfolio-view-panel hidden" id="portfolioSendPanel" role="tabpanel">
+          <section class="card send-card">
             <div class="section-intro">
-              <p class="eyebrow">Portfolio</p>
-              <h2>Assets Balance</h2>
-              <p class="section-copy">Assets detected for the active address.</p>
+              <p class="eyebrow">Transfer</p>
+              <h2>Send</h2>
+              <p class="section-copy">Send XNA or assets from the active address. Sending is not yet enabled — this is a UI preview.</p>
             </div>
-            <div class="assets-filter-bar" id="assetsFilterBar">
-              <button class="assets-filter-btn active" data-filter="all" type="button">All</button>
-              <button class="assets-filter-btn" data-filter="root" type="button">Root</button>
-              <button class="assets-filter-btn" data-filter="sub" type="button">Sub</button>
-              <button class="assets-filter-btn" data-filter="unique" type="button">Unique</button>
-              <button class="assets-filter-btn" data-filter="qualifier" type="button">Qualifier</button>
-              <button class="assets-filter-btn" data-filter="restricted" type="button">Restricted</button>
-              <button class="assets-filter-btn" data-filter="depin" type="button">DePIN</button>
-              <button class="assets-filter-btn" data-filter="owner" type="button">Owner</button>
+
+            <div class="asset-mode-toggle" id="sendModeToggle">
+              <button class="asset-mode-btn active" data-mode="xna" type="button">XNA (coins)</button>
+              <button class="asset-mode-btn" data-mode="asset" type="button">Asset</button>
             </div>
-            <div class="balance-panel" id="balancePanelAssets" role="tabpanel">
-              <div class="assets-empty hidden" id="assetsEmpty">No assets found</div>
-              <div class="assets-list" id="assetsList"></div>
+
+            <div class="form-group hidden" id="sendAssetGroup">
+              <label for="sendAssetSelect">Asset</label>
+              <select id="sendAssetSelect">
+                <option value="">-- Select asset --</option>
+              </select>
+              <span class="form-hint" id="sendAssetHint">Populated from your portfolio above.</span>
             </div>
-            <div class="pager hidden" id="assetsPager">
-              <button class="btn btn-secondary btn-small pager-btn" id="assetsPrevBtn" type="button">←</button>
-              <span class="pager-label" id="assetsPageLabel">1 / 1</span>
-              <button class="btn btn-secondary btn-small pager-btn" id="assetsNextBtn" type="button">→</button>
+
+            <div class="form-group">
+              <label>Recipients</label>
+              <div class="send-recipients" id="sendRecipients"></div>
+              <button class="btn btn-secondary btn-small" id="sendAddRecipientBtn" type="button">+ Add recipient</button>
+              <span class="form-hint">Each row is one destination address plus its amount.</span>
+            </div>
+
+            <div class="send-actions">
+              <button class="btn btn-primary" id="sendSubmitBtn" type="button" disabled>Send (coming soon)</button>
             </div>
           </section>
-
-          <div class="portfolio-side">
-            <section class="card hardware-card hidden" id="hardwareCard">
-              <div class="section-intro">
-                <p class="eyebrow">Hardware</p>
-                <h2>Hardware Wallet</h2>
-              </div>
-              <div class="hardware-status-line">
-                <span class="status-dot-expanded" id="hwStatusDot" title="Disconnected"></span>
-                <div class="hardware-status-copy">
-                  <strong id="hwStatusText">--</strong>
-                  <span id="statusValue">--</span>
-                </div>
-              </div>
-              <button class="btn btn-secondary btn-small hidden" id="hwReconnectBtn" type="button">Reconnect</button>
-            </section>
-          </div>
         </div>
       </section>
 

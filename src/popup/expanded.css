@@ -259,14 +259,14 @@ textarea {
 }
 
 .active-account-card,
-.address-card,
-.portfolio-card {
+.address-card {
   padding: 24px;
 }
 
 .portfolio-card {
   display: grid;
-  gap: 20px;
+  gap: 0;
+  overflow: visible;
 }
 
 .portfolio-grid {
@@ -524,6 +524,11 @@ textarea {
 
 .balance-card {
   min-height: 320px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 .balance-panel.hidden {
@@ -568,6 +573,125 @@ textarea {
   flex-wrap: wrap;
   gap: 6px;
   padding: 0 0 14px;
+}
+
+.portfolio-tabs-head {
+  padding: 0;
+  background: transparent;
+}
+
+.portfolio-view-tabs {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  position: relative;
+}
+
+.portfolio-view-tabs::after {
+  content: "";
+  align-self: stretch;
+  flex: 1 1 auto;
+  min-width: 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.portfolio-view-tab {
+  display: grid;
+  gap: 4px;
+  min-width: 188px;
+  min-height: 84px;
+  padding: 18px 22px 16px;
+  border: 1px solid var(--border);
+  border-bottom-color: var(--border);
+  border-radius: 18px 18px 0 0;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.portfolio-view-tab:hover {
+  color: var(--text-primary);
+  border-color: rgba(246, 133, 27, 0.38);
+  box-shadow: inset 0 3px 0 rgba(246, 133, 27, 0.28);
+}
+
+.portfolio-view-tab.active {
+  background: var(--bg-card);
+  border-color: var(--border);
+  border-bottom-color: var(--bg-card);
+  color: var(--text-primary);
+  z-index: 1;
+  box-shadow: inset 0 3px 0 var(--primary);
+}
+
+.portfolio-tab-eyebrow {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.portfolio-tab-title {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.portfolio-view-panel {
+  margin: -1px 0 0;
+  padding: 22px 24px 24px;
+  border: 1px solid var(--border);
+  border-radius: 0 18px 18px 18px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+}
+
+.send-card {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.send-card .asset-mode-toggle {
+  margin-bottom: 14px;
+}
+
+.send-recipients {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.send-recipient-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.send-recipient-row input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.send-recipient-remove {
+  padding: 6px 10px;
+  line-height: 1;
+}
+
+.send-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .assets-filter-btn {
@@ -1332,8 +1456,6 @@ select:focus,
   .topbar,
   .active-account-card,
   .address-card,
-  .portfolio-card,
-  .balance-card,
   .history-card,
   .mnemonic-card {
     padding: 18px;
@@ -1366,6 +1488,34 @@ select:focus,
 
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .portfolio-tabs-head {
+    padding: 0;
+  }
+
+  .portfolio-view-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portfolio-view-tabs::after {
+    display: none;
+  }
+
+  .portfolio-view-tab {
+    min-width: 0;
+    min-height: 76px;
+    padding: 14px;
+  }
+
+  .portfolio-tab-title {
+    font-size: 22px;
+  }
+
+  .portfolio-view-panel {
+    margin: -1px 0 0;
+    padding: 18px;
   }
 
   .settings-network-grid {

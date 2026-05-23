@@ -179,6 +179,33 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       });
       renderAssetsList();
     });
+    if (elements.portfolioViewTabs) {
+      elements.portfolioViewTabs.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('.portfolio-view-tab') as HTMLElement | null;
+        if (!btn || !btn.dataset.view) return;
+        switchPortfolioView(btn.dataset.view);
+      });
+    }
+    if (elements.sendModeToggle) {
+      elements.sendModeToggle.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest('.asset-mode-btn') as HTMLElement | null;
+        if (!btn || !btn.dataset.mode) return;
+        setSendMode(btn.dataset.mode);
+      });
+    }
+    if (elements.sendAddRecipientBtn) {
+      elements.sendAddRecipientBtn.addEventListener('click', () => addSendRecipient());
+    }
+    if (elements.sendRecipients) {
+      elements.sendRecipients.addEventListener('click', (e) => {
+        const removeBtn = (e.target as HTMLElement).closest('.send-recipient-remove') as HTMLElement | null;
+        if (!removeBtn) return;
+        const row = removeBtn.closest('.send-recipient-row') as HTMLElement | null;
+        if (row) row.remove();
+        ensureAtLeastOneSendRecipient();
+      });
+    }
+    addSendRecipient();
     if (elements.historyPrevBtn) elements.historyPrevBtn.addEventListener('click', () => changeHistoryPage(-1));
     if (elements.historyNextBtn) elements.historyNextBtn.addEventListener('click', () => changeHistoryPage(1));
     if (elements.recentMovementsPrevBtn) elements.recentMovementsPrevBtn.addEventListener('click', () => changeRecentMovementsPage(-1));
@@ -952,6 +979,62 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     state.assetsPage = Math.max(0, Math.min(totalPages - 1, state.assetsPage + delta));
     renderAssetsList();
+  }
+
+  function switchPortfolioView(view: string) {
+    const tabs = elements.portfolioViewTabs;
+    if (!tabs) return;
+    tabs.querySelectorAll('.portfolio-view-tab').forEach((btn) => {
+      const isActive = (btn as HTMLElement).dataset.view === view;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    elements.portfolioBalancePanel?.classList.toggle('hidden', view !== 'balance');
+    elements.portfolioSendPanel?.classList.toggle('hidden', view !== 'send');
+    if (view === 'send') populateSendAssetSelect();
+  }
+
+  function setSendMode(mode: string) {
+    const toggle = elements.sendModeToggle;
+    if (!toggle) return;
+    toggle.querySelectorAll('.asset-mode-btn').forEach((btn) => {
+      btn.classList.toggle('active', (btn as HTMLElement).dataset.mode === mode);
+    });
+    elements.sendAssetGroup?.classList.toggle('hidden', mode !== 'asset');
+    if (mode === 'asset') populateSendAssetSelect();
+  }
+
+  function populateSendAssetSelect() {
+    const select = elements.sendAssetSelect;
+    if (!select) return;
+    const previous = select.value;
+    const ownedAssets = (state.assets as Array<{ name: string; amountText: string }>) || [];
+    select.innerHTML = '<option value="">-- Select asset --</option>'
+      + ownedAssets
+        .map((a) => `<option value="${escapeHtml(a.name)}">${escapeHtml(a.name)} (${escapeHtml(a.amountText)})</option>`)
+        .join('');
+    if (previous && ownedAssets.some((a) => a.name === previous)) {
+      select.value = previous;
+    }
+  }
+
+  function addSendRecipient() {
+    const container = elements.sendRecipients;
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'send-recipient-row';
+    row.innerHTML = `
+      <input type="text" class="send-recipient-address" placeholder="Recipient address" autocomplete="off" spellcheck="false">
+      <input type="number" class="send-recipient-amount" placeholder="Amount" min="0" step="any">
+      <button class="btn btn-secondary btn-small send-recipient-remove" type="button" aria-label="Remove recipient">×</button>
+    `;
+    container.appendChild(row);
+  }
+
+  function ensureAtLeastOneSendRecipient() {
+    const container = elements.sendRecipients;
+    if (!container) return;
+    if (container.querySelectorAll('.send-recipient-row').length === 0) addSendRecipient();
   }
 
   function escapeHtml(value: unknown) {
