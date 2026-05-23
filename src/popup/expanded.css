@@ -620,7 +620,7 @@ textarea {
 
 .portfolio-view-tab.active {
   min-height: 70px;
-  background: var(--bg-card);
+  background: linear-gradient(180deg, rgba(246, 133, 27, 0.28) 0%, rgba(246, 133, 27, 0.08) 55%, var(--bg-card) 100%);
   border-color: var(--border);
   border-bottom-color: var(--bg-card);
   color: var(--text-primary);
