@@ -27,6 +27,17 @@ declare global {
     xnaChangeSats?: bigint | number;
   }
 
+  interface NeuraiCreateTransactionTxPaymentOutput {
+    address: string;
+    valueSats: bigint | number;
+  }
+
+  interface NeuraiCreateTransactionTransferOutput {
+    address: string;
+    assetName: string;
+    amountRaw: bigint | number;
+  }
+
   interface NeuraiCreateTransactionStatic {
     xnaToSatoshis(amount: number): bigint;
     assetUnitsToRaw(amount: number): bigint;
@@ -35,6 +46,21 @@ declare global {
     createFromOperation(build: {
       operationType: string;
       params: Record<string, unknown>;
+    }): NeuraiCreateTransactionBuiltTransaction;
+
+    createPaymentTransaction(params: {
+      version?: number;
+      locktime?: number;
+      inputs: NeuraiCreateTransactionTxInput[];
+      payments: NeuraiCreateTransactionTxPaymentOutput[];
+    }): NeuraiCreateTransactionBuiltTransaction;
+
+    createStandardAssetTransferTransaction(params: {
+      version?: number;
+      locktime?: number;
+      inputs: NeuraiCreateTransactionTxInput[];
+      payments?: NeuraiCreateTransactionTxPaymentOutput[];
+      transfers?: NeuraiCreateTransactionTransferOutput[];
     }): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueAssetTransaction(params: {

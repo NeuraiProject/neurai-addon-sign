@@ -24,5 +24,10 @@ export const state = {
   createAssetType: 'ROOT' as string,
   configAssetType: 'TAG' as string,
   cardMode: 'CREATE' as 'CREATE' | 'CONFIGURE',
-  pendingSignedTx: null as { hex: string; rpcUrl: string; buildResult: NeuraiAssetsBuildResult } | null,
+  pendingSignedTx: null as {
+    hex: string;
+    rpcUrl: string;
+    buildResult: NeuraiAssetsBuildResult;
+    kind?: 'asset-op' | 'send-xna' | 'send-asset';
+  } | null,
 };

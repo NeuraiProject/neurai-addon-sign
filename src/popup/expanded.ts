@@ -205,6 +205,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         ensureAtLeastOneSendRecipient();
       });
     }
+    if (elements.sendSubmitBtn) elements.sendSubmitBtn.addEventListener('click', handleSendSubmit);
+    if (elements.sendNewBtn) elements.sendNewBtn.addEventListener('click', resetSendForm);
     addSendRecipient();
     if (elements.historyPrevBtn) elements.historyPrevBtn.addEventListener('click', () => changeHistoryPage(-1));
     if (elements.historyNextBtn) elements.historyNextBtn.addEventListener('click', () => changeHistoryPage(1));
@@ -1036,6 +1038,443 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const container = elements.sendRecipients;
     if (!container) return;
     if (container.querySelectorAll('.send-recipient-row').length === 0) addSendRecipient();
+  }
+
+  // ── Send (transfer) ───────────────────────────────────────────────────────
+  //
+  // Build, sign and broadcast a P2PKH payment (XNA) or asset transfer.
+  // Change is always returned to the wallet's own address — Neurai Sign reuses
+  // a single address per account, so we never derive a fresh change address.
+
+  // Fee rate fallback (XNA per KB). Mirrors @neuraiproject/neurai-jswallet.
+  const SEND_DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
+  const SEND_DUST_SATS = 546n;
+  const SEND_LEGACY_INPUT_VBYTES = 148;
+  const SEND_PQ_INPUT_VBYTES = 976;
+  const SEND_LEGACY_OUTPUT_BYTES = 34;
+  const SEND_PQ_OUTPUT_BYTES = 31;
+
+  interface SendUtxo {
+    txid: string;
+    outputIndex: number;
+    satoshis: number;
+    address: string;
+    assetName?: string;
+    script?: string;
+    height?: number;
+  }
+
+  interface SendBuildResult {
+    rawTx: string;
+    fee: number;
+    inputs: Array<{ txid: string; vout: number; address: string; satoshis: number; assetName?: string }>;
+    outputs: Array<Record<string, number | { transfer: Record<string, number> }>>;
+    network: string;
+    burnAmount: number;
+    burnAddress: string | null;
+    changeAddress: string | null;
+    changeAmount: number | null;
+    buildStrategy: 'local-builder';
+  }
+
+  function isSendPQAddress(address: string): boolean {
+    return address.startsWith('nq1') || address.startsWith('tnq1');
+  }
+
+  function isSendPQUtxo(utxo: SendUtxo): boolean {
+    return typeof utxo.script === 'string' && utxo.script.startsWith('5120');
+  }
+
+  function estimateSendSizeKB(inputs: SendUtxo[], outputAddresses: string[]): number {
+    const hasPQInputs = inputs.some(isSendPQUtxo);
+    const baseSize = hasPQInputs ? 12 : 10;
+    const inputBytes = inputs.reduce(
+      (total, utxo) => total + (isSendPQUtxo(utxo) ? SEND_PQ_INPUT_VBYTES : SEND_LEGACY_INPUT_VBYTES),
+      0
+    );
+    const outputBytes = outputAddresses.reduce(
+      (total, addr) => total + (isSendPQAddress(addr) ? SEND_PQ_OUTPUT_BYTES : SEND_LEGACY_OUTPUT_BYTES),
+      0
+    );
+    return (baseSize + inputBytes + outputBytes) / 1024;
+  }
+
+  function feeSatsFromSendSize(sizeKb: number, feeRateXnaPerKb: number): bigint {
+    return BigInt(Math.round(sizeKb * feeRateXnaPerKb * 1e8));
+  }
+
+  async function fetchSendFeeRate(rpc: (method: string, params: unknown[]) => Promise<unknown>): Promise<number> {
+    try {
+      const response = await rpc('estimatesmartfee', [20]) as { feerate?: number; errors?: string[] } | null;
+      if (response && !response.errors && typeof response.feerate === 'number' && response.feerate > 0) {
+        return response.feerate;
+      }
+    } catch (_) { /* fall through to default */ }
+    return SEND_DEFAULT_FEE_RATE_XNA_PER_KB;
+  }
+
+  async function fetchSendUtxos(
+    rpc: (method: string, params: unknown[]) => Promise<unknown>,
+    address: string
+  ): Promise<SendUtxo[]> {
+    // getaddressutxos without assetName returns XNA UTXOs only; asset UTXOs
+    // need an explicit `assetName: '*'`. Mirrors jswallet's sweep.ts behaviour.
+    const [baseRaw, assetRaw] = await Promise.all([
+      rpc('getaddressutxos', [{ addresses: [address] }]).catch(() => []),
+      rpc('getaddressutxos', [{ addresses: [address], assetName: '*' }]).catch(() => []),
+    ]);
+    const merged = [
+      ...(Array.isArray(baseRaw) ? baseRaw as Array<Record<string, unknown>> : []),
+      ...(Array.isArray(assetRaw) ? assetRaw as Array<Record<string, unknown>> : []),
+    ];
+    const seen = new Set<string>();
+    const result: SendUtxo[] = [];
+    for (const entry of merged) {
+      const txid = String(entry.txid);
+      const outputIndex = Number(entry.outputIndex);
+      const satoshis = Number(entry.satoshis);
+      if (!txid || !Number.isFinite(outputIndex) || !Number.isFinite(satoshis) || satoshis <= 0) continue;
+      const key = `${txid}:${outputIndex}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({
+        txid,
+        outputIndex,
+        satoshis,
+        address: String(entry.address || address),
+        assetName: typeof entry.assetName === 'string' ? entry.assetName : undefined,
+        script: typeof entry.script === 'string' ? entry.script : undefined,
+        height: typeof entry.height === 'number' ? entry.height : undefined,
+      });
+    }
+    return result;
+  }
+
+  function getSendXnaUtxos(utxos: SendUtxo[]): SendUtxo[] {
+    return utxos.filter((u) => !u.assetName || u.assetName === 'XNA' || u.assetName === '');
+  }
+
+  function getSendAssetUtxos(utxos: SendUtxo[], assetName: string): SendUtxo[] {
+    return utxos.filter((u) => u.assetName === assetName);
+  }
+
+  function selectUtxosForSats(utxos: SendUtxo[], neededSats: bigint): SendUtxo[] {
+    const selected: SendUtxo[] = [];
+    let sum = 0n;
+    for (const u of utxos) {
+      if (sum >= neededSats) break;
+      selected.push(u);
+      sum += BigInt(u.satoshis);
+    }
+    if (sum < neededSats) {
+      throw new Error(`Insufficient funds — need ${neededSats} satoshis, have ${sum}`);
+    }
+    return selected;
+  }
+
+  function readSendRecipients(): Array<{ address: string; amount: number }> {
+    const rows = elements.sendRecipients
+      ? Array.from(elements.sendRecipients.querySelectorAll<HTMLElement>('.send-recipient-row'))
+      : [];
+    const out: Array<{ address: string; amount: number }> = [];
+    rows.forEach((row) => {
+      const address = (row.querySelector('.send-recipient-address') as HTMLInputElement | null)?.value.trim() || '';
+      const amountStr = (row.querySelector('.send-recipient-amount') as HTMLInputElement | null)?.value.trim() || '';
+      if (!address && !amountStr) return;
+      const amount = Number(amountStr);
+      out.push({ address, amount });
+    });
+    return out;
+  }
+
+  function clearSendRecipients() {
+    if (!elements.sendRecipients) return;
+    elements.sendRecipients.innerHTML = '';
+    addSendRecipient();
+  }
+
+  function showSendError(message: string) {
+    if (!elements.sendError) return;
+    elements.sendError.textContent = message;
+    elements.sendError.classList.remove('hidden');
+  }
+
+  function clearSendError() {
+    if (!elements.sendError) return;
+    elements.sendError.textContent = '';
+    elements.sendError.classList.add('hidden');
+  }
+
+  function resetSendForm() {
+    clearSendRecipients();
+    clearSendError();
+    if (elements.sendResult) elements.sendResult.classList.add('hidden');
+    if (elements.sendSubmitBtn) {
+      elements.sendSubmitBtn.classList.remove('hidden');
+      elements.sendSubmitBtn.disabled = false;
+      elements.sendSubmitBtn.textContent = 'Send';
+    }
+  }
+
+  async function handleSendSubmit() {
+    if (!elements.sendSubmitBtn) return;
+    clearSendError();
+
+    elements.sendSubmitBtn.disabled = true;
+    elements.sendSubmitBtn.textContent = 'Preparing…';
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet || !wallet.address) throw new Error('No wallet loaded. Please unlock first.');
+      if (isAddonLocked()) throw new Error('Wallet is locked. Unlock first.');
+
+      const walletAddress = wallet.address as string;
+      const network = (wallet.network as string) || 'xna';
+
+      const mode = (elements.sendModeToggle?.querySelector('.asset-mode-btn.active') as HTMLElement | null)?.dataset.mode || 'xna';
+      const isAssetMode = mode === 'asset';
+
+      const recipients = readSendRecipients();
+      if (recipients.length === 0) throw new Error('Add at least one recipient.');
+
+      for (const r of recipients) {
+        if (!r.address) throw new Error('Each recipient needs an address.');
+        if (r.address === walletAddress) throw new Error('Cannot send to your own address.');
+        if (!Number.isFinite(r.amount) || r.amount <= 0) {
+          throw new Error(`Invalid amount for ${r.address}: must be greater than 0.`);
+        }
+      }
+
+      let assetName = '';
+      if (isAssetMode) {
+        assetName = (elements.sendAssetSelect?.value || '').trim();
+        if (!assetName) throw new Error('Select an asset to transfer.');
+      }
+
+      const built = await buildSendTransaction({
+        network,
+        walletAddress,
+        isAssetMode,
+        assetName,
+        recipients,
+      });
+
+      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
+        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
+        : (state.settings.rpcMainnet || C.RPC_URL);
+
+      elements.sendSubmitBtn.textContent = 'Signing…';
+      const signedHex = await signRawTx(built.rawTx, rpcUrl);
+
+      state.pendingSignedTx = {
+        hex: signedHex,
+        rpcUrl,
+        buildResult: built as unknown as NeuraiAssetsBuildResult,
+        kind: isAssetMode ? 'send-asset' : 'send-xna',
+      };
+      showTxConfirmModal(built as unknown as NeuraiAssetsBuildResult, signedHex);
+      elements.sendSubmitBtn.disabled = false;
+      elements.sendSubmitBtn.textContent = 'Send';
+    } catch (err) {
+      showSendError((err as Error).message || 'Unable to prepare transaction.');
+      elements.sendSubmitBtn.disabled = false;
+      elements.sendSubmitBtn.textContent = 'Send';
+    }
+  }
+
+  async function buildSendTransaction(params: {
+    network: string;
+    walletAddress: string;
+    isAssetMode: boolean;
+    assetName: string;
+    recipients: Array<{ address: string; amount: number }>;
+  }): Promise<SendBuildResult> {
+    const { network, walletAddress, isAssetMode, assetName, recipients } = params;
+    const rpc = buildRpcFn(network);
+
+    const utxos = await fetchSendUtxos(rpc, walletAddress);
+    if (utxos.length === 0) throw new Error('No spendable UTXOs at this address.');
+
+    const feeRate = await fetchSendFeeRate(rpc);
+    const xnaUtxos = getSendXnaUtxos(utxos);
+
+    const toAddresses = recipients.map((r) => r.address);
+    const outputs: Array<Record<string, number | { transfer: Record<string, number> }>> = [];
+
+    if (isAssetMode) {
+      const assetUtxos = getSendAssetUtxos(utxos, assetName);
+      if (assetUtxos.length === 0) throw new Error(`No UTXOs available for asset ${assetName}.`);
+
+      // Asset amounts use the same 1e8 raw scaling as XNA satoshis (see
+      // assetUnitsToRaw === xnaToSatoshis in @neuraiproject/neurai-create-transaction).
+      const totalAssetRequestedRaw = recipients.reduce((acc, r) => {
+        return acc + BigInt(Math.round(r.amount * 1e8));
+      }, 0n);
+      const totalAssetAvailableRaw = assetUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
+      if (totalAssetAvailableRaw < totalAssetRequestedRaw) {
+        throw new Error(
+          `Insufficient ${assetName} balance — need ${recipients.reduce((a, r) => a + r.amount, 0)}, ` +
+          `have ${Number(totalAssetAvailableRaw) / 1e8}.`
+        );
+      }
+      const selectedAssetUtxos = selectUtxosForSats(assetUtxos, totalAssetRequestedRaw);
+      const selectedAssetSumRaw = selectedAssetUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
+      const assetChangeRaw = selectedAssetSumRaw - totalAssetRequestedRaw;
+
+      // Two-pass XNA selection so the fee accounts for the actual input count.
+      let selectedBaseUtxos: SendUtxo[] = xnaUtxos.length > 0 ? [xnaUtxos[0]] : [];
+      if (selectedBaseUtxos.length === 0) {
+        throw new Error('No XNA UTXOs available to cover the network fee.');
+      }
+      const tentativeOutputAddresses = [...toAddresses, walletAddress];
+      if (assetChangeRaw > 0n) tentativeOutputAddresses.push(walletAddress);
+      const tentativeSize = estimateSendSizeKB(
+        [...selectedAssetUtxos, ...selectedBaseUtxos],
+        tentativeOutputAddresses
+      );
+      let feeSats = feeSatsFromSendSize(tentativeSize, feeRate);
+      selectedBaseUtxos = selectUtxosForSats(xnaUtxos, feeSats + SEND_DUST_SATS);
+
+      const sizeWithChange = estimateSendSizeKB(
+        [...selectedAssetUtxos, ...selectedBaseUtxos],
+        [...toAddresses, walletAddress, ...(assetChangeRaw > 0n ? [walletAddress] : [])]
+      );
+      feeSats = feeSatsFromSendSize(sizeWithChange, feeRate);
+      const baseAvailable = selectedBaseUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
+      let xnaChangeSats = baseAvailable - feeSats;
+      if (xnaChangeSats < 0n) {
+        throw new Error('Selected UTXOs do not cover the network fee.');
+      }
+      let dustAbsorbed = 0n;
+      if (xnaChangeSats > 0n && xnaChangeSats < SEND_DUST_SATS) {
+        dustAbsorbed = xnaChangeSats;
+        feeSats += xnaChangeSats;
+        xnaChangeSats = 0n;
+      }
+
+      const transfers: NeuraiCreateTransactionTransferOutput[] = [];
+      for (const r of recipients) {
+        transfers.push({
+          address: r.address,
+          assetName,
+          amountRaw: BigInt(Math.round(r.amount * 1e8)),
+        });
+        outputs.push({ [r.address]: { transfer: { [assetName]: r.amount } } });
+      }
+      if (assetChangeRaw > 0n) {
+        transfers.push({
+          address: walletAddress,
+          assetName,
+          amountRaw: assetChangeRaw,
+        });
+        outputs.push({
+          [walletAddress]: { transfer: { [assetName]: Number(assetChangeRaw) / 1e8 } }
+        });
+      }
+      const payments: NeuraiCreateTransactionTxPaymentOutput[] = [];
+      if (xnaChangeSats > 0n) {
+        payments.push({ address: walletAddress, valueSats: xnaChangeSats });
+        outputs.push({ [walletAddress]: Number(xnaChangeSats) / 1e8 });
+      }
+
+      const inputs = [...selectedAssetUtxos, ...selectedBaseUtxos].map((u) => ({
+        txid: u.txid,
+        vout: u.outputIndex,
+      }));
+      const built = NeuraiCreateTransaction.createStandardAssetTransferTransaction({
+        inputs,
+        payments,
+        transfers,
+      });
+
+      void dustAbsorbed; // currently informational only
+
+      return {
+        rawTx: built.rawTx,
+        fee: Number(feeSats) / 1e8,
+        inputs: [...selectedAssetUtxos, ...selectedBaseUtxos].map((u) => ({
+          txid: u.txid,
+          vout: u.outputIndex,
+          address: u.address,
+          satoshis: u.satoshis,
+          ...(u.assetName ? { assetName: u.assetName } : {}),
+        })),
+        outputs,
+        network,
+        burnAmount: 0,
+        burnAddress: null,
+        changeAddress: walletAddress,
+        changeAmount: Number(xnaChangeSats) / 1e8,
+        buildStrategy: 'local-builder',
+      };
+    }
+
+    // ─── XNA payment ─────────────────────────────────────────────────────
+    const totalSendSats = recipients.reduce((acc, r) => acc + BigInt(Math.round(r.amount * 1e8)), 0n);
+    if (xnaUtxos.length === 0) throw new Error('No XNA UTXOs available.');
+    const totalAvailableSats = xnaUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
+
+    // First pass: estimate with 1 input
+    let selectedBase = [xnaUtxos[0]];
+    const probeSize = estimateSendSizeKB(selectedBase, [...toAddresses, walletAddress]);
+    let feeSats = feeSatsFromSendSize(probeSize, feeRate);
+
+    // Select UTXOs to cover send + fee
+    selectedBase = selectUtxosForSats(xnaUtxos, totalSendSats + feeSats);
+    // Recompute fee against final input count
+    const finalSize = estimateSendSizeKB(selectedBase, [...toAddresses, walletAddress]);
+    feeSats = feeSatsFromSendSize(finalSize, feeRate);
+
+    if (totalAvailableSats < totalSendSats + feeSats) {
+      throw new Error('Insufficient XNA balance to cover amount + fee.');
+    }
+
+    const baseAvailable = selectedBase.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
+    let changeSats = baseAvailable - totalSendSats - feeSats;
+    if (changeSats < 0n) {
+      // need more inputs
+      selectedBase = selectUtxosForSats(xnaUtxos, totalSendSats + feeSats);
+      const reSize = estimateSendSizeKB(selectedBase, [...toAddresses, walletAddress]);
+      feeSats = feeSatsFromSendSize(reSize, feeRate);
+      changeSats = selectedBase.reduce((a, u) => a + BigInt(u.satoshis), 0n) - totalSendSats - feeSats;
+      if (changeSats < 0n) throw new Error('Insufficient XNA balance to cover amount + fee.');
+    }
+    if (changeSats > 0n && changeSats < SEND_DUST_SATS) {
+      feeSats += changeSats;
+      changeSats = 0n;
+    }
+
+    const payments: NeuraiCreateTransactionTxPaymentOutput[] = [];
+    for (const r of recipients) {
+      const valueSats = BigInt(Math.round(r.amount * 1e8));
+      payments.push({ address: r.address, valueSats });
+      outputs.push({ [r.address]: r.amount });
+    }
+    if (changeSats > 0n) {
+      payments.push({ address: walletAddress, valueSats: changeSats });
+      outputs.push({ [walletAddress]: Number(changeSats) / 1e8 });
+    }
+
+    const inputs = selectedBase.map((u) => ({ txid: u.txid, vout: u.outputIndex }));
+    const built = NeuraiCreateTransaction.createPaymentTransaction({ inputs, payments });
+
+    return {
+      rawTx: built.rawTx,
+      fee: Number(feeSats) / 1e8,
+      inputs: selectedBase.map((u) => ({
+        txid: u.txid,
+        vout: u.outputIndex,
+        address: u.address,
+        satoshis: u.satoshis,
+      })),
+      outputs,
+      network,
+      burnAmount: 0,
+      burnAddress: null,
+      changeAddress: walletAddress,
+      changeAmount: Number(changeSats) / 1e8,
+      buildStrategy: 'local-builder',
+    };
   }
 
   function escapeHtml(value: unknown) {
@@ -3148,6 +3587,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       ? buildResult.outputs as Array<Record<string, unknown>>
       : Object.entries(buildResult.outputs as Record<string, unknown>).map(([k, v]) => ({ [k]: v }));
 
+    const walletAddress = String((state.wallet as Record<string, unknown>)?.address || '');
+
     outputs.forEach(outputObj => {
       const [addr, value] = Object.entries(outputObj)[0];
       const row = document.createElement('div');
@@ -3158,20 +3599,33 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       let valueStr = '';
 
       if (typeof value === 'number') {
-        // XNA output — determine if burn or change
+        // XNA output — determine if burn, change-to-self or recipient
         const isBurn = /^N[bB]/.test(addr) || addr.includes('BURN') ||
           // known burn address pattern: NbURN...
           /^Nb/.test(addr);
-        badgeClass = isBurn ? 'ca-output-badge--burn' : 'ca-output-badge--change';
-        badgeLabel = isBurn ? 'Burn' : 'Change';
+        if (isBurn) {
+          badgeClass = 'ca-output-badge--burn';
+          badgeLabel = 'Burn';
+        } else if (walletAddress && addr === walletAddress) {
+          badgeClass = 'ca-output-badge--change';
+          badgeLabel = 'Change';
+        } else {
+          badgeClass = 'ca-output-badge--change';
+          badgeLabel = 'Send';
+        }
         valueStr = `${value} XNA`;
       } else if (typeof value === 'object' && value !== null) {
         const v = value as Record<string, unknown>;
         if (v.transfer) {
           const assetName = Object.keys(v.transfer as Record<string, unknown>)[0] || '';
           const amount = (v.transfer as Record<string, unknown>)[assetName];
+          const isSelf = walletAddress && addr === walletAddress;
           badgeClass = assetName.endsWith('!') ? 'ca-output-badge--owner' : 'ca-output-badge--asset';
-          badgeLabel = assetName.endsWith('!') ? 'Owner token' : 'Transfer';
+          if (assetName.endsWith('!')) {
+            badgeLabel = 'Owner token';
+          } else {
+            badgeLabel = isSelf ? 'Asset change' : 'Transfer';
+          }
           valueStr = `${amount} ${assetName}`;
         } else if (v.issue) {
           const i = v.issue as Record<string, unknown>;
@@ -3319,14 +3773,38 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       }
 
       const txid = broadcastData.result || 'unknown';
+      const pendingKind = pending.kind || 'asset-op';
       state.pendingSignedTx = null;
       elements.caTxConfirmModal!.classList.add('hidden');
-      elements.caTxid!.textContent = txid;
-      elements.caResult!.classList.remove('hidden');
-      if (state.cardMode === 'CREATE') {
-        elements.caCreateBtn!.classList.add('hidden');
+
+      if (pendingKind === 'send-xna' || pendingKind === 'send-asset') {
+        // Render success inside the Send panel
+        if (elements.sendTxid) elements.sendTxid.textContent = txid;
+        if (elements.sendTxExplorerLink) {
+          const explorerUrl = resolveExplorerTxUrl(
+            (state.wallet as Record<string, unknown>)?.network as string | undefined,
+            txid,
+            state.settings as WalletSettings | null
+          );
+          if (explorerUrl) {
+            elements.sendTxExplorerLink.href = explorerUrl;
+            elements.sendTxExplorerLink.classList.remove('hidden');
+          } else {
+            elements.sendTxExplorerLink.classList.add('hidden');
+          }
+        }
+        if (elements.sendResult) elements.sendResult.classList.remove('hidden');
+        if (elements.sendSubmitBtn) elements.sendSubmitBtn.classList.add('hidden');
+        // Refresh balances so the UI reflects the broadcast
+        refreshBalance().catch(() => { /* best-effort */ });
       } else {
-        elements.cfApplyBtn!.classList.add('hidden');
+        elements.caTxid!.textContent = txid;
+        elements.caResult!.classList.remove('hidden');
+        if (state.cardMode === 'CREATE') {
+          elements.caCreateBtn!.classList.add('hidden');
+        } else {
+          elements.cfApplyBtn!.classList.add('hidden');
+        }
       }
 
     } catch (err) {

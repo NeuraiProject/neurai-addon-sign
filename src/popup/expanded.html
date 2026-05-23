@@ -180,7 +180,7 @@
             <div class="section-intro">
               <p class="eyebrow">Transfer</p>
               <h2>Send</h2>
-              <p class="section-copy">Send XNA or assets from the active address. Sending is not yet enabled — this is a UI preview.</p>
+              <p class="section-copy">Send XNA or assets from the active address. Change is always returned to this address.</p>
             </div>
 
             <div class="asset-mode-toggle" id="sendModeToggle">
@@ -203,8 +203,24 @@
               <span class="form-hint">Each row is one destination address plus its amount.</span>
             </div>
 
+            <p class="create-asset-error hidden" id="sendError"></p>
+
             <div class="send-actions">
-              <button class="btn btn-primary" id="sendSubmitBtn" type="button" disabled>Send (coming soon)</button>
+              <button class="btn btn-primary" id="sendSubmitBtn" type="button">Send</button>
+            </div>
+
+            <div class="create-asset-result hidden" id="sendResult">
+              <div class="create-asset-success">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 1a9 9 0 1 0 0 18A9 9 0 0 0 10 1zm4.07 6.47-4.8 4.8a.75.75 0 0 1-1.06 0l-2.3-2.3a.75.75 0 1 1 1.06-1.06l1.77 1.77 4.27-4.27a.75.75 0 1 1 1.06 1.06z"/></svg>
+                <div>
+                  <p>Transaction broadcast successfully</p>
+                  <code id="sendTxid" class="txid-value"></code>
+                  <a id="sendTxExplorerLink" class="history-item-explorer-link hidden" target="_blank" rel="noopener noreferrer">View on explorer ↗</a>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="btn btn-secondary btn-small" id="sendNewBtn" type="button">Send another</button>
+              </div>
             </div>
           </section>
         </div>
