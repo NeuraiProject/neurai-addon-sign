@@ -439,14 +439,30 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     showLoading('Connecting to hardware wallet...');
 
     try {
-      var device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
+      var device = new NeuraiSignESP32.NeuraiESP32();
       await device.connect();
 
       showLoading('Reading device info...');
-      var network = el.hardwareNetwork!.value;
-      var expectedNetwork = await NEURAI_UTILS.setHardwareNetwork(device, network);
+      var selectedNetwork = el.hardwareNetwork!.value;
+      // Best-effort hint for legacy devices. PQ devices declare their own mode
+      // and don't need (or fully support) the legacy set_network switch.
+      try { await NEURAI_UTILS.setHardwareNetwork(device, selectedNetwork); } catch (_) { }
+
       var info = await device.getInfo();
       var addrResp = await device.getAddress();
+
+      // The device is authoritative about its mode. Derive the stored network
+      // from what the device reports (network axis + key_type) so signing later
+      // routes to the correct (legacy vs PQ) path, regardless of the dropdown.
+      var deviceKeyType: 'legacy' | 'pq' = info.key_type === 'pq' ? 'pq' : 'legacy';
+      var deviceAxis: 'mainnet' | 'testnet' =
+        String(info.network || selectedNetwork).toLowerCase().indexOf('test') !== -1
+          ? 'testnet'
+          : 'mainnet';
+      var resolvedNetwork =
+        typeof NeuraiSignESP32.resolveNetwork === 'function'
+          ? NeuraiSignESP32.resolveNetwork(deviceAxis, deviceKeyType)
+          : selectedNetwork;
 
       walletResult = {
         address: addrResp.address,
@@ -455,10 +471,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         seedKey: null,
         mnemonic: null,
         passphrase: null,
-        network: network,
+        network: resolvedNetwork,
         walletType: 'hardware',
         hardwareDeviceName: info.device || 'NeuraiHW',
-        hardwareDeviceNetwork: expectedNetwork,
+        hardwareDeviceNetwork: info.network || null,
         hardwareFirmwareVersion: info.version || null,
         hardwareDerivationPath: addrResp.path || null,
         hardwareMasterFingerprint: info.master_fingerprint || null

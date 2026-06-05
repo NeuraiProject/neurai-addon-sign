@@ -124,6 +124,46 @@ var NeuraiSignESP32Bundle = (function () {
             }
             throw new Error("Device response timeout");
         }
+        /**
+         * Like {@link sendCommandFinal}, but the timeout window is reset on every
+         * `processing` heartbeat instead of being a single global deadline. Suited to
+         * long, multi-step operations (e.g. PQ ML-DSA signing of several inputs),
+         * where each input may take many seconds and the device pings between steps.
+         *
+         * @param perResponseTimeoutMs max time to wait for the *next* message (reset per heartbeat)
+         * @param maxTotalMs hard ceiling across the whole operation (safety net)
+         */
+        async sendCommandHeartbeat(command, perResponseTimeoutMs = 30000, maxTotalMs = 600000) {
+            if (!this.writer) {
+                throw new Error("Serial port not connected");
+            }
+            this.responseQueue = [];
+            const json = JSON.stringify(command);
+            console.debug("[NeuraiESP32 Serial] Sending command", {
+                action: command.action,
+                payloadLength: json.length + 1,
+                perResponseTimeoutMs,
+                maxTotalMs,
+            });
+            await this.writeChunked(json);
+            await this.writer.ready;
+            await this.writer.write("\n");
+            const startTime = Date.now();
+            for (;;) {
+                if (Date.now() - startTime > maxTotalMs) {
+                    throw new Error("Device response timeout");
+                }
+                const response = await this.waitForResponse(perResponseTimeoutMs);
+                if (!response) {
+                    throw new Error("Device response timeout");
+                }
+                if (response.status === "processing") {
+                    // Heartbeat: keep waiting; the per-response window resets next iteration.
+                    continue;
+                }
+                return response;
+            }
+        }
         async readLoop() {
             let buffer = "";
             while (this.isReading && this.reader) {
@@ -509,7 +549,7 @@ var NeuraiSignESP32Bundle = (function () {
     function requireBuffer () {
     	if (hasRequiredBuffer) return buffer;
     	hasRequiredBuffer = 1;
-    	(function (exports$1) {
+    	(function (exports) {
 
     		const base64 = requireBase64Js();
     		const ieee754 = requireIeee754();
@@ -518,12 +558,12 @@ var NeuraiSignESP32Bundle = (function () {
     		    ? Symbol['for']('nodejs.util.inspect.custom') // eslint-disable-line dot-notation
     		    : null;
 
-    		exports$1.Buffer = Buffer;
-    		exports$1.SlowBuffer = SlowBuffer;
-    		exports$1.INSPECT_MAX_BYTES = 50;
+    		exports.Buffer = Buffer;
+    		exports.SlowBuffer = SlowBuffer;
+    		exports.INSPECT_MAX_BYTES = 50;
 
     		const K_MAX_LENGTH = 0x7fffffff;
-    		exports$1.kMaxLength = K_MAX_LENGTH;
+    		exports.kMaxLength = K_MAX_LENGTH;
 
     		/**
     		 * If `Buffer.TYPED_ARRAY_SUPPORT`:
@@ -1119,7 +1159,7 @@ var NeuraiSignESP32Bundle = (function () {
 
     		Buffer.prototype.inspect = function inspect () {
     		  let str = '';
-    		  const max = exports$1.INSPECT_MAX_BYTES;
+    		  const max = exports.INSPECT_MAX_BYTES;
     		  str = this.toString('hex', 0, max).replace(/(.{2})/g, '$1 ').trim();
     		  if (this.length > max) str += ' ... ';
     		  return '<Buffer ' + str + '>'
@@ -3355,7 +3395,12 @@ var NeuraiSignESP32Bundle = (function () {
     }
 
     //#region src/storages/globalConfig/globalConfig.ts
-    let store$4;
+    const DEFAULT_CONFIG = {
+    	lang: void 0,
+    	message: void 0,
+    	abortEarly: void 0,
+    	abortPipeEarly: void 0
+    };
     /**
     * Returns the global configuration.
     *
@@ -3365,12 +3410,7 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function getGlobalConfig(config$1) {
-    	return {
-    		lang: store$4?.lang,
-    		message: config$1?.message,
-    		abortEarly: store$4?.abortEarly,
-    		abortPipeEarly: store$4?.abortPipeEarly
-    	};
+    	return DEFAULT_CONFIG;
     }
 
     //#endregion
@@ -3480,6 +3520,7 @@ var NeuraiSignESP32Bundle = (function () {
 
     //#endregion
     //#region src/utils/_getStandardProps/_getStandardProps.ts
+    const _standardCache = /* @__PURE__ */ new WeakMap();
     /**
     * Returns the Standard Schema properties.
     *
@@ -3489,13 +3530,18 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function _getStandardProps(context) {
-    	return {
-    		version: 1,
-    		vendor: "valibot",
-    		validate(value$1) {
-    			return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
-    		}
-    	};
+    	let cached = _standardCache.get(context);
+    	if (!cached) {
+    		cached = {
+    			version: 1,
+    			vendor: "valibot",
+    			validate(value$1) {
+    				return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
+    			}
+    		};
+    		_standardCache.set(context, cached);
+    	}
+    	return cached;
     }
 
     //#endregion
@@ -3631,6 +3677,10 @@ var NeuraiSignESP32Bundle = (function () {
     }
 
     //#endregion
+    //#region src/const.ts
+    const ABORT_EARLY_CONFIG = { abortEarly: true };
+
+    //#endregion
     //#region src/methods/getFallback/getFallback.ts
     /**
     * Returns the fallback value of the schema.
@@ -3675,7 +3725,7 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function is(schema, input) {
-    	return !schema["~run"]({ value: input }, { abortEarly: true }).issues;
+    	return !schema["~run"]({ value: input }, ABORT_EARLY_CONFIG).issues;
     }
 
     //#endregion
@@ -4087,7 +4137,7 @@ var NeuraiSignESP32Bundle = (function () {
     /* @__NO_SIDE_EFFECTS__ */
     function _subIssues(datasets) {
     	let issues;
-    	if (datasets) for (const dataset of datasets) if (issues) issues.push(...dataset.issues);
+    	if (datasets) for (const dataset of datasets) if (issues) for (const issue of dataset.issues) issues.push(issue);
     	else issues = dataset.issues;
     	return issues;
     }
@@ -4146,7 +4196,7 @@ var NeuraiSignESP32Bundle = (function () {
     * @returns The parsed input.
     */
     function parse(schema, input, config$1) {
-    	const dataset = schema["~run"]({ value: input }, /* @__PURE__ */ getGlobalConfig(config$1));
+    	const dataset = schema["~run"]({ value: input }, /* @__PURE__ */ getGlobalConfig());
     	if (dataset.issues) throw new ValiError(dataset.issues);
     	return dataset.value;
     }
@@ -5323,7 +5373,7 @@ var NeuraiSignESP32Bundle = (function () {
      * To break sha256 using birthday attack, attackers need to try 2^128 hashes.
      * BTC network is doing 2^70 hashes/sec (2^95 hashes/year) as per 2025.
      */
-    const sha256$1 = /* @__PURE__ */ createHasher(() => new SHA256());
+    const sha256$2 = /* @__PURE__ */ createHasher(() => new SHA256());
 
     /**
      * SHA2-256 a.k.a. sha256. In JS, it is the fastest hash, even faster than Blake3.
@@ -5336,7 +5386,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @deprecated
      */
     /** @deprecated Use import from `noble/hashes/sha2` module */
-    const sha256 = sha256$1;
+    const sha256$1 = sha256$2;
 
     /**
      * A module for hashing functions.
@@ -5350,8 +5400,8 @@ var NeuraiSignESP32Bundle = (function () {
      * @param buffer - The input data to be hashed.
      * @returns The HASH160 of the input buffer.
      */
-    function hash160(buffer) {
-      return ripemd160(sha256(buffer));
+    function hash160$1(buffer) {
+      return ripemd160(sha256$1(buffer));
     }
     /**
      * Computes the double SHA-256 hash of the given buffer.
@@ -5359,8 +5409,8 @@ var NeuraiSignESP32Bundle = (function () {
      * @param buffer - The input data to be hashed.
      * @returns The double SHA-256 hash of the input buffer.
      */
-    function hash256(buffer) {
-      return sha256(sha256(buffer));
+    function hash256$1(buffer) {
+      return sha256$1(sha256$1(buffer));
     }
     /**
      * A collection of tagged hash prefixes used in various BIP (Bitcoin Improvement Proposals)
@@ -5442,8 +5492,8 @@ var NeuraiSignESP32Bundle = (function () {
      * @param data - The data to hash, provided as a `Uint8Array`.
      * @returns The resulting tagged hash as a `Uint8Array`.
      */
-    function taggedHash(prefix, data) {
-      return sha256(concat([TAGGED_HASH_PREFIXES[prefix], data]));
+    function taggedHash$1(prefix, data) {
+      return sha256$1(concat([TAGGED_HASH_PREFIXES[prefix], data]));
     }
 
     // base-x encoding / decoding
@@ -5619,7 +5669,7 @@ var NeuraiSignESP32Bundle = (function () {
 
     // SHA256(SHA256(buffer))
     function sha256x2(buffer) {
-        return sha256(sha256(buffer));
+        return sha256$1(sha256$1(buffer));
     }
     var bs58check = bs58checkBase(sha256x2);
 
@@ -5673,7 +5723,7 @@ var NeuraiSignESP32Bundle = (function () {
       prop(o, 'hash', () => {
         if (a.output) return a.output.slice(3, 23);
         if (a.address) return _address().hash;
-        if (a.pubkey || o.pubkey) return hash160(a.pubkey || o.pubkey);
+        if (a.pubkey || o.pubkey) return hash160$1(a.pubkey || o.pubkey);
       });
       prop(o, 'output', () => {
         if (!o.hash) return;
@@ -5732,7 +5782,7 @@ var NeuraiSignESP32Bundle = (function () {
           else hash = hash2;
         }
         if (a.pubkey) {
-          const pkh = hash160(a.pubkey);
+          const pkh = hash160$1(a.pubkey);
           if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = pkh;
@@ -5747,7 +5797,7 @@ var NeuraiSignESP32Bundle = (function () {
             throw new TypeError('Signature mismatch');
           if (a.pubkey && compare(a.pubkey, chunks[1]) !== 0)
             throw new TypeError('Pubkey mismatch');
-          const pkh = hash160(chunks[1]);
+          const pkh = hash160$1(chunks[1]);
           if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
         }
@@ -5828,7 +5878,7 @@ var NeuraiSignESP32Bundle = (function () {
         // in order of least effort
         if (a.output) return a.output.slice(2, 22);
         if (a.address) return _address().hash;
-        if (o.redeem && o.redeem.output) return hash160(o.redeem.output);
+        if (o.redeem && o.redeem.output) return hash160$1(o.redeem.output);
       });
       prop(o, 'output', () => {
         if (!o.hash) return;
@@ -5897,7 +5947,7 @@ var NeuraiSignESP32Bundle = (function () {
                 'Redeem.output unspendable with more than 201 non-push ops',
               );
             // match hash against other sources
-            const hash2 = hash160(redeem.output);
+            const hash2 = hash160$1(redeem.output);
             if (hash.length > 0 && compare(hash, hash2) !== 0)
               throw new TypeError('Hash mismatch');
             else hash = hash2;
@@ -6183,7 +6233,7 @@ var NeuraiSignESP32Bundle = (function () {
       prop(o, 'hash', () => {
         if (a.output) return a.output.slice(2, 22);
         if (a.address) return _address().data;
-        if (a.pubkey || o.pubkey) return hash160(a.pubkey || o.pubkey);
+        if (a.pubkey || o.pubkey) return hash160$1(a.pubkey || o.pubkey);
       });
       prop(o, 'output', () => {
         if (!o.hash) return;
@@ -6236,7 +6286,7 @@ var NeuraiSignESP32Bundle = (function () {
           else hash = a.output.slice(2);
         }
         if (a.pubkey) {
-          const pkh = hash160(a.pubkey);
+          const pkh = hash160$1(a.pubkey);
           if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = pkh;
@@ -6254,7 +6304,7 @@ var NeuraiSignESP32Bundle = (function () {
           // if (a.pubkey && !a.pubkey.equals(a.witness[1]))
           if (a.pubkey && compare(a.pubkey, a.witness[1]) !== 0)
             throw new TypeError('Pubkey mismatch');
-          const pkh = hash160(a.witness[1]);
+          const pkh = hash160$1(a.witness[1]);
           if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
         }
@@ -6335,7 +6385,7 @@ var NeuraiSignESP32Bundle = (function () {
       prop(o, 'hash', () => {
         if (a.output) return a.output.slice(2);
         if (a.address) return _address().data;
-        if (o.redeem && o.redeem.output) return sha256(o.redeem.output);
+        if (o.redeem && o.redeem.output) return sha256$1(o.redeem.output);
       });
       prop(o, 'output', () => {
         if (!o.hash) return;
@@ -6433,7 +6483,7 @@ var NeuraiSignESP32Bundle = (function () {
                 'Redeem.output unspendable with more than 201 non-push ops',
               );
             // match hash against other sources
-            const hash2 = sha256(a.redeem.output);
+            const hash2 = sha256$1(a.redeem.output);
             if (hash.length > 0 && compare(hash, hash2) !== 0)
               throw new TypeError('Hash mismatch');
             else hash = hash2;
@@ -6950,7 +7000,7 @@ var NeuraiSignESP32Bundle = (function () {
      */
     function tapleafHash(leaf) {
       const version = leaf.version || LEAF_VERSION_TAPSCRIPT;
-      return taggedHash(
+      return taggedHash$1(
         'TapLeaf',
         concat([Uint8Array.from([version]), serializeScript(leaf.output)]),
       );
@@ -6965,7 +7015,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The taproot tweak hash.
      */
     function tapTweakHash(pubKey, h) {
-      return taggedHash(
+      return taggedHash$1(
         'TapTweak',
         concat(h ? [pubKey, h] : [pubKey]),
       );
@@ -6996,7 +7046,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The TapBranch hash of the concatenated buffers.
      */
     function tapBranchHash(a, b) {
-      return taggedHash('TapBranch', concat([a, b]));
+      return taggedHash$1('TapBranch', concat([a, b]));
     }
     /**
      * Serializes a script by encoding its length as a varint and concatenating it with the script.
@@ -7374,6 +7424,19 @@ var NeuraiSignESP32Bundle = (function () {
       };
     }
     /**
+     * Converts a hash to a Base58Check-encoded string.
+     * @param hash - The hash to be encoded.
+     * @param version - The version byte to be prepended to the encoded string.
+     * @returns The Base58Check-encoded string.
+     */
+    function toBase58Check(hash, version) {
+      parse(tuple([Hash160bitSchema, UInt8Schema]), [hash, version]);
+      const payload = new Uint8Array(21);
+      writeUInt8(payload, 0, version);
+      payload.set(hash, 1);
+      return bs58check.encode(payload);
+    }
+    /**
      * Converts a buffer to a Bech32 or Bech32m encoded string.
      * @param data - The buffer to be encoded.
      * @param version - The version number to be used in the encoding.
@@ -7737,7 +7800,7 @@ var NeuraiSignESP32Bundle = (function () {
         const buffer = new Uint8Array(txTmp.byteLength(false) + 4);
         writeInt32(buffer, buffer.length - 4, hashType, 'LE');
         txTmp.__toBuffer(buffer, 0, false);
-        return hash256(buffer);
+        return hash256$1(buffer);
       }
       hashForWitnessV1(inIndex, prevOutScripts, values, hashType, leafHash, annex) {
         // https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#common-signature-message
@@ -7775,20 +7838,20 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeSlice(txIn.hash);
             bufferWriter.writeUInt32(txIn.index);
           });
-          hashPrevouts = sha256(bufferWriter.end());
+          hashPrevouts = sha256$1(bufferWriter.end());
           bufferWriter = BufferWriter.withCapacity(8 * this.ins.length);
           values.forEach(value => bufferWriter.writeInt64(value));
-          hashAmounts = sha256(bufferWriter.end());
+          hashAmounts = sha256$1(bufferWriter.end());
           bufferWriter = BufferWriter.withCapacity(
             prevOutScripts.map(varSliceSize).reduce((a, b) => a + b),
           );
           prevOutScripts.forEach(prevOutScript =>
             bufferWriter.writeVarSlice(prevOutScript),
           );
-          hashScriptPubKeys = sha256(bufferWriter.end());
+          hashScriptPubKeys = sha256$1(bufferWriter.end());
           bufferWriter = BufferWriter.withCapacity(4 * this.ins.length);
           this.ins.forEach(txIn => bufferWriter.writeUInt32(txIn.sequence));
-          hashSequences = sha256(bufferWriter.end());
+          hashSequences = sha256$1(bufferWriter.end());
         }
         if (!(isNone || isSingle)) {
           if (!this.outs.length)
@@ -7801,7 +7864,7 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeInt64(out.value);
             bufferWriter.writeVarSlice(out.script);
           });
-          hashOutputs = sha256(bufferWriter.end());
+          hashOutputs = sha256$1(bufferWriter.end());
         } else if (isSingle && inIndex < this.outs.length) {
           const output = this.outs[inIndex];
           const bufferWriter = BufferWriter.withCapacity(
@@ -7809,7 +7872,7 @@ var NeuraiSignESP32Bundle = (function () {
           );
           bufferWriter.writeInt64(output.value);
           bufferWriter.writeVarSlice(output.script);
-          hashOutputs = sha256(bufferWriter.end());
+          hashOutputs = sha256$1(bufferWriter.end());
         }
         const spendType = (leafHash ? 2 : 0) + (annex ? 1 : 0);
         // Length calculation from:
@@ -7849,7 +7912,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (annex) {
           const bufferWriter = BufferWriter.withCapacity(varSliceSize(annex));
           bufferWriter.writeVarSlice(annex);
-          sigMsgWriter.writeSlice(sha256(bufferWriter.end()));
+          sigMsgWriter.writeSlice(sha256$1(bufferWriter.end()));
         }
         // Output
         if (isSingle) {
@@ -7863,7 +7926,7 @@ var NeuraiSignESP32Bundle = (function () {
         }
         // Extra zero byte because:
         // https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-19
-        return taggedHash(
+        return taggedHash$1(
           'TapSighash',
           concat([Uint8Array.from([0x00]), sigMsgWriter.end()]),
         );
@@ -7890,7 +7953,7 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeSlice(txIn.hash);
             bufferWriter.writeUInt32(txIn.index);
           });
-          hashPrevouts = hash256(tbuffer);
+          hashPrevouts = hash256$1(tbuffer);
         }
         if (
           !(hashType & Transaction.SIGHASH_ANYONECANPAY) &&
@@ -7902,7 +7965,7 @@ var NeuraiSignESP32Bundle = (function () {
           this.ins.forEach(txIn => {
             bufferWriter.writeUInt32(txIn.sequence);
           });
-          hashSequence = hash256(tbuffer);
+          hashSequence = hash256$1(tbuffer);
         }
         if (
           (hashType & 0x1f) !== Transaction.SIGHASH_SINGLE &&
@@ -7917,7 +7980,7 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeInt64(out.value);
             bufferWriter.writeVarSlice(out.script);
           });
-          hashOutputs = hash256(tbuffer);
+          hashOutputs = hash256$1(tbuffer);
         } else if (
           (hashType & 0x1f) === Transaction.SIGHASH_SINGLE &&
           inIndex < this.outs.length
@@ -7927,7 +7990,7 @@ var NeuraiSignESP32Bundle = (function () {
           bufferWriter = new BufferWriter(tbuffer, 0);
           bufferWriter.writeInt64(output.value);
           bufferWriter.writeVarSlice(output.script);
-          hashOutputs = hash256(tbuffer);
+          hashOutputs = hash256$1(tbuffer);
         }
         tbuffer = new Uint8Array(156 + varSliceSize(prevOutScript));
         bufferWriter = new BufferWriter(tbuffer, 0);
@@ -7943,12 +8006,12 @@ var NeuraiSignESP32Bundle = (function () {
         bufferWriter.writeSlice(hashOutputs);
         bufferWriter.writeUInt32(this.locktime);
         bufferWriter.writeUInt32(hashType);
-        return hash256(tbuffer);
+        return hash256$1(tbuffer);
       }
       getHash(forWitness) {
         // wtxid for coinbase is always 32 bytes of 0x00
         if (forWitness && this.isCoinbase()) return new Uint8Array(32);
-        return hash256(this.__toBuffer(undefined, undefined, forWitness));
+        return hash256$1(this.__toBuffer(undefined, undefined, forWitness));
       }
       getId() {
         // transaction hash's are displayed in reverse order
@@ -9795,7 +9858,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @throws {Error} If there is an unknown script error.
      */
     function pubkeyPositionInScript(pubkey, script) {
-      const pubkeyHash = hash160(pubkey);
+      const pubkeyHash = hash160$1(pubkey);
       const pubkeyXOnly = pubkey.slice(1, 33); // slice before calling?
       const decompiled = decompile(script);
       if (decompiled === null) throw new Error('Unknown script error');
@@ -12114,11 +12177,18 @@ var NeuraiSignESP32Bundle = (function () {
         wif: 239,
     };
     // ─── Network map ─────────────────────────────────────────────────────────────
+    // PQ networks reuse the base secp256k1 params (used only when a PQ flow needs a
+    // bitcoinjs-lib Network for non-PQ outputs/change); PQ addresses themselves are
+    // bech32m and encoded separately (see pq-address.ts).
+    const neuraiPQMainnetBjs = { ...neuraiMainnet, bech32: "nq" };
+    const neuraiPQTestnetBjs = { ...neuraiTestnet, bech32: "tnq" };
     const networkMap = {
         xna: neuraiMainnet,
         "xna-test": neuraiTestnet,
         "xna-legacy": neuraiLegacyMainnet,
         "xna-legacy-test": neuraiLegacyTestnet,
+        "xna-pq": neuraiPQMainnetBjs,
+        "xna-pq-test": neuraiPQTestnetBjs,
     };
     /**
      * Get the bitcoinjs-lib Network object for a given Neurai network type.
@@ -12129,6 +12199,186 @@ var NeuraiSignESP32Bundle = (function () {
             throw new Error(`Unknown network: ${network}`);
         }
         return net;
+    }
+    const neuraiPQMainnet = {
+        hrp: "nq",
+        witnessVersion: 1,
+        coinType: 1900,
+        purpose: 100,
+    };
+    const neuraiPQTestnet = {
+        hrp: "tnq",
+        witnessVersion: 1,
+        coinType: 1,
+        purpose: 100,
+    };
+    /**
+     * Resolve the (Network, KeyType) public axes to the internal NetworkType.
+     *
+     * `KeyType: "legacy"` maps to the standard secp256k1 networks (coin type
+     * 1900/1). The coin-type-0 `xna-legacy*` networks are a separate concern and
+     * are not produced here.
+     */
+    function resolveNetwork(network, keyType) {
+        if (keyType === "pq") {
+            return network === "testnet" ? "xna-pq-test" : "xna-pq";
+        }
+        return network === "testnet" ? "xna-test" : "xna";
+    }
+    /** PQ network params for a given public Network. */
+    function getPQNetworkParams(network) {
+        return network === "testnet" ? neuraiPQTestnet : neuraiPQMainnet;
+    }
+
+    /**
+     * Address utilities for Neurai legacy (P2PKH) and Post-Quantum (ML-DSA-44 /
+     * AuthScript witness v1) addresses.
+     *
+     * This module is pure (no device / no secret material). It covers:
+     * - detecting and decoding both address families,
+     * - encoding destination scriptPubKeys (for outputs / sending to PQ),
+     * - deriving an address from the public key the device exposes (`get_address`).
+     *
+     * The AuthScript construction mirrors the firmware exactly (uNeurai/NeuraiPQ):
+     *   auth_descriptor = 0x01 || HASH160(0x05 || pqPubKey1312)
+     *   commitment      = taggedHash("NeuraiAuthScript",
+     *                       0x01 || auth_descriptor || SHA256(witnessScript))
+     *   scriptPubKey    = OP_1 (0x51) || 0x20 || commitment
+     *   address         = bech32m(hrp, witnessVersion=1, commitment)
+     *
+     * See docs/pq-protocol-design.md.
+     */
+    // ─── AuthScript constants (match firmware) ───────────────────────────────────
+    const AUTHSCRIPT_TAG = "NeuraiAuthScript";
+    const AUTHSCRIPT_VERSION = 0x01;
+    const PQ_AUTH_TYPE$1 = 0x01;
+    const PQ_PUBLIC_KEY_HEADER = 0x05;
+    const OP_1 = 0x51;
+    /** Default witnessScript for phase-1 single-sig PQ addresses: OP_TRUE. */
+    const DEFAULT_WITNESS_SCRIPT_HEX = "51";
+    // ─── Small helpers ───────────────────────────────────────────────────────────
+    function toBuffer(input) {
+        if (typeof input === "string")
+            return bufferExports.Buffer.from(input, "hex");
+        return bufferExports.Buffer.from(input);
+    }
+    function sha256(data) {
+        return bufferExports.Buffer.from(sha256$1(data));
+    }
+    function hash160(data) {
+        return bufferExports.Buffer.from(hash160$1(data));
+    }
+    /** taggedHash(tag, data) = SHA256(SHA256(tag) || SHA256(tag) || data). */
+    function taggedHash(tag, data) {
+        const tagHash = sha256(bufferExports.Buffer.from(tag, "utf8"));
+        return sha256(bufferExports.Buffer.concat([tagHash, tagHash, data]));
+    }
+    /** Minimal script data push (covers 20/32-byte payloads; supports up to PUSHDATA1). */
+    function pushData(data) {
+        if (data.length < 0x4c) {
+            return bufferExports.Buffer.concat([bufferExports.Buffer.from([data.length]), data]);
+        }
+        if (data.length <= 0xff) {
+            return bufferExports.Buffer.concat([bufferExports.Buffer.from([0x4c, data.length]), data]);
+        }
+        throw new Error("pushData: payload too large for this helper");
+    }
+    // ─── PQ AuthScript primitives ────────────────────────────────────────────────
+    /** auth_descriptor = 0x01 || HASH160(0x05 || pqPubKey). */
+    function pqAuthDescriptor(pqPubkey) {
+        const pubkey = toBuffer(pqPubkey);
+        return bufferExports.Buffer.concat([
+            bufferExports.Buffer.from([PQ_AUTH_TYPE$1]),
+            hash160(bufferExports.Buffer.concat([bufferExports.Buffer.from([PQ_PUBLIC_KEY_HEADER]), pubkey])),
+        ]);
+    }
+    /**
+     * commitment (32B) = taggedHash("NeuraiAuthScript",
+     *   0x01 || auth_descriptor || SHA256(witnessScript)).
+     */
+    function pqCommitment(pqPubkey, witnessScriptHex = DEFAULT_WITNESS_SCRIPT_HEX) {
+        const authDescriptor = pqAuthDescriptor(pqPubkey);
+        const witnessScriptHash = sha256(bufferExports.Buffer.from(witnessScriptHex, "hex"));
+        return taggedHash(AUTHSCRIPT_TAG, bufferExports.Buffer.concat([
+            bufferExports.Buffer.from([AUTHSCRIPT_VERSION]),
+            authDescriptor,
+            witnessScriptHash,
+        ]));
+    }
+    /** Encode a PQ address (bech32m, witness v1) from a raw ML-DSA-44 public key. */
+    function pqAddressFromPublicKey(pqPubkey, params, witnessScriptHex = DEFAULT_WITNESS_SCRIPT_HEX) {
+        const commitment = pqCommitment(pqPubkey, witnessScriptHex);
+        const words = [params.witnessVersion, ...distExports.bech32m.toWords(commitment)];
+        return distExports.bech32m.encode(params.hrp, words);
+    }
+    /** True if `address` is a Neurai PQ (AuthScript bech32m) address (nq1…/tnq1…). */
+    function isPQAddress(address) {
+        const lowered = address.trim().toLowerCase();
+        return lowered.startsWith("nq1") || lowered.startsWith("tnq1");
+    }
+    /** Decode a legacy P2PKH or PQ AuthScript address. */
+    function decodeAddress(address) {
+        const normalized = address.trim();
+        if (!normalized)
+            throw new Error("Address is required");
+        if (isPQAddress(normalized)) {
+            const decoded = distExports.bech32m.decode(normalized);
+            const witnessVersion = decoded.words[0];
+            const commitment = bufferExports.Buffer.from(distExports.bech32m.fromWords(decoded.words.slice(1)));
+            if (witnessVersion !== 1 || commitment.length !== 32) {
+                throw new Error(`Unsupported AuthScript address program for ${address}`);
+            }
+            return {
+                type: "pq",
+                address: normalized,
+                commitment,
+                witnessVersion,
+                hrp: decoded.prefix,
+            };
+        }
+        const { version, hash } = fromBase58Check(normalized);
+        return { type: "legacy", address: normalized, hash: bufferExports.Buffer.from(hash), version };
+    }
+    // ─── Destination scriptPubKey encoding (for outputs) ─────────────────────────
+    /** AuthScript output scriptPubKey: OP_1 || 0x20 || commitment (34 bytes). */
+    function encodeAuthScriptDestination(address) {
+        const decoded = decodeAddress(address);
+        if (decoded.type !== "pq") {
+            throw new Error(`Address ${address} is not a PQ AuthScript address`);
+        }
+        return bufferExports.Buffer.concat([bufferExports.Buffer.from([OP_1]), pushData(decoded.commitment)]);
+    }
+    /** Legacy P2PKH output scriptPubKey: OP_DUP OP_HASH160 <20B> OP_EQUALVERIFY OP_CHECKSIG. */
+    function encodeP2PKHDestination(address) {
+        const decoded = decodeAddress(address);
+        if (decoded.type !== "legacy") {
+            throw new Error(`Address ${address} is not a legacy P2PKH address`);
+        }
+        return bufferExports.Buffer.concat([
+            bufferExports.Buffer.from([0x76, 0xa9, 0x14]),
+            decoded.hash,
+            bufferExports.Buffer.from([0x88, 0xac]),
+        ]);
+    }
+    /** Encode the scriptPubKey for any supported destination address. */
+    function encodeDestinationScript(address) {
+        return isPQAddress(address)
+            ? encodeAuthScriptDestination(address)
+            : encodeP2PKHDestination(address);
+    }
+    // ─── Public key → address (what the device exposes via get_address) ──────────
+    /**
+     * Derive a Neurai address from the public key the device exposes plus the mode.
+     * - legacy: base58check(versionByte || HASH160(compressed secp256k1 pubkey))
+     * - pq:     AuthScript bech32m address (see pqAddressFromPublicKey)
+     */
+    function publicKeyToAddress(pubkeyHex, opts) {
+        const pubkey = bufferExports.Buffer.from(pubkeyHex, "hex");
+        if (opts.keyType === "pq") {
+            return pqAddressFromPublicKey(pubkey, getPQNetworkParams(opts.network), opts.witnessScript ?? DEFAULT_WITNESS_SCRIPT_HEX);
+        }
+        const bjs = getNetwork(resolveNetwork(opts.network, "legacy"));
+        return toBase58Check(hash160(pubkey), bjs.pubKeyHash);
     }
 
     /**
@@ -12141,18 +12391,29 @@ var NeuraiSignESP32Bundle = (function () {
      * The second path matches the webwallet integration, where coin selection
      * and fee calculation already happen elsewhere.
      */
-    const DEFAULT_FEE_RATE = 1024;
-    const TX_OVERHEAD = 10;
+    const DEFAULT_FEE_RATE$1 = 1024;
+    const TX_OVERHEAD$1 = 10;
     const INPUT_SIZE = 148;
     const OUTPUT_SIZE = 34;
     function estimateTxSize(inputCount, outputCount) {
-        return TX_OVERHEAD + inputCount * INPUT_SIZE + outputCount * OUTPUT_SIZE;
+        return TX_OVERHEAD$1 + inputCount * INPUT_SIZE + outputCount * OUTPUT_SIZE;
     }
     function parseMasterFingerprint(hex) {
         if (hex.length !== 8) {
             throw new Error(`Invalid master fingerprint: expected 8 hex chars, got ${hex.length}`);
         }
         return bufferExports.Buffer.from(hex, "hex");
+    }
+    /**
+     * Build a PSBT output descriptor for a destination address. PQ (AuthScript)
+     * addresses are not understood by bitcoinjs-lib, so they are encoded to a raw
+     * scriptPubKey here; legacy addresses are passed through by address.
+     */
+    function addressOutput(address, value) {
+        if (isPQAddress(address)) {
+            return { script: encodeDestinationScript(address), value };
+        }
+        return { address, value };
     }
     function getSignatureHashType(signature) {
         return signature[signature.length - 1] ?? 1;
@@ -12187,7 +12448,7 @@ var NeuraiSignESP32Bundle = (function () {
         return tx;
     }
     function buildPSBT(options) {
-        const { network, utxos, outputs, changeAddress, pubkey, masterFingerprint, derivationPath, feeRate = DEFAULT_FEE_RATE, } = options;
+        const { network, utxos, outputs, changeAddress, pubkey, masterFingerprint, derivationPath, feeRate = DEFAULT_FEE_RATE$1, } = options;
         if (utxos.length === 0) {
             throw new Error("No UTXOs provided");
         }
@@ -12219,16 +12480,12 @@ var NeuraiSignESP32Bundle = (function () {
             });
         }
         for (const output of outputs) {
-            psbt.addOutput({
-                address: output.address,
-                value: BigInt(output.value),
-            });
+            psbt.addOutput(addressOutput(output.address, BigInt(output.value)));
         }
         const DUST_THRESHOLD = 546;
         if (change >= DUST_THRESHOLD) {
             psbt.addOutput({
-                address: changeAddress,
-                value: BigInt(change),
+                ...addressOutput(changeAddress, BigInt(change)),
                 bip32Derivation,
             });
         }
@@ -12493,6 +12750,103 @@ var NeuraiSignESP32Bundle = (function () {
     }
 
     /**
+     * Raw-transaction builder for the Post-Quantum (ML-DSA-44 / AuthScript) signing
+     * path. PSBT cannot represent AuthScript witness v1 inputs, so spending from PQ
+     * addresses uses an unsigned raw transaction + per-input metadata sent to the
+     * device via the `sign_tx` action. See docs/pq-protocol-design.md §4.
+     */
+    /** Phase-1 payload limits (docs §4). */
+    const MAX_PQ_INPUTS = 4;
+    const MAX_OUTPUTS = 16;
+    const DEFAULT_FEE_RATE = 1024;
+    const TX_OVERHEAD = 10;
+    /** Worst-case vbytes for a PQ AuthScript input (auth type + ~2421B sig + ~1313B pubkey). */
+    const PQ_INPUT_VBYTES = 977;
+    const DUST_THRESHOLD = 546;
+    function outputVbytes(script) {
+        // value(8) + scriptLen varint(1 for <253) + script
+        return 8 + 1 + script.length;
+    }
+    /**
+     * Build an unsigned raw transaction spending PQ UTXOs, plus the per-input
+     * metadata the device needs to sign it. Performs fee/change calculation.
+     */
+    function buildUnsignedPQTransaction(options) {
+        const { utxos, outputs, changeAddress, feeRate = DEFAULT_FEE_RATE } = options;
+        if (utxos.length === 0)
+            throw new Error("No UTXOs provided");
+        if (outputs.length === 0)
+            throw new Error("No outputs provided");
+        if (utxos.length > MAX_PQ_INPUTS) {
+            throw new Error(`Too many PQ inputs (${utxos.length}); max ${MAX_PQ_INPUTS} in phase 1. Split the spend into multiple transactions.`);
+        }
+        if (outputs.length + 1 > MAX_OUTPUTS) {
+            throw new Error(`Too many outputs (${outputs.length}); max ${MAX_OUTPUTS - 1} plus change in phase 1.`);
+        }
+        const tx = new Transaction();
+        tx.version = options.version ?? 2;
+        for (const utxo of utxos) {
+            tx.addInput(bufferExports.Buffer.from(utxo.txid, "hex").reverse(), utxo.vout, 0xffffffff);
+        }
+        const outputScripts = outputs.map((o) => encodeDestinationScript(o.address));
+        let outputsVbytes = 0;
+        for (let i = 0; i < outputs.length; i += 1) {
+            tx.addOutput(outputScripts[i], BigInt(outputs[i].value));
+            outputsVbytes += outputVbytes(outputScripts[i]);
+        }
+        const totalInputValue = utxos.reduce((sum, u) => sum + u.satoshis, 0);
+        const totalOutputValue = outputs.reduce((sum, o) => sum + o.value, 0);
+        const changeScript = encodeDestinationScript(changeAddress);
+        const estimatedSize = TX_OVERHEAD +
+            utxos.length * PQ_INPUT_VBYTES +
+            outputsVbytes +
+            outputVbytes(changeScript);
+        const fee = estimatedSize * feeRate;
+        const change = totalInputValue - totalOutputValue - fee;
+        if (change < 0) {
+            throw new Error(`Insufficient funds: inputs=${totalInputValue}, outputs=${totalOutputValue}, fee=${fee}`);
+        }
+        if (change >= DUST_THRESHOLD) {
+            tx.addOutput(changeScript, BigInt(change));
+        }
+        const inputs = utxos.map((utxo, index) => ({
+            index,
+            amount: utxo.sighashAmount ?? utxo.satoshis,
+            script_pub_key: utxo.scriptPubKey,
+        }));
+        return { rawTxHex: tx.toHex(), inputs };
+    }
+    /**
+     * Extract and decode the AuthScript witness stack of a signed PQ input:
+     *   [authType] [sig||hashType] [0x05||pubkey] [witnessScript]
+     */
+    function extractPQWitness(signedTxHex, inputIndex = 0) {
+        const tx = Transaction.fromHex(signedTxHex);
+        const w = tx.ins[inputIndex]?.witness;
+        if (!w || w.length < 4) {
+            throw new Error(`Input #${inputIndex} has no AuthScript witness`);
+        }
+        const sigWithType = bufferExports.Buffer.from(w[1]);
+        const serPub = bufferExports.Buffer.from(w[2]);
+        return {
+            authType: w[0][0],
+            signature: bufferExports.Buffer.from(sigWithType.subarray(0, sigWithType.length - 1)),
+            hashType: sigWithType[sigWithType.length - 1],
+            pubkey: bufferExports.Buffer.from(serPub.subarray(1)), // strip 0x05 prefix
+            witnessScript: bufferExports.Buffer.from(w[3]),
+        };
+    }
+    /**
+     * Parse the fully-signed transaction the device returns and compute its id.
+     * The device is authoritative over the signed bytes (WYSIWYS); the host parses
+     * to validate and to surface the txid.
+     */
+    function parseSignedPQTransaction(signedTxHex) {
+        const tx = Transaction.fromHex(signedTxHex);
+        return { txHex: signedTxHex, txId: tx.getId() };
+    }
+
+    /**
      * NeuraiESP32 — Main class for interacting with a NeuraiHW hardware wallet.
      *
      * Orchestrates:
@@ -12538,10 +12892,39 @@ var NeuraiSignESP32Bundle = (function () {
             this.deviceInfo = response;
             return this.deviceInfo;
         }
+        /**
+         * Retrieve the device's address (requires physical confirmation).
+         *
+         * The device exposes only the public key of its single address; this method
+         * derives the corresponding Neurai address from that pubkey + the device mode
+         * (legacy P2PKH or PQ AuthScript) and fills it in, so consumers always get a
+         * ready-to-use `address`. See docs/pq-protocol-design.md §3.
+         */
         async getAddress() {
             const response = await this.serial.sendCommand({ action: "get_address" }, 35000);
             this.assertSuccess(response);
-            return response;
+            const res = response;
+            const keyType = res.type ??
+                (res.path?.startsWith("m_pq")
+                    ? "pq"
+                    : this.deviceInfo?.key_type ?? "legacy");
+            const network = this.networkAxis(res.path);
+            res.type = keyType;
+            if (keyType === "pq") {
+                const witnessScript = res.witnessScript ?? DEFAULT_WITNESS_SCRIPT_HEX;
+                res.witnessScript = witnessScript;
+                res.authType = res.authType ?? 1;
+                res.commitment = pqCommitment(res.pubkey, witnessScript).toString("hex");
+                res.authDescriptor = pqAuthDescriptor(res.pubkey).toString("hex");
+                res.address =
+                    res.address ||
+                        publicKeyToAddress(res.pubkey, { network, keyType, witnessScript });
+            }
+            else {
+                res.address =
+                    res.address || publicKeyToAddress(res.pubkey, { network, keyType });
+            }
+            return res;
         }
         async getBip32Pubkey() {
             const response = await this.serial.sendCommand({ action: "get_bip32_pubkey" }, 35000);
@@ -12562,12 +12945,29 @@ var NeuraiSignESP32Bundle = (function () {
             this.assertSuccess(response);
             return response;
         }
+        /**
+         * Unified signing entry point. Routes by the device key type (legacy ECDSA
+         * via PSBT/`sign_psbt`, or PQ ML-DSA via a raw transaction/`sign_tx`).
+         * `keyType` can be forced; otherwise it is taken from `info().key_type`.
+         * See docs/pq-protocol-design.md.
+         */
         async signTransaction(options) {
+            const keyType = options.keyType ?? this.deviceInfo?.key_type ?? "legacy";
+            if (keyType === "pq") {
+                return this.signPqTransaction({
+                    utxos: options.utxos,
+                    outputs: options.outputs,
+                    changeAddress: options.changeAddress,
+                    feeRate: options.feeRate,
+                    display: options.display,
+                });
+            }
             const info = this.deviceInfo;
             const network = options.network ?? this.inferNetworkType(info);
             const pubkey = options.pubkey ?? info?.pubkey;
             const masterFingerprint = options.masterFingerprint ?? info?.master_fingerprint;
             const derivationPath = options.derivationPath ?? info?.path;
+            const changeAddress = options.changeAddress ?? info?.address;
             if (!pubkey) {
                 throw new Error("pubkey required. Call getInfo() first or provide it explicitly.");
             }
@@ -12577,11 +12977,14 @@ var NeuraiSignESP32Bundle = (function () {
             if (!derivationPath) {
                 throw new Error("derivationPath required. Call getInfo() first or provide it explicitly.");
             }
+            if (!changeAddress) {
+                throw new Error("changeAddress required. Call getInfo()/getAddress() first or provide it explicitly.");
+            }
             const psbtBase64 = buildPSBT({
                 network,
                 utxos: options.utxos,
                 outputs: options.outputs,
-                changeAddress: options.changeAddress,
+                changeAddress,
                 pubkey,
                 masterFingerprint,
                 derivationPath,
@@ -12594,6 +12997,59 @@ var NeuraiSignESP32Bundle = (function () {
                 txHex,
                 txId,
                 signedInputs: signResponse.signed_inputs,
+            };
+        }
+        /**
+         * Sign a transaction that spends from the device's PQ (AuthScript) address.
+         *
+         * Builds an unsigned raw transaction (PSBT cannot carry ML-DSA-44 / witness v1
+         * AuthScript), sends it with per-input metadata via the `sign_tx` action, and
+         * returns the fully-signed transaction the device produces. The timeout window
+         * resets on each `processing` heartbeat (ML-DSA signing is slow).
+         * Change defaults to the device's own single address.
+         */
+        async signPqTransaction(options) {
+            const changeAddress = options.changeAddress ?? this.deviceInfo?.address;
+            if (!changeAddress) {
+                throw new Error("changeAddress required. Call getAddress() first or provide it explicitly.");
+            }
+            const { rawTxHex, inputs } = buildUnsignedPQTransaction({
+                utxos: options.utxos,
+                outputs: options.outputs,
+                changeAddress,
+                feeRate: options.feeRate,
+            });
+            return this.signPqRawTransaction({
+                txHex: rawTxHex,
+                inputs,
+                display: options.display,
+            });
+        }
+        /**
+         * Sign an already-built unsigned raw transaction via the `sign_tx` action.
+         * Use this when the host has its own transaction builder (e.g. the wallet
+         * already created the exact tx the user reviewed) and only needs the device's
+         * PQ signatures. `inputs` carries per-input metadata: the input index, the
+         * prevout `amount` (0 for asset-wrapped inputs) and optionally the prevout
+         * `script_pub_key` for verification.
+         */
+        async signPqRawTransaction(options) {
+            const response = await this.serial.sendCommandHeartbeat({
+                action: "sign_tx",
+                tx: options.txHex,
+                inputs: options.inputs,
+                ...(options.display ? { display: options.display } : {}),
+            }, 30000, 600000);
+            this.assertSuccess(response);
+            const signed = response;
+            if (!signed.tx) {
+                throw new Error("Device did not return a signed transaction");
+            }
+            const { txHex, txId } = parseSignedPQTransaction(signed.tx);
+            return {
+                txHex,
+                txId,
+                signedInputs: signed.signed_inputs,
             };
         }
         assertSuccess(response) {
@@ -12616,6 +13072,20 @@ var NeuraiSignESP32Bundle = (function () {
             if (info.coin_type === 1 || derivationPath.includes("/1'/"))
                 return "xna-test";
             return "xna";
+        }
+        /**
+         * Resolve the public `Network` axis (mainnet/testnet), preferring the device
+         * info when present and otherwise inferring from a derivation path
+         * (testnet coin type is 1, e.g. ".../1'/...").
+         */
+        networkAxis(path) {
+            const info = this.deviceInfo;
+            if (info?.network) {
+                return info.network.toLowerCase().includes("test") ? "testnet" : "mainnet";
+            }
+            if (path && /\/1'\//.test(path))
+                return "testnet";
+            return "mainnet";
         }
     }
 
@@ -12640,6 +13110,92 @@ var NeuraiSignESP32Bundle = (function () {
         };
     }
 
+    /**
+     * AuthScript (witness v1 / ML-DSA-44) sighash, matching the firmware's
+     * `Tx::sigHashAuthScript` exactly: a BIP143-style preimage with an extra
+     * `authType` byte inserted between `locktime` and `hashType`.
+     *
+     * Pure (no secret material). Used to independently recompute the message the
+     * device signed, so a host can verify the returned ML-DSA-44 signature.
+     * See docs/pq-protocol-design.md §1 and uNeurai Transaction.cpp:757.
+     */
+    const SIGHASH_ALL = 0x01;
+    const PQ_AUTH_TYPE = 0x01;
+    function hash256(data) {
+        return bufferExports.Buffer.from(hash256$1(data));
+    }
+    function encodeVarint(n) {
+        if (n < 0xfd)
+            return bufferExports.Buffer.from([n]);
+        if (n <= 0xffff) {
+            const b = bufferExports.Buffer.alloc(3);
+            b[0] = 0xfd;
+            b.writeUInt16LE(n, 1);
+            return b;
+        }
+        const b = bufferExports.Buffer.alloc(5);
+        b[0] = 0xfe;
+        b.writeUInt32LE(n, 1);
+        return b;
+    }
+    /** varint(len) || bytes */
+    function varSlice(bytes) {
+        return bufferExports.Buffer.concat([encodeVarint(bytes.length), bytes]);
+    }
+    function uint32LE(n) {
+        const b = bufferExports.Buffer.alloc(4);
+        b.writeUInt32LE(n >>> 0, 0);
+        return b;
+    }
+    function uint64LE(n) {
+        const b = bufferExports.Buffer.alloc(8);
+        b.writeBigUInt64LE(n, 0);
+        return b;
+    }
+    /**
+     * Compute the 32-byte AuthScript sighash for a PQ input. SIGHASH_ALL only
+     * (phase 1): all prevouts/sequences/outputs are committed.
+     */
+    function pqAuthScriptSighash(options) {
+        const tx = typeof options.tx === "string"
+            ? Transaction.fromHex(options.tx)
+            : options.tx;
+        const witnessScript = bufferExports.Buffer.from(options.witnessScript ?? "51", "hex");
+        const authType = options.authType ?? PQ_AUTH_TYPE;
+        const sighashType = options.sighashType ?? SIGHASH_ALL;
+        const amount = BigInt(options.amount);
+        const outpointOf = (i) => {
+            const b = bufferExports.Buffer.alloc(36);
+            bufferExports.Buffer.from(i.hash).copy(b, 0);
+            b.writeUInt32LE(i.index >>> 0, 32);
+            return b;
+        };
+        const hashPrevouts = hash256(bufferExports.Buffer.concat(tx.ins.map(outpointOf)));
+        const hashSequence = hash256(bufferExports.Buffer.concat(tx.ins.map((i) => uint32LE(i.sequence))));
+        const hashOutputs = hash256(bufferExports.Buffer.concat(tx.outs.map((o) => bufferExports.Buffer.concat([uint64LE(BigInt(o.value)), varSlice(bufferExports.Buffer.from(o.script))]))));
+        const input = tx.ins[options.inputIndex];
+        if (!input)
+            throw new Error(`No input at index ${options.inputIndex}`);
+        const preimage = bufferExports.Buffer.concat([
+            (() => {
+                const v = bufferExports.Buffer.alloc(4);
+                v.writeInt32LE(tx.version, 0);
+                return v;
+            })(),
+            hashPrevouts,
+            hashSequence,
+            outpointOf(input),
+            varSlice(witnessScript),
+            uint64LE(amount),
+            uint32LE(input.sequence),
+            hashOutputs,
+            uint32LE(tx.locktime),
+            bufferExports.Buffer.from([authType]),
+            uint32LE(sighashType),
+        ]);
+        return hash256(preimage);
+    }
+
     const api = {
         NeuraiESP32,
         SerialConnection,
@@ -12650,10 +13206,30 @@ var NeuraiSignESP32Bundle = (function () {
         validatePSBT,
         buildAssetTransferDisplayMetadata,
         getNetwork,
+        resolveNetwork,
+        getPQNetworkParams,
         neuraiMainnet,
         neuraiTestnet,
         neuraiLegacyMainnet,
         neuraiLegacyTestnet,
+        neuraiPQMainnet,
+        neuraiPQTestnet,
+        // PQ address / AuthScript helpers
+        isPQAddress,
+        decodeAddress,
+        encodeDestinationScript,
+        publicKeyToAddress,
+        pqAddressFromPublicKey,
+        pqCommitment,
+        pqAuthDescriptor,
+        DEFAULT_WITNESS_SCRIPT_HEX,
+        // PQ raw-transaction builder
+        buildUnsignedPQTransaction,
+        parseSignedPQTransaction,
+        extractPQWitness,
+        pqAuthScriptSighash,
+        MAX_PQ_INPUTS,
+        MAX_OUTPUTS,
     };
     globalThis.NeuraiSignESP32 = api;
 

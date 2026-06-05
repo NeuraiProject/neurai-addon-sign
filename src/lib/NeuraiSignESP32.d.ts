@@ -5,7 +5,13 @@
 export {};
 
 declare global {
-  type NeuraiSignESP32NetworkType = 'xna' | 'xna-test' | 'xna-legacy' | 'xna-legacy-test';
+  type NeuraiSignESP32NetworkType =
+    | 'xna' | 'xna-test' | 'xna-legacy' | 'xna-legacy-test'
+    | 'xna-pq' | 'xna-pq-test';
+
+  // Public two-axis model (network × key type).
+  type NeuraiSignESP32Network = 'mainnet' | 'testnet';
+  type NeuraiSignESP32KeyType = 'legacy' | 'pq';
 
   interface NeuraiESP32DeviceInfo {
     status: string;
@@ -13,6 +19,8 @@ declare global {
     version: string;
     chip: string;
     network: string;
+    /** Key/signature scheme. Absent on pre-PQ firmware → assume 'legacy'. */
+    key_type?: NeuraiSignESP32KeyType;
     coin_type: number;
     master_fingerprint: string;
     path: string;
@@ -22,9 +30,39 @@ declare global {
 
   interface NeuraiESP32AddressResult {
     status: string;
+    /** 'legacy' | 'pq' (present once the library derives the address). */
+    type?: NeuraiSignESP32KeyType;
+    /** Derived address (N…/t… legacy, nq1…/tnq1… PQ). */
     address: string;
+    /** Compressed secp256k1 pubkey (legacy) or raw ML-DSA-44 pubkey (PQ), hex. */
     pubkey: string;
     path: string;
+    // PQ-only (present when type === 'pq')
+    authType?: number;
+    witnessScript?: string;
+    commitment?: string;
+    authDescriptor?: string;
+  }
+
+  /** A UTXO locked to the device's PQ (AuthScript) address. */
+  interface NeuraiESP32PQUtxo {
+    txid: string;
+    vout: number;
+    satoshis: number;
+    /** Prevout scriptPubKey hex ("5120<commitment>"). */
+    scriptPubKey: string;
+    type: 'pq';
+    /** Override sighash amount (0 for asset-wrapped inputs). */
+    sighashAmount?: number;
+  }
+
+  /** Decoded AuthScript witness of a signed PQ input. */
+  interface NeuraiESP32PQWitness {
+    authType: number;
+    signature: Uint8Array;
+    hashType: number;
+    pubkey: Uint8Array;
+    witnessScript: Uint8Array;
   }
 
   interface NeuraiESP32Bip32PubkeyResult {
@@ -109,7 +147,8 @@ declare global {
   }
 
   interface NeuraiESP32SignTransactionResult {
-    signedPsbtBase64: string;
+    /** Present for the legacy/ECDSA (PSBT) flow; absent for the PQ flow. */
+    signedPsbtBase64?: string;
     txHex: string;
     txId: string;
     signedInputs: number;
@@ -129,13 +168,28 @@ declare global {
     signPsbt(psbtBase64: string, display?: NeuraiESP32SignDisplay): Promise<NeuraiESP32SignPsbtResult>;
     signTransaction(options: {
       network?: NeuraiSignESP32NetworkType;
-      utxos: NeuraiESP32Utxo[];
+      keyType?: NeuraiSignESP32KeyType;
+      utxos: Array<NeuraiESP32Utxo | NeuraiESP32PQUtxo>;
       outputs: NeuraiESP32TxOutput[];
-      changeAddress: string;
+      changeAddress?: string;
       pubkey?: string;
       masterFingerprint?: string;
       derivationPath?: string;
       feeRate?: number;
+      display?: NeuraiESP32SignDisplay;
+    }): Promise<NeuraiESP32SignTransactionResult>;
+    /** Spend from a PQ address (raw-tx transport via `sign_tx`). */
+    signPqTransaction(options: {
+      utxos: NeuraiESP32PQUtxo[];
+      outputs: NeuraiESP32TxOutput[];
+      changeAddress?: string;
+      feeRate?: number;
+      display?: NeuraiESP32SignDisplay;
+    }): Promise<NeuraiESP32SignTransactionResult>;
+    /** Sign an already-built unsigned raw transaction via `sign_tx` (PQ). */
+    signPqRawTransaction(options: {
+      txHex: string;
+      inputs: Array<{ index: number; amount: number; script_pub_key?: string }>;
       display?: NeuraiESP32SignDisplay;
     }): Promise<NeuraiESP32SignTransactionResult>;
   }
@@ -183,6 +237,38 @@ declare global {
     neuraiTestnet: NeuraiNetwork;
     neuraiLegacyMainnet: NeuraiNetwork;
     neuraiLegacyTestnet: NeuraiNetwork;
+
+    // ── Post-Quantum (ML-DSA-44 / AuthScript) helpers ──
+    resolveNetwork(network: NeuraiSignESP32Network, keyType: NeuraiSignESP32KeyType): NeuraiSignESP32NetworkType;
+    isPQAddress(address: string): boolean;
+    decodeAddress(address: string):
+      | { type: 'pq'; address: string; commitment: Uint8Array; witnessVersion: number; hrp: string }
+      | { type: 'legacy'; address: string; hash: Uint8Array; version: number };
+    encodeDestinationScript(address: string): Uint8Array;
+    publicKeyToAddress(
+      pubkeyHex: string,
+      opts: { network: NeuraiSignESP32Network; keyType: NeuraiSignESP32KeyType; witnessScript?: string }
+    ): string;
+    buildUnsignedPQTransaction(options: {
+      utxos: NeuraiESP32PQUtxo[];
+      outputs: NeuraiESP32TxOutput[];
+      changeAddress: string;
+      feeRate?: number;
+      version?: number;
+    }): { rawTxHex: string; inputs: Array<{ index: number; amount: number; script_pub_key: string }> };
+    parseSignedPQTransaction(signedTxHex: string): { txHex: string; txId: string };
+    extractPQWitness(signedTxHex: string, inputIndex?: number): NeuraiESP32PQWitness;
+    pqAuthScriptSighash(options: {
+      tx: string;
+      inputIndex: number;
+      amount: number | bigint;
+      witnessScript?: string;
+      authType?: number;
+      sighashType?: number;
+    }): Uint8Array;
+
+    neuraiPQMainnet: { hrp: string; witnessVersion: number; coinType: number; purpose: number };
+    neuraiPQTestnet: { hrp: string; witnessVersion: number; coinType: number; purpose: number };
   }
 
   var NeuraiSignESP32: NeuraiSignESP32Static;

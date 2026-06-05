@@ -2223,7 +2223,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       try { await hwDevice.disconnect(); } catch (_) { }
       hwDevice = null;
     }
-    const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
+    const device = new NeuraiSignESP32.NeuraiESP32();
     await device.connect();
     const wallet = state.wallet || {};
     await NEURAI_UTILS.syncHardwareNetwork(device, wallet.network as string | undefined);
@@ -2237,7 +2237,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       hwDevice = null;
     }
 
-    const device = new NeuraiSignESP32.NeuraiESP32({ filters: [] });
+    const device = new NeuraiSignESP32.NeuraiESP32();
     await device.connect();
     const wallet = state.wallet || {};
     const selectedNetwork = wallet.network as string | undefined;
@@ -2337,6 +2337,30 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const utxos = message.utxos as unknown[] || [];
       const txInputs = parseRawTransactionInputs(message.txHex as string);
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
+
+      // PQ (AuthScript / ML-DSA-44) wallets cannot be represented in a PSBT.
+      // Sign the raw transaction directly via the device's `sign_tx` action.
+      if (network === 'xna-pq' || network === 'xna-pq-test') {
+        const feeSatsPq = calculateRawTransactionFeeSats(message.txHex as string, enrichedUtxos);
+        const pqDisplay = feeSatsPq !== null
+          ? { feeAmount: formatSatoshisToXna(feeSatsPq), baseCurrency: 'XNA' }
+          : undefined;
+        const pqInputs = enrichedUtxos.map((utxo, index) => {
+          const prevout = utxo.rawTxHex ? parseRawTransactionOutputs(utxo.rawTxHex)[Number(utxo.vout)] : undefined;
+          return {
+            index,
+            amount: prevout ? Number(prevout.value) : 0,
+            ...(prevout ? { script_pub_key: prevout.scriptHex } : {})
+          };
+        });
+        const pqResult = await hwDevice.signPqRawTransaction({
+          txHex: message.txHex as string,
+          inputs: pqInputs,
+          display: pqDisplay
+        });
+        return { success: true, signedTxHex: pqResult.txHex, complete: true };
+      }
+
       const networkType = NEURAI_UTILS.toEsp32NetworkType(network);
       const sighashType = parseSighashType(message.sighashType as string);
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
@@ -3975,6 +3999,30 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const networkType = NEURAI_UTILS.toEsp32NetworkType(wallet.network as string);
       const txInputs = parseRawTransactionInputs(rawTx);
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
+
+      // PQ (AuthScript / ML-DSA-44) wallets cannot be represented in a PSBT.
+      // Sign the raw transaction directly via the device's `sign_tx` action.
+      if (wallet.network === 'xna-pq' || wallet.network === 'xna-pq-test') {
+        const feeSatsPq = calculateRawTransactionFeeSats(rawTx, enrichedUtxos);
+        const pqDisplay = feeSatsPq !== null
+          ? { feeAmount: formatSatoshisToXna(feeSatsPq), baseCurrency: 'XNA' }
+          : undefined;
+        const pqInputs = enrichedUtxos.map((utxo, index) => {
+          const prevout = utxo.rawTxHex ? parseRawTransactionOutputs(utxo.rawTxHex)[Number(utxo.vout)] : undefined;
+          return {
+            index,
+            amount: prevout ? Number(prevout.value) : 0,
+            ...(prevout ? { script_pub_key: prevout.scriptHex } : {})
+          };
+        });
+        const pqResult = await hwDevice.signPqRawTransaction({
+          txHex: rawTx,
+          inputs: pqInputs,
+          display: pqDisplay
+        });
+        return pqResult.txHex;
+      }
+
       const psbtBase64 = NeuraiSignESP32.buildPSBTFromRawTransaction({
         network: networkType,
         rawUnsignedTransaction: rawTx,
