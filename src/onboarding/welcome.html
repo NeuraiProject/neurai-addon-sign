@@ -238,18 +238,7 @@
     <!-- ─── Step 4c: Hardware wallet ─────────────────────────────────────── -->
     <div class="step-card hidden" id="step4Hardware">
       <h2 class="step-title">Connect Hardware Wallet</h2>
-      <p class="step-subtitle">Connect your Neurai ESP32 device via USB and confirm on the hardware screen.</p>
-
-      <div class="form-group">
-        <label for="hardwareNetwork">Network</label>
-        <select class="form-select" id="hardwareNetwork">
-          <option value="xna">Neurai Mainnet (XNA)</option>
-          <option value="xna-pq">Neurai Mainnet AuthScript PQ</option>
-          <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
-          <option value="xna-pq-test">Neurai Testnet AuthScript PQ</option>
-        </select>
-        <p class="step-subtitle" style="margin-top:6px">The device reports its own mode; this is auto-corrected to match the connected device.</p>
-      </div>
+      <p class="step-subtitle">Connect your Neurai ESP32 device via USB and confirm on the hardware screen. The device reports its own mode (legacy/PQ, mainnet/testnet) — no network selection needed.</p>
 
       <div class="warning-box">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0">

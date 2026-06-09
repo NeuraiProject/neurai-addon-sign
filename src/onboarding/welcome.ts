@@ -60,7 +60,6 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     generateConfirmBtn: document.getElementById('generateConfirmBtn'),
     toggleGeneratePassphrase: document.getElementById('toggleGeneratePassphrase'),
     // Step 4c - Hardware
-    hardwareNetwork: document.getElementById('hardwareNetwork') as HTMLSelectElement | null,
     hardwareError: document.getElementById('hardwareError'),
     hardwareBackBtn: document.getElementById('hardwareBackBtn'),
     hardwareConnectBtn: document.getElementById('hardwareConnectBtn'),
@@ -443,26 +442,23 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       await device.connect();
 
       showLoading('Reading device info...');
-      var selectedNetwork = el.hardwareNetwork!.value;
-      // Best-effort hint for legacy devices. PQ devices declare their own mode
-      // and don't need (or fully support) the legacy set_network switch.
-      try { await NEURAI_UTILS.setHardwareNetwork(device, selectedNetwork); } catch (_) { }
-
       var info = await device.getInfo();
       var addrResp = await device.getAddress();
 
       // The device is authoritative about its mode. Derive the stored network
-      // from what the device reports (network axis + key_type) so signing later
-      // routes to the correct (legacy vs PQ) path, regardless of the dropdown.
+      // entirely from what the device reports (network axis + key_type) so
+      // signing later routes to the correct (legacy vs PQ) path.
       var deviceKeyType: 'legacy' | 'pq' = info.key_type === 'pq' ? 'pq' : 'legacy';
       var deviceAxis: 'mainnet' | 'testnet' =
-        String(info.network || selectedNetwork).toLowerCase().indexOf('test') !== -1
+        String(info.network || '').toLowerCase().indexOf('test') !== -1
           ? 'testnet'
           : 'mainnet';
       var resolvedNetwork =
         typeof NeuraiSignESP32.resolveNetwork === 'function'
           ? NeuraiSignESP32.resolveNetwork(deviceAxis, deviceKeyType)
-          : selectedNetwork;
+          : (deviceKeyType === 'pq'
+              ? (deviceAxis === 'testnet' ? 'xna-pq-test' : 'xna-pq')
+              : (deviceAxis === 'testnet' ? 'xna-test' : 'xna'));
 
       walletResult = {
         address: addrResp.address,
