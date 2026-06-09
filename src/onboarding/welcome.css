@@ -158,6 +158,12 @@ body::before {
   flex: 0;
 }
 
+/* Marks the last *visible* step (so the bar collapses correctly when the extra
+   hardware steps 6/7 are hidden and step 7 is no longer the rendered last one). */
+.progress-step.is-last {
+  flex: 0;
+}
+
 .progress-dot {
   width: 32px;
   height: 32px;

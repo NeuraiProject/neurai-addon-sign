@@ -19,12 +19,18 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   var el = {
     progressBar: document.getElementById('progressBar'),
+    progressStep5: document.getElementById('progressStep5'),
+    progressStep6: document.getElementById('progressStep6'),
+    progressStep7: document.getElementById('progressStep7'),
+    progressLine5: document.getElementById('progressLine5'),
     step1: document.getElementById('step1'),
     step2: document.getElementById('step2'),
     step3: document.getElementById('step3'),
     step4Import: document.getElementById('step4Import'),
     step4Generate: document.getElementById('step4Generate'),
     step4Hardware: document.getElementById('step4Hardware'),
+    step4HardwareDetected: document.getElementById('step4HardwareDetected'),
+    step4HardwareInfo: document.getElementById('step4HardwareInfo'),
     step4Backup: document.getElementById('step4Backup'),
     step5: document.getElementById('step5'),
     // Step 1
@@ -61,14 +67,24 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     toggleGeneratePassphrase: document.getElementById('toggleGeneratePassphrase'),
     // Step 4c - Hardware
     hardwareError: document.getElementById('hardwareError'),
+    hardwareDetectedError: document.getElementById('hardwareDetectedError'),
+    hardwareInfoError: document.getElementById('hardwareInfoError'),
     hardwareBackBtn: document.getElementById('hardwareBackBtn'),
     hardwareConnectBtn: document.getElementById('hardwareConnectBtn'),
+    hardwareDetectedBackBtn: document.getElementById('hardwareDetectedBackBtn'),
     hardwareProceedBtn: document.getElementById('hardwareProceedBtn'),
-    hardwarePingPanel: document.getElementById('hardwarePingPanel'),
+    hardwareInfoBackBtn: document.getElementById('hardwareInfoBackBtn'),
+    hardwareAddBtn: document.getElementById('hardwareAddBtn'),
     pingDevice: document.getElementById('pingDevice'),
     pingFirmware: document.getElementById('pingFirmware'),
     pingVersion: document.getElementById('pingVersion'),
     pingChip: document.getElementById('pingChip'),
+    hwInfoAddress: document.getElementById('hwInfoAddress'),
+    hwInfoPubkey: document.getElementById('hwInfoPubkey'),
+    hwInfoFingerprint: document.getElementById('hwInfoFingerprint'),
+    hwInfoNetwork: document.getElementById('hwInfoNetwork'),
+    hwInfoType: document.getElementById('hwInfoType'),
+    hwInfoPath: document.getElementById('hwInfoPath'),
     // Step 4d - Backup
     mnemonicGrid: document.getElementById('mnemonicGrid'),
     backupPassphraseRow: document.getElementById('backupPassphraseRow'),
@@ -182,10 +198,13 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   var allStepCards = [
     el.step1, el.step2, el.step3,
-    el.step4Import, el.step4Generate, el.step4Hardware, el.step4Backup,
+    el.step4Import, el.step4Generate, el.step4Hardware,
+    el.step4HardwareDetected, el.step4HardwareInfo, el.step4Backup,
     el.step5
   ].filter(Boolean) as HTMLElement[];
 
+  // Hardware uses a 3-step sub-flow (4 connect → 6 detected → 7 info → 5 success).
+  // 6/7 are internal step numbers; updateProgressBar maps them to visual dots 5/6.
   function getStepCard(stepNum: number): HTMLElement | null {
     switch (stepNum) {
       case 1: return el.step1;
@@ -196,6 +215,8 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         if (method === 'generate') return el.step4Generate;
         if (method === 'hardware') return el.step4Hardware;
         return el.step4Import;
+      case 6: return el.step4HardwareDetected;
+      case 7: return el.step4HardwareInfo;
       case 45: return el.step4Backup;
       case 5: return el.step5;
       default: return el.step1;
@@ -216,9 +237,27 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   }
 
   function updateProgressBar(stepNum: number) {
-    var displayStep = stepNum === 45 ? 4 : stepNum;
-    // In new-account mode steps are shifted: no PIN step
-    // Visual progress: 1=welcome, 2=PIN(or skip), 3=method, 4=form, 5=success
+    var isHw = method === 'hardware';
+
+    // The hardware path has two extra sections → 7 dots; everything else → 5.
+    el.progressStep6!.classList.toggle('hidden', !isHw);
+    el.progressStep7!.classList.toggle('hidden', !isHw);
+    el.progressLine5!.classList.toggle('hidden', !isHw);
+    // When the extra steps are hidden, dot 5 becomes the last visible one and
+    // must not stretch (the real DOM :last-child is the hidden step 7).
+    el.progressStep5!.classList.toggle('is-last', !isHw);
+
+    // Map the internal step number to a visual dot (1-based).
+    var displayStep: number;
+    if (isHw) {
+      // 1 welcome · 2 PIN · 3 method · 4 connect · 5 detected · 6 info · 7 success
+      var hwMap: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 4, 6: 5, 7: 6, 5: 7 };
+      displayStep = hwMap[stepNum] || stepNum;
+    } else {
+      // Visual progress: 1=welcome, 2=PIN(or skip), 3=method, 4=form, 5=success
+      displayStep = stepNum === 45 ? 4 : stepNum;
+    }
+
     var dots = el.progressBar!.querySelectorAll('.progress-dot');
     var lines = el.progressBar!.querySelectorAll('.progress-line');
 
@@ -444,14 +483,14 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── Hardware wallet ────────────────────────────────────────────────────────
 
-  // Reset the hardware step back to its initial "Connect Device" state and drop
-  // any in-progress device session. Safe to call when nothing is connected.
+  // Clear the hardware wizard's errors and drop any in-progress device session.
+  // Navigation between the hardware steps is handled by goToStep(); this only
+  // resets state. Safe to call when nothing is connected.
   function resetHardwareUi() {
     el.hardwareError!.textContent = '';
+    el.hardwareDetectedError!.textContent = '';
+    el.hardwareInfoError!.textContent = '';
     hwPing = null;
-    el.hardwarePingPanel!.classList.add('hidden');
-    el.hardwareConnectBtn!.classList.remove('hidden');
-    el.hardwareProceedBtn!.classList.add('hidden');
     if (hwDevice) {
       var d = hwDevice;
       hwDevice = null;
@@ -459,8 +498,14 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     }
   }
 
+  // Shorten a long hex value for display (e.g. the 2624-hex-char PQ pubkey).
+  function truncateMiddle(value: string, keep: number): string {
+    if (!value || value.length <= keep * 2 + 1) return value || '--';
+    return value.slice(0, keep) + '…' + value.slice(-keep);
+  }
+
   // Phase 1: detect the device with `ping` (no on-device approval, no wallet
-  // data) and show its identity so the user can decide whether to proceed.
+  // data) and advance to the "Device Detected" screen.
   async function handleHardwareConnect() {
     el.hardwareError!.textContent = '';
     showLoading('Detecting device...');
@@ -477,10 +522,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       el.pingVersion!.textContent = pong.version || '--';
       el.pingChip!.textContent = pong.chip || '--';
 
-      el.hardwarePingPanel!.classList.remove('hidden');
-      el.hardwareConnectBtn!.classList.add('hidden');
-      el.hardwareProceedBtn!.classList.remove('hidden');
+      el.hardwareDetectedError!.textContent = '';
       hideLoading();
+      goToStep(6); // → Device Detected
     } catch (err) {
       hideLoading();
       if (hwDevice) { try { await hwDevice.disconnect(); } catch (_) { } hwDevice = null; }
@@ -496,12 +540,14 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   // Phase 2: the user chose to proceed. `getInfo` is gated on current firmware —
   // the device shows "ALLOW HOST?" and only returns the wallet data once the
   // owner approves on the device screen (otherwise it replies "User cancelled").
+  // On success we build the pending wallet and advance to the review screen; we
+  // do NOT save until the user presses "Add".
   async function handleHardwareProceed() {
     if (!hwDevice) {
-      el.hardwareError!.textContent = 'Device not connected. Click Connect Device.';
+      el.hardwareDetectedError!.textContent = 'Device not connected. Go back and click Connect Device.';
       return;
     }
-    el.hardwareError!.textContent = '';
+    el.hardwareDetectedError!.textContent = '';
     showLoading('Approve on your device to share wallet info...');
 
     try {
@@ -540,24 +586,51 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         hardwareMasterFingerprint: info.master_fingerprint || null
       };
 
-      try { await hwDevice.disconnect(); } catch (_) { }
-      hwDevice = null;
+      // Populate the review screen. Keep the device connected so "Back" can
+      // re-read it without forcing a full reconnect.
+      el.hwInfoAddress!.textContent = info.address || '--';
+      el.hwInfoPubkey!.textContent = truncateMiddle(info.pubkey || '', 24);
+      el.hwInfoFingerprint!.textContent = info.master_fingerprint || '--';
+      el.hwInfoNetwork!.textContent = info.network || '--';
+      el.hwInfoType!.textContent = deviceKeyType.toUpperCase();
+      el.hwInfoPath!.textContent = info.path || '--';
+
+      el.hardwareInfoError!.textContent = '';
+      hideLoading();
+      goToStep(7); // → Hardware Wallet (review & add)
+    } catch (err) {
+      hideLoading();
+      // Keep the device connected so the user can retry the approval.
+      const error = err as Error;
+      if (String(error.message || '').includes('User cancelled')) {
+        el.hardwareDetectedError!.textContent = 'Approval was cancelled on the device. Click "Connect to wallet" to try again.';
+      } else {
+        el.hardwareDetectedError!.textContent = 'Connection failed: ' + error.message;
+      }
+    }
+  }
+
+  // Phase 3: the user reviewed the wallet and pressed "Add". Persist it and
+  // finish onboarding. No further device interaction is required.
+  async function handleHardwareAdd() {
+    if (!walletResult) {
+      el.hardwareInfoError!.textContent = 'No wallet to add. Go back and read the device again.';
+      return;
+    }
+    el.hardwareInfoError!.textContent = '';
+    showLoading('Saving wallet...');
+
+    try {
+      if (hwDevice) { try { await hwDevice.disconnect(); } catch (_) { } hwDevice = null; }
       hwPing = null;
 
-      showLoading('Saving wallet...');
       await saveWallet();
       hideLoading();
       goToStep(5);
       el.successAddress!.textContent = walletResult.address;
     } catch (err) {
       hideLoading();
-      // Keep the device connected so the user can retry the approval.
-      const error = err as Error;
-      if (String(error.message || '').includes('User cancelled')) {
-        el.hardwareError!.textContent = 'Approval was cancelled on the device. Click "Connect to wallet" to try again.';
-      } else {
-        el.hardwareError!.textContent = 'Connection failed: ' + error.message;
-      }
+      el.hardwareInfoError!.textContent = 'Save failed: ' + (err as Error).message;
     }
   }
 
@@ -680,10 +753,15 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     el.generateConfirmBtn!.addEventListener('click', handleGenerateConfirm);
     setupToggle(el.toggleGeneratePassphrase, el.generatePassphrase);
 
-    // Step 4c
+    // Step 4c — hardware wizard (4 connect → 6 detected → 7 info)
     el.hardwareBackBtn!.addEventListener('click', function () { resetHardwareUi(); goToStep(3); });
     el.hardwareConnectBtn!.addEventListener('click', handleHardwareConnect);
+    // Back from "Device Detected" returns to the connect step and drops the session.
+    el.hardwareDetectedBackBtn!.addEventListener('click', function () { resetHardwareUi(); goToStep(4); });
     el.hardwareProceedBtn!.addEventListener('click', handleHardwareProceed);
+    // Back from "Hardware Wallet" returns to "Device Detected"; the device stays connected.
+    el.hardwareInfoBackBtn!.addEventListener('click', function () { el.hardwareInfoError!.textContent = ''; goToStep(6); });
+    el.hardwareAddBtn!.addEventListener('click', handleHardwareAdd);
 
     // Step 4d
     el.backupConfirmCheck!.addEventListener('change', function () {
