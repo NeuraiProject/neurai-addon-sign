@@ -1683,8 +1683,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     const device = new NeuraiSignESP32.NeuraiESP32();
     await device.connect();
     const activeHardwareNetwork = await NEURAI_UTILS.syncHardwareNetwork(device, state.network);
+    // `info` already carries address/pubkey/path; we avoid getAddress() so the
+    // import doesn't block on the device's "Export address" confirmation.
     const info = await device.getInfo();
-    const addrResp = await device.getAddress();
 
     // Keep the device connected for future signing requests
     hwDevice = device;
@@ -1693,9 +1694,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       deviceName: info.device || 'NeuraiHW',
       deviceNetwork: activeHardwareNetwork || info.network || null,
       firmwareVersion: info.version || null,
-      address: addrResp.address,
-      publicKey: addrResp.pubkey,
-      derivationPath: addrResp.path || null,
+      address: info.address,
+      publicKey: info.pubkey,
+      derivationPath: info.path || null,
       masterFingerprint: info.master_fingerprint || null
     };
   }
@@ -1861,14 +1862,14 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     await NEURAI_UTILS.syncHardwareNetwork(hwDevice as NeuraiESP32Instance, state.network);
 
-    if (needsInfo) {
+    // `info` already carries master_fingerprint/pubkey/path, so we fill missing
+    // metadata from it instead of getAddress() (which would block on an on-device
+    // confirmation just to reconnect a wallet).
+    if (needsInfo || needsAddress) {
       const info = (hwDevice as NeuraiESP32Instance).info || await (hwDevice as NeuraiESP32Instance).getInfo();
       masterFingerprint = info?.master_fingerprint || masterFingerprint;
-    }
-    if (needsAddress) {
-      const addrResp = await (hwDevice as NeuraiESP32Instance).getAddress();
-      publicKey = addrResp?.pubkey || publicKey;
-      derivationPath = addrResp?.path || derivationPath;
+      publicKey = info?.pubkey || publicKey;
+      derivationPath = info?.path || derivationPath;
     }
 
     if (publicKey && derivationPath && masterFingerprint && (

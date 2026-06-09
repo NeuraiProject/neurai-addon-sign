@@ -442,8 +442,11 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       await device.connect();
 
       showLoading('Reading device info...');
+      // `info` already carries the device's address/pubkey/path without requiring
+      // an on-device confirmation. We intentionally do NOT call getAddress() here:
+      // that command blocks on a physical "Export address" confirmation and would
+      // fail the import with "User cancelled". The device still confirms on signing.
       var info = await device.getInfo();
-      var addrResp = await device.getAddress();
 
       // The device is authoritative about its mode. Derive the stored network
       // entirely from what the device reports (network axis + key_type) so
@@ -461,8 +464,8 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
               : (deviceAxis === 'testnet' ? 'xna-test' : 'xna'));
 
       walletResult = {
-        address: addrResp.address,
-        publicKey: addrResp.pubkey,
+        address: info.address,
+        publicKey: info.pubkey,
         privateKey: null,
         seedKey: null,
         mnemonic: null,
@@ -472,7 +475,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         hardwareDeviceName: info.device || 'NeuraiHW',
         hardwareDeviceNetwork: info.network || null,
         hardwareFirmwareVersion: info.version || null,
-        hardwareDerivationPath: addrResp.path || null,
+        hardwareDerivationPath: info.path || null,
         hardwareMasterFingerprint: info.master_fingerprint || null
       };
 
