@@ -1657,7 +1657,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32();
     await device.connect();
-    await NEURAI_UTILS.syncHardwareNetwork(device, state.network);
     await device.getInfo();
 
     hwDevice = device;
@@ -1682,7 +1681,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const device = new NeuraiSignESP32.NeuraiESP32();
     await device.connect();
-    const activeHardwareNetwork = await NEURAI_UTILS.syncHardwareNetwork(device, state.network);
     // `info` already carries address/pubkey/path; we avoid getAddress() so the
     // import doesn't block on the device's "Export address" confirmation.
     const info = await device.getInfo();
@@ -1692,7 +1690,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     return {
       deviceName: info.device || 'NeuraiHW',
-      deviceNetwork: activeHardwareNetwork || info.network || null,
+      deviceNetwork: info.network || null,
       firmwareVersion: info.version || null,
       address: info.address,
       publicKey: info.pubkey,
@@ -1755,7 +1753,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
-      await NEURAI_UTILS.syncHardwareNetwork(hwDevice, state.network);
       showToast('Confirm message signing on your device...', 'success');
       const result = await hwDevice.signMessage(message.message as string);
       showToast('Message signed', 'success');
@@ -1772,7 +1769,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return { error: 'Hardware wallet is not connected. Click Reconnect in the addon or open the popup.' };
     }
     try {
-      await NEURAI_UTILS.syncHardwareNetwork(hwDevice, state.network);
       const metadata = await ensureHardwareSigningMetadata(message);
       const publicKey = metadata.publicKey;
       const derivationPath = metadata.derivationPath;
@@ -1859,8 +1855,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
-
-    await NEURAI_UTILS.syncHardwareNetwork(hwDevice as NeuraiESP32Instance, state.network);
 
     // `info` already carries master_fingerprint/pubkey/path, so we fill missing
     // metadata from it instead of getAddress() (which would block on an on-device

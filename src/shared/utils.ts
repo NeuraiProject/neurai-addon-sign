@@ -133,28 +133,11 @@ function toEsp32NetworkType(network: string): NeuraiSignESP32NetworkType {
   return isTestnetNetwork(network) ? 'xna-test' : 'xna';
 }
 
-async function setHardwareNetwork(device: NeuraiESP32Instance, walletNetwork: string): Promise<'Neurai' | 'NeuraiTest'> {
-  const targetNetwork = toHardwareNetwork(walletNetwork);
-  if (typeof device.setNetwork === 'function') {
-    await device.setNetwork(targetNetwork);
-    return targetNetwork;
-  }
-
-  const serialCapable = device as unknown as {
-    serial?: { sendCommand?: (command: { action: string; network: string }, timeoutMs?: number) => Promise<unknown> };
-  };
-
-  if (typeof serialCapable.serial?.sendCommand !== 'function') {
-    throw new Error('The connected hardware library does not support network selection.');
-  }
-
-  await serialCapable.serial.sendCommand({ action: 'set_network', network: targetNetwork }, 5000);
-  return targetNetwork;
-}
-
-async function syncHardwareNetwork(device: NeuraiESP32Instance, walletNetwork?: string): Promise<'Neurai' | 'NeuraiTest'> {
-  return setHardwareNetwork(device, walletNetwork || 'xna');
-}
+// NOTE: `set_network` was removed. On current firmware the device's network is
+// fixed at compile time and that command now requires an on-device confirmation
+// (it routes through the gated `info` handler), so calling it only added a
+// spurious approval prompt without changing anything. The host adapts to whatever
+// the device reports via `info`.
 
 function validateHardwareWalletNetwork(selectedNetwork: string, deviceNetwork: string | null | undefined): void {
   const expectedNetwork = toHardwareNetwork(selectedNetwork);
@@ -187,8 +170,6 @@ export const NEURAI_UTILS = {
   isTestnetNetwork,
   toHardwareNetwork,
   toEsp32NetworkType,
-  setHardwareNetwork,
-  syncHardwareNetwork,
   validateHardwareWalletNetwork,
   isSerialPortSelectionCancelled
 };
