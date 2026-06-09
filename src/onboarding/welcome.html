@@ -238,13 +238,25 @@
     <!-- ─── Step 4c: Hardware wallet ─────────────────────────────────────── -->
     <div class="step-card hidden" id="step4Hardware">
       <h2 class="step-title">Connect Hardware Wallet</h2>
-      <p class="step-subtitle">Connect your Neurai ESP32 device via USB and confirm on the hardware screen. The device reports its own mode (legacy/PQ, mainnet/testnet) — no network selection needed.</p>
+      <p class="step-subtitle">Connect your Neurai ESP32 device via USB. First we detect the device (no approval needed); then you choose to read the wallet, which you approve on the device screen.</p>
 
       <div class="warning-box">
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0">
           <path d="M8 0L0 14h16L8 0zm0 4.3L13.1 13H2.9L8 4.3zm-.6 3v4h1.2V7.3H7.4zm0 4.7v1.2h1.2V12H7.4z" />
         </svg>
-        <span>Make sure your ESP32 device is plugged in and unlocked before connecting. You will need to approve the connection on the device screen.</span>
+        <span>Make sure your ESP32 device is plugged in and unlocked before connecting. After detection you will approve sharing the wallet info on the device screen.</span>
+      </div>
+
+      <!-- Detection result (after ping; before reading the gated wallet info) -->
+      <div class="form-group hidden" id="hardwarePingPanel">
+        <label>Device detected</label>
+        <div style="padding: 8px 12px; border-radius: var(--radius-xs); background: var(--bg-input); border: 1px solid var(--border); font-size: 13px;">
+          <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--text-secondary)">Device</span><span id="pingDevice" style="font-family:var(--font-mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--text-secondary)">Firmware</span><span id="pingFirmware" style="font-family:var(--font-mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--text-secondary)">Protocol</span><span id="pingVersion" style="font-family:var(--font-mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--text-secondary)">Chip</span><span id="pingChip" style="font-family:var(--font-mono)">--</span></div>
+        </div>
+        <p class="step-subtitle" style="margin-top:6px">Proceed to read the wallet? Your device will ask you to approve sharing its wallet info (address, public key, fingerprint).</p>
       </div>
 
       <p class="form-error" id="hardwareError"></p>
@@ -256,6 +268,12 @@
             <path d="M14 3H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm-.5 8.5h-11v-7h11v7zM4 7h2v2H4V7z" />
           </svg>
           Connect Device
+        </button>
+        <button class="btn btn-primary hidden" id="hardwareProceedBtn" type="button">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M6.3 11.7l-3-3 1.4-1.4L6.3 8.9l5-5L12.7 5.3z" />
+          </svg>
+          Connect to wallet
         </button>
       </div>
     </div>

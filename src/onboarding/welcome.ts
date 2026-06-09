@@ -63,6 +63,12 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     hardwareError: document.getElementById('hardwareError'),
     hardwareBackBtn: document.getElementById('hardwareBackBtn'),
     hardwareConnectBtn: document.getElementById('hardwareConnectBtn'),
+    hardwareProceedBtn: document.getElementById('hardwareProceedBtn'),
+    hardwarePingPanel: document.getElementById('hardwarePingPanel'),
+    pingDevice: document.getElementById('pingDevice'),
+    pingFirmware: document.getElementById('pingFirmware'),
+    pingVersion: document.getElementById('pingVersion'),
+    pingChip: document.getElementById('pingChip'),
     // Step 4d - Backup
     mnemonicGrid: document.getElementById('mnemonicGrid'),
     backupPassphraseRow: document.getElementById('backupPassphraseRow'),
@@ -122,6 +128,11 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   var generatedMnemonic = '';
   var walletResult: WalletResult | null = null;
   var canReuseSessionPin = false;
+  // Hardware onboarding is two-phase: ping (detect, no prompt) → proceed (gated
+  // getInfo). The device stays connected between the two so the second step
+  // reuses the same session.
+  var hwDevice: NeuraiESP32Instance | null = null;
+  var hwPing: NeuraiESP32PingResult | null = null;
 
   async function tryReuseConfiguredSessionPin(expectedPinHash: string, unlockUntil: number) {
     if (!expectedPinHash || unlockUntil <= Date.now()) return false;
@@ -433,20 +444,68 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── Hardware wallet ────────────────────────────────────────────────────────
 
+  // Reset the hardware step back to its initial "Connect Device" state and drop
+  // any in-progress device session. Safe to call when nothing is connected.
+  function resetHardwareUi() {
+    el.hardwareError!.textContent = '';
+    hwPing = null;
+    el.hardwarePingPanel!.classList.add('hidden');
+    el.hardwareConnectBtn!.classList.remove('hidden');
+    el.hardwareProceedBtn!.classList.add('hidden');
+    if (hwDevice) {
+      var d = hwDevice;
+      hwDevice = null;
+      d.disconnect().catch(function () { });
+    }
+  }
+
+  // Phase 1: detect the device with `ping` (no on-device approval, no wallet
+  // data) and show its identity so the user can decide whether to proceed.
   async function handleHardwareConnect() {
     el.hardwareError!.textContent = '';
-    showLoading('Connecting to hardware wallet...');
+    showLoading('Detecting device...');
 
     try {
       var device = new NeuraiSignESP32.NeuraiESP32();
       await device.connect();
+      var pong = await device.ping();
+      hwDevice = device;
+      hwPing = pong;
 
-      showLoading('Reading device info...');
-      // `info` already carries the device's address/pubkey/path without requiring
-      // an on-device confirmation. We intentionally do NOT call getAddress() here:
-      // that command blocks on a physical "Export address" confirmation and would
-      // fail the import with "User cancelled". The device still confirms on signing.
-      var info = await device.getInfo();
+      el.pingDevice!.textContent = pong.device || 'NeuraiHW';
+      el.pingFirmware!.textContent = pong.firmware_version || '--';
+      el.pingVersion!.textContent = pong.version || '--';
+      el.pingChip!.textContent = pong.chip || '--';
+
+      el.hardwarePingPanel!.classList.remove('hidden');
+      el.hardwareConnectBtn!.classList.add('hidden');
+      el.hardwareProceedBtn!.classList.remove('hidden');
+      hideLoading();
+    } catch (err) {
+      hideLoading();
+      if (hwDevice) { try { await hwDevice.disconnect(); } catch (_) { } hwDevice = null; }
+      const error = err as Error;
+      if (error && (error.name === 'NotFoundError' || String(error.message || '').includes('No port selected'))) {
+        el.hardwareError!.textContent = 'No device selected. Please try again.';
+      } else {
+        el.hardwareError!.textContent = 'Could not detect device: ' + error.message;
+      }
+    }
+  }
+
+  // Phase 2: the user chose to proceed. `getInfo` is gated on current firmware —
+  // the device shows "ALLOW HOST?" and only returns the wallet data once the
+  // owner approves on the device screen (otherwise it replies "User cancelled").
+  async function handleHardwareProceed() {
+    if (!hwDevice) {
+      el.hardwareError!.textContent = 'Device not connected. Click Connect Device.';
+      return;
+    }
+    el.hardwareError!.textContent = '';
+    showLoading('Approve on your device to share wallet info...');
+
+    try {
+      var info = await hwDevice.getInfo();
 
       // The device is authoritative about its mode. Derive the stored network
       // entirely from what the device reports (network axis + key_type) so
@@ -474,12 +533,16 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         walletType: 'hardware',
         hardwareDeviceName: info.device || 'NeuraiHW',
         hardwareDeviceNetwork: info.network || null,
-        hardwareFirmwareVersion: info.version || null,
+        // Prefer the real firmware version reported by ping; fall back to the
+        // protocol version from info.
+        hardwareFirmwareVersion: (hwPing && hwPing.firmware_version) || info.version || null,
         hardwareDerivationPath: info.path || null,
         hardwareMasterFingerprint: info.master_fingerprint || null
       };
 
-      try { await device.disconnect(); } catch (_) { }
+      try { await hwDevice.disconnect(); } catch (_) { }
+      hwDevice = null;
+      hwPing = null;
 
       showLoading('Saving wallet...');
       await saveWallet();
@@ -488,9 +551,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       el.successAddress!.textContent = walletResult.address;
     } catch (err) {
       hideLoading();
+      // Keep the device connected so the user can retry the approval.
       const error = err as Error;
-      if (error && (error.name === 'NotFoundError' || String(error.message || '').includes('No port selected'))) {
-        el.hardwareError!.textContent = 'No device selected. Please try again.';
+      if (String(error.message || '').includes('User cancelled')) {
+        el.hardwareError!.textContent = 'Approval was cancelled on the device. Click "Connect to wallet" to try again.';
       } else {
         el.hardwareError!.textContent = 'Connection failed: ' + error.message;
       }
@@ -604,7 +668,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     // Step 3 — method
     el.methodImport!.addEventListener('click', function () { method = 'import'; goToStep(4); });
     el.methodGenerate!.addEventListener('click', function () { method = 'generate'; goToStep(4); });
-    el.methodHardware!.addEventListener('click', function () { method = 'hardware'; goToStep(4); });
+    el.methodHardware!.addEventListener('click', function () { method = 'hardware'; resetHardwareUi(); goToStep(4); });
 
     // Step 4a
     el.importBackBtn!.addEventListener('click', function () { goToStep(3); });
@@ -617,8 +681,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     setupToggle(el.toggleGeneratePassphrase, el.generatePassphrase);
 
     // Step 4c
-    el.hardwareBackBtn!.addEventListener('click', function () { goToStep(3); });
+    el.hardwareBackBtn!.addEventListener('click', function () { resetHardwareUi(); goToStep(3); });
     el.hardwareConnectBtn!.addEventListener('click', handleHardwareConnect);
+    el.hardwareProceedBtn!.addEventListener('click', handleHardwareProceed);
 
     // Step 4d
     el.backupConfirmCheck!.addEventListener('change', function () {

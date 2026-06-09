@@ -28,6 +28,22 @@ declare global {
     pubkey: string;
   }
 
+  /**
+   * Lightweight handshake for device detection (`ping`/`device_info`). Answers
+   * WITHOUT on-device approval and returns NOTHING wallet-identifying (no
+   * fingerprint/address/pubkey/network). Use it to detect the device, then call
+   * {@link NeuraiESP32Instance.getInfo} (gated) for the actual wallet data.
+   */
+  interface NeuraiESP32PingResult {
+    status: string;
+    device: string;
+    /** Protocol/app version (matches `info`). */
+    version: string;
+    /** Device firmware version (from the device's WalletConfig). */
+    firmware_version: string;
+    chip: string;
+  }
+
   interface NeuraiESP32AddressResult {
     status: string;
     /** 'legacy' | 'pq' (present once the library derives the address). */
@@ -160,6 +176,8 @@ declare global {
 
     connect(): Promise<void>;
     disconnect(): Promise<void>;
+    /** No-prompt detection handshake. Throws on firmware too old to know `ping`. */
+    ping(): Promise<NeuraiESP32PingResult>;
     getInfo(): Promise<NeuraiESP32DeviceInfo>;
     setNetwork?(network: 'Neurai' | 'NeuraiTest'): Promise<NeuraiESP32DeviceInfo | { success?: boolean; network?: string }>;
     getAddress(): Promise<NeuraiESP32AddressResult>;
