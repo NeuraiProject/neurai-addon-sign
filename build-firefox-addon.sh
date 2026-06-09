@@ -40,10 +40,16 @@ node -e "
   chrome.browser_specific_settings = {
     gecko: {
       id: 'neurai-sign@neuraiproject.org',
-      strict_min_version: '109.0',
+      // data_collection_permissions needs Firefox 140+; optional_host_permissions
+      // needs 128+. Keep the desktop floor at the highest required (140).
+      strict_min_version: '140.0',
       data_collection_permissions: {
         required: ['none']
       }
+    },
+    // On Android, data_collection_permissions needs Firefox 142+.
+    gecko_android: {
+      strict_min_version: '142.0'
     }
   };
 

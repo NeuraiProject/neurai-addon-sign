@@ -1,5 +1,6 @@
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { utxoRow } from '../shared/dom.js';
 import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js';
 
 (function() {
@@ -222,23 +223,11 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
         elements.cancelRefundBreakdown!.classList.remove('hidden');
         elements.cancelBreakdownReason!.textContent = `non-standard layout — ${cd.refund.reason}`;
         cd.refund.outputs.forEach((o: CancelOutputSummary) => {
-          const row = document.createElement('div');
-          row.className = 'utxo-row';
           const xnaAmount = (o.valueSats / 1e8).toFixed(8).replace(/\.?0+$/, '');
-          row.innerHTML = `
-            <div class="utxo-index">#${o.index}</div>
-            <div class="utxo-fields">
-              <div class="utxo-field"><span>value</span><code>${xnaAmount} XNA</code></div>
-              ${
-                o.asset
-                  ? `<div class="utxo-field"><span>asset</span><code>${o.asset.name} × ${formatAmountRaw(o.asset.amountRaw)}</code></div>`
-                  : ''
-              }
-              <div class="utxo-field"><span>to</span><code>${
-                o.address ?? `script: ${shortHex(o.scriptHex)}`
-              }</code></div>
-            </div>`;
-          elements.cancelOutputsList!.appendChild(row);
+          const fields = [{ label: 'value', value: xnaAmount + ' XNA' }];
+          if (o.asset) fields.push({ label: 'asset', value: o.asset.name + ' × ' + formatAmountRaw(o.asset.amountRaw) });
+          fields.push({ label: 'to', value: o.address ?? ('script: ' + shortHex(o.scriptHex)) });
+          elements.cancelOutputsList!.appendChild(utxoRow(o.index, fields));
         });
       }
 
@@ -252,16 +241,12 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
       elements.txHexValue!.textContent = request.txHex || '(not available)';
       if (Array.isArray(request.utxos) && request.utxos.length > 0) {
         request.utxos.forEach((utxo: Record<string, unknown>, i: number) => {
-          const row = document.createElement('div');
-          row.className = 'utxo-row';
-          row.innerHTML = `
-            <div class="utxo-index">#${i + 1}</div>
-            <div class="utxo-fields">
-              <div class="utxo-field"><span>txid</span><code>${utxo.txid || '--'}</code></div>
-              <div class="utxo-field"><span>vout</span><code>${utxo.vout ?? '--'}</code></div>
-              ${utxo.amount != null ? `<div class="utxo-field"><span>amount</span><code>${utxo.amount} XNA</code></div>` : ''}
-            </div>`;
-          elements.utxosList!.appendChild(row);
+          const fields = [
+            { label: 'txid', value: String(utxo.txid || '--') },
+            { label: 'vout', value: String(utxo.vout ?? '--') },
+          ];
+          if (utxo.amount != null) fields.push({ label: 'amount', value: utxo.amount + ' XNA' });
+          elements.utxosList!.appendChild(utxoRow(i + 1, fields));
         });
         elements.utxosSection!.classList.remove('hidden');
       }
@@ -290,16 +275,12 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
       elements.txHexValue!.textContent = request.txHex || '(not available)';
       if (Array.isArray(request.utxos) && request.utxos.length > 0) {
         request.utxos.forEach((utxo: Record<string, unknown>, i: number) => {
-          const row = document.createElement('div');
-          row.className = 'utxo-row';
-          row.innerHTML = `
-            <div class="utxo-index">#${i + 1}</div>
-            <div class="utxo-fields">
-              <div class="utxo-field"><span>txid</span><code>${utxo.txid || '--'}</code></div>
-              <div class="utxo-field"><span>vout</span><code>${utxo.vout ?? '--'}</code></div>
-              ${utxo.amount != null ? `<div class="utxo-field"><span>amount</span><code>${utxo.amount} XNA</code></div>` : ''}
-            </div>`;
-          elements.utxosList!.appendChild(row);
+          const fields = [
+            { label: 'txid', value: String(utxo.txid || '--') },
+            { label: 'vout', value: String(utxo.vout ?? '--') },
+          ];
+          if (utxo.amount != null) fields.push({ label: 'amount', value: utxo.amount + ' XNA' });
+          elements.utxosList!.appendChild(utxoRow(i + 1, fields));
         });
         elements.utxosSection!.classList.remove('hidden');
       }

@@ -2,6 +2,7 @@
 /* global NeuraiKey, NeuraiSignESP32, chrome */
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { elem } from '../shared/dom.js';
 import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
 (function () {
@@ -452,9 +453,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   function showMnemonicBackup(mnemonic: string, passphrase: string | null) {
     var words = mnemonic.split(' ');
-    el.mnemonicGrid!.innerHTML = words.map(function (word, i) {
-      return '<span class="mnemonic-word"><span class="mnemonic-num">' + (i + 1) + '</span>' + word + '</span>';
-    }).join('');
+    el.mnemonicGrid!.replaceChildren(...words.map(function (word, i) {
+      return elem('span', { class: 'mnemonic-word' }, [elem('span', { class: 'mnemonic-num' }, String(i + 1)), word]);
+    }));
 
     if (passphrase) {
       el.backupPassphraseRow!.classList.remove('hidden');
@@ -843,9 +844,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
           );
         });
         if (hasWallet) {
-          document.body.innerHTML =
-            '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-secondary)">' +
-            '<p>Wallet already configured. You can close this tab.</p></div>';
+          document.body.replaceChildren(
+            elem('div', { style: 'display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-secondary)' },
+              elem('p', null, 'Wallet already configured. You can close this tab.'))
+          );
           return;
         }
       }

@@ -8,6 +8,7 @@ import {
   parseRawTransactionOutputs
 } from '../shared/parse-raw-tx.js';
 import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
+import { elem, option } from '../shared/dom.js';
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
 (function () {
@@ -161,19 +162,21 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       const header = document.createElement('div');
       header.className = 'history-item-header';
       const dateStr = new Date(item.timestamp as number).toLocaleString();
-      header.innerHTML = `
-        <span class="history-item-origin">${item.origin}</span>
-        <span>${dateStr}</span>
-      `;
+      header.replaceChildren(
+        elem('span', { class: 'history-item-origin' }, String(item.origin ?? '')),
+        elem('span', null, dateStr)
+      );
 
       // Type badge row
       const meta = document.createElement('div');
       meta.className = 'history-item-meta';
       if (isRawTx) {
         const rawTxLabel = getRawTxHistoryLabel(item);
-        meta.innerHTML = `<span class="history-item-badge history-item-badge--rawtx">${escapeHtml(rawTxLabel)}</span>
-          <span class="history-item-meta-detail">Sighash: <strong>${item.sighashType || 'ALL'}</strong></span>
-          <span class="history-item-meta-detail">Inputs: <strong>${item.inputCount ?? '?'}</strong></span>`;
+        meta.replaceChildren(
+          elem('span', { class: 'history-item-badge history-item-badge--rawtx' }, rawTxLabel),
+          elem('span', { class: 'history-item-meta-detail' }, ['Sighash: ', elem('strong', null, String(item.sighashType || 'ALL'))]),
+          elem('span', { class: 'history-item-meta-detail' }, ['Inputs: ', elem('strong', null, String(item.inputCount ?? '?'))])
+        );
       } else {
         meta.innerHTML = `<span class="history-item-badge history-item-badge--msg">MSG</span>`;
       }
@@ -226,9 +229,12 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
         expandBtn.addEventListener('click', () => {
           const hidden = details.classList.toggle('hidden');
-          expandBtn.innerHTML = hidden
-            ? `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 7L1 3h8L5 7z"/></svg> Show raw TX`
-            : `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 3l4 4H1L5 3z"/></svg> Hide raw TX`;
+          // Static literals per branch (literals are not flagged by the validator).
+          if (hidden) {
+            expandBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 7L1 3h8L5 7z"/></svg> Show raw TX`;
+          } else {
+            expandBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 3l4 4H1L5 3z"/></svg> Hide raw TX`;
+          }
         });
 
         el.appendChild(expandBtn);
@@ -660,9 +666,12 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       return;
     }
     elements.assetsEmpty.classList.add('hidden');
-    elements.assetsList.innerHTML = (state.assets as { name: string; amountText: string }[]).map((asset) =>
-      `<div class="asset-item"><span class="asset-name" title="${escapeHtml(asset.name)}">${escapeHtml(asset.name)}</span><span class="asset-balance">${escapeHtml(asset.amountText)}</span></div>`
-    ).join('');
+    elements.assetsList.replaceChildren(...(state.assets as { name: string; amountText: string }[]).map((asset) =>
+      elem('div', { class: 'asset-item' }, [
+        elem('span', { class: 'asset-name', title: asset.name }, asset.name),
+        elem('span', { class: 'asset-balance' }, asset.amountText),
+      ])
+    ));
   }
 
   function switchBalanceTab(tab: string) {
@@ -673,15 +682,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     elements.balanceTabAssets.setAttribute('aria-selected', showAssets ? 'true' : 'false');
     elements.balancePanelGeneral.classList.toggle('hidden', showAssets);
     elements.balancePanelAssets.classList.toggle('hidden', !showAssets);
-  }
-
-  function escapeHtml(value: unknown) {
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 
   function getRawTxHistoryLabel(item: Record<string, unknown>) {
@@ -1200,8 +1200,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       elements.accountSelect!.disabled = true;
       elements.switchAccountBtn!.disabled = true;
     } else {
-      elements.accountSelect!.innerHTML = configuredIds.map((id) =>
-        `<option value="${id}">${getAccountLabel(id)}</option>`).join('');
+      elements.accountSelect!.replaceChildren(...configuredIds.map((id) => option(id, getAccountLabel(id))));
       elements.accountSelect!.disabled = false;
       elements.switchAccountBtn!.disabled = false;
       elements.accountSelect!.value = configuredIds.includes(state.activeAccountId)
@@ -1549,9 +1548,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
       if (mnemonicStr) {
         const words = mnemonicStr.trim().split(/\s+/);
-        elements.backupMnemonicWords.innerHTML = words.map((w, i) =>
-          `<span class="mnemonic-word"><span class="mnemonic-word-num">${i + 1}</span>${w}</span>`
-        ).join('');
+        elements.backupMnemonicWords.replaceChildren(...words.map((w, i) =>
+          elem('span', { class: 'mnemonic-word' }, [elem('span', { class: 'mnemonic-word-num' }, String(i + 1)), w])
+        ));
         elements.backupMnemonicGroup.classList.remove('hidden');
       } else {
         elements.backupMnemonicGroup.classList.add('hidden');

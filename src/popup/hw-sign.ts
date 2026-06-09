@@ -1,5 +1,6 @@
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { elem, utxoRow } from '../shared/dom.js';
 import type { HwSignPayload } from '../types/index.js';
 
 (function () {
@@ -126,14 +127,19 @@ import type { HwSignPayload } from '../types/index.js';
 
   function setStatus(type: string, text: string) {
     elements.hwStatus!.className = 'hw-status hw-status--' + type;
-    const iconHtml = type === 'connecting' || type === 'confirm'
-      ? '<span class="hw-spinner"></span>'
-      : type === 'success'
-        ? '<span class="hw-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3.4 5.3-4 4a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 1 1 1.06-1.06L6.87 8.7l3.47-3.47a.75.75 0 1 1 1.06 1.06z"/></svg></span>'
-        : type === 'error'
-          ? '<span class="hw-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11zM7.25 4v5h1.5V4h-1.5zm0 6v1.5h1.5V10h-1.5z"/></svg></span>'
-          : '<span class="hw-icon"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11zM7.25 4v5h1.5V4h-1.5zm0 6v1.5h1.5V10h-1.5z"/></svg></span>';
-    elements.hwStatus!.innerHTML = iconHtml + '<span>' + text + '</span>';
+    const icon = document.createElement('span');
+    if (type === 'connecting' || type === 'confirm') {
+      icon.className = 'hw-spinner';
+    } else {
+      icon.className = 'hw-icon';
+      // Static SVG markup as a string literal (literals are not flagged by the validator).
+      if (type === 'success') {
+        icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm3.4 5.3-4 4a.75.75 0 0 1-1.06 0l-2-2a.75.75 0 1 1 1.06-1.06L6.87 8.7l3.47-3.47a.75.75 0 1 1 1.06 1.06z"/></svg>';
+      } else {
+        icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11zM7.25 4v5h1.5V4h-1.5zm0 6v1.5h1.5V10h-1.5z"/></svg>';
+      }
+    }
+    elements.hwStatus!.replaceChildren(icon, elem('span', null, text));
   }
 
   async function init() {
@@ -191,18 +197,14 @@ import type { HwSignPayload } from '../types/index.js';
 
       elements.txHexValue!.textContent = req.txHex || '(not available)';
       if (Array.isArray(req.utxos) && req.utxos.length > 0) {
-        elements.utxosList!.innerHTML = '';
+        elements.utxosList!.replaceChildren();
         req.utxos.forEach((utxo, i) => {
-          const row = document.createElement('div');
-          row.className = 'utxo-row';
-          row.innerHTML = `
-            <div class="utxo-index">#${i + 1}</div>
-            <div class="utxo-fields">
-              <div class="utxo-field"><span>txid</span><code>${utxo.txid || '--'}</code></div>
-              <div class="utxo-field"><span>vout</span><code>${utxo.vout ?? '--'}</code></div>
-              ${utxo.amount != null ? `<div class="utxo-field"><span>amount</span><code>${utxo.amount} XNA</code></div>` : ''}
-            </div>`;
-          elements.utxosList!.appendChild(row);
+          const fields = [
+            { label: 'txid', value: String(utxo.txid || '--') },
+            { label: 'vout', value: String(utxo.vout ?? '--') },
+          ];
+          if (utxo.amount != null) fields.push({ label: 'amount', value: utxo.amount + ' XNA' });
+          elements.utxosList!.appendChild(utxoRow(i + 1, fields));
         });
         elements.utxosSection!.classList.remove('hidden');
       } else {
