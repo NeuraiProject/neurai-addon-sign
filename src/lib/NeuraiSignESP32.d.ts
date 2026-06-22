@@ -13,6 +13,36 @@ declare global {
   type NeuraiSignESP32Network = 'mainnet' | 'testnet';
   type NeuraiSignESP32KeyType = 'legacy' | 'pq';
 
+  /**
+   * Coarse device state derived from the `ping` gate errors:
+   * `ready` (keys derived; normal commands work), `locked` (encrypted seed
+   * stored but PIN not entered — ask the user to unlock on the device) or
+   * `unconfigured` (no seed stored — {@link NeuraiESP32Instance.setupSeed} or
+   * the on-device wizard applies).
+   */
+  type NeuraiESP32DeviceState = 'ready' | 'locked' | 'unconfigured';
+
+  /** Options for {@link NeuraiESP32Instance.setupSeed}. */
+  interface NeuraiESP32SetupSeedOptions {
+    /** 12 or 24 BIP39 words, space-separated. Re-validated on-device. */
+    mnemonic: string;
+    /** Chain network. REQUIRED by the firmware (no defaults). */
+    network: NeuraiSignESP32Network;
+    /** Key scheme. REQUIRED by the firmware. `pq` is testnet-only. */
+    keyType: NeuraiSignESP32KeyType;
+  }
+
+  /**
+   * Successful `setup_seed` reply: the owner approved on the device and is now
+   * creating the PIN there. Poll {@link NeuraiESP32Instance.getDeviceState}
+   * (or use {@link NeuraiESP32Instance.waitUntilReady}) to detect completion.
+   */
+  interface NeuraiESP32SetupSeedResult {
+    status: string;
+    /** Always `"pin_required"`: the owner must finish the PIN on the device. */
+    state: 'pin_required';
+  }
+
   interface NeuraiESP32DeviceInfo {
     status: string;
     device: string;
@@ -178,6 +208,24 @@ declare global {
     disconnect(): Promise<void>;
     /** No-prompt detection handshake. Throws on firmware too old to know `ping`. */
     ping(): Promise<NeuraiESP32PingResult>;
+    /**
+     * Coarse device state (`ready` | `locked` | `unconfigured`), derived from the
+     * `ping` gate errors. Safe to poll; never prompts on the device.
+     */
+    getDeviceState(): Promise<NeuraiESP32DeviceState>;
+    /**
+     * Provision an UNCONFIGURED device with a host-held mnemonic (`setup_seed`).
+     * The owner approves a summary and creates the PIN on the device (the PIN
+     * never travels over USB). Resolves `{ state: 'pin_required' }`; then poll
+     * {@link waitUntilReady} for completion.
+     */
+    setupSeed(options: NeuraiESP32SetupSeedOptions): Promise<NeuraiESP32SetupSeedResult>;
+    /**
+     * Poll {@link getDeviceState} until the device reports `ready` (the owner
+     * finished creating the PIN after {@link setupSeed} / unlocked the device).
+     * Throws on timeout (default 5 min).
+     */
+    waitUntilReady(options?: { pollMs?: number; timeoutMs?: number }): Promise<NeuraiESP32DeviceState>;
     getInfo(): Promise<NeuraiESP32DeviceInfo>;
     setNetwork?(network: 'Neurai' | 'NeuraiTest'): Promise<NeuraiESP32DeviceInfo | { success?: boolean; network?: string }>;
     getAddress(): Promise<NeuraiESP32AddressResult>;

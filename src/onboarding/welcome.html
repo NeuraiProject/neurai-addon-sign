@@ -330,6 +330,150 @@
       </div>
     </div>
 
+    <!-- ─── Step 4c · Hardware setup (a): empty device — create or restore ─── -->
+    <div class="step-card hidden" id="step4HwSetup">
+      <h2 class="step-title">Device Not Configured</h2>
+      <p class="step-subtitle">This device has no wallet yet. Set it up now by creating a new wallet or restoring one from a recovery phrase.</p>
+
+      <div class="warning-box">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0">
+          <path d="M8 0L0 14h16L8 0zm0 4.3L13.1 13H2.9L8 4.3zm-.6 3v4h1.2V7.3H7.4zm0 4.7v1.2h1.2V12H7.4z" />
+        </svg>
+        <span>The recovery phrase is generated and sent by this computer over USB. You will approve a summary and create the PIN <strong>on the device itself</strong> — the PIN never leaves the device.</span>
+      </div>
+
+      <div class="method-grid">
+        <div class="method-card" id="hwCreateBtn" tabindex="0" role="button">
+          <div class="method-icon generate-icon">
+            <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.5 9h-3v3h-1V9h-3V8h3V5h1v3h3v1z" />
+            </svg>
+          </div>
+          <div class="method-info">
+            <h3>Create New Wallet</h3>
+            <p>Generate a fresh recovery phrase on this computer</p>
+          </div>
+          <svg class="method-arrow" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M6 3l5 5-5 5-.7-.7L9.6 8 5.3 3.7z" />
+          </svg>
+        </div>
+
+        <div class="method-card" id="hwRecoverBtn" tabindex="0" role="button">
+          <div class="method-icon import-icon">
+            <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M6 0L2 4h3v5h2V4h3L6 0zM0 10v2h12v-2H0z" />
+            </svg>
+          </div>
+          <div class="method-info">
+            <h3>Restore from Phrase</h3>
+            <p>Enter your existing 12 or 24-word recovery phrase</p>
+          </div>
+          <svg class="method-arrow" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M6 3l5 5-5 5-.7-.7L9.6 8 5.3 3.7z" />
+          </svg>
+        </div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" id="hwSetupBackBtn" type="button">Back</button>
+      </div>
+    </div>
+
+    <!-- ─── Step 4c · Hardware setup (b): create — network/type/length ─────── -->
+    <div class="step-card hidden" id="step4HwCreate">
+      <h2 class="step-title">Create New Wallet</h2>
+      <p class="step-subtitle">Choose the network and key type for the device, then generate a recovery phrase to back up.</p>
+
+      <div class="form-group">
+        <label for="hwCreateNetwork">Network</label>
+        <select class="form-select" id="hwCreateNetwork">
+          <option value="mainnet">Neurai Mainnet</option>
+          <option value="testnet">Neurai Testnet</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="hwCreateKeyType">Key Type</label>
+        <select class="form-select" id="hwCreateKeyType">
+          <option value="legacy">Legacy (ECDSA)</option>
+          <option value="pq">Post-Quantum AuthScript (testnet only)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="hwCreateWordCount">Recovery Phrase Length</label>
+        <select class="form-select" id="hwCreateWordCount">
+          <option value="12">12 Words</option>
+          <option value="24">24 Words</option>
+        </select>
+      </div>
+
+      <p class="form-error" id="hwCreateError"></p>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" id="hwCreateBackBtn" type="button">Back</button>
+        <button class="btn btn-primary" id="hwCreateContinueBtn" type="button">Generate &amp; Continue</button>
+      </div>
+    </div>
+
+    <!-- ─── Step 4c · Hardware setup (c): restore — network/type/phrase ────── -->
+    <div class="step-card hidden" id="step4HwRecover">
+      <h2 class="step-title">Restore from Phrase</h2>
+      <p class="step-subtitle">Enter your recovery phrase and choose the network and key type for the device.</p>
+
+      <div class="form-group">
+        <label for="hwRecoverNetwork">Network</label>
+        <select class="form-select" id="hwRecoverNetwork">
+          <option value="mainnet">Neurai Mainnet</option>
+          <option value="testnet">Neurai Testnet</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="hwRecoverKeyType">Key Type</label>
+        <select class="form-select" id="hwRecoverKeyType">
+          <option value="legacy">Legacy (ECDSA)</option>
+          <option value="pq">Post-Quantum AuthScript (testnet only)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="hwRecoverSeed">Recovery Phrase</label>
+        <textarea class="form-textarea" id="hwRecoverSeed" rows="3" placeholder="Enter your 12 or 24-word recovery phrase" autocomplete="off"></textarea>
+      </div>
+
+      <p class="form-error" id="hwRecoverError"></p>
+
+      <div class="btn-group">
+        <button class="btn btn-secondary" id="hwRecoverBackBtn" type="button">Back</button>
+        <button class="btn btn-primary" id="hwRecoverContinueBtn" type="button">Configure Device</button>
+      </div>
+    </div>
+
+    <!-- ─── Step 4c · Hardware setup (d): provisioning (approve + PIN) ─────── -->
+    <div class="step-card hidden" id="step4HwProvision">
+      <h2 class="step-title">Configuring Device</h2>
+      <p class="step-subtitle" id="hwProvisionText">Approve the setup on your device…</p>
+
+      <div id="hwProvisionSpinner" style="display:flex;justify-content:center;padding:24px 0;">
+        <div class="spinner"></div>
+      </div>
+
+      <div class="warning-box">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0">
+          <path d="M8 0L0 14h16L8 0zm0 4.3L13.1 13H2.9L8 4.3zm-.6 3v4h1.2V7.3H7.4zm0 4.7v1.2h1.2V12H7.4z" />
+        </svg>
+        <span>On the device: approve the wallet setup summary, then create your PIN. This can take a minute. The PIN is set on the device and never sent to this computer.</span>
+      </div>
+
+      <p class="form-error" id="hwProvisionError"></p>
+
+      <div class="btn-group hidden" id="hwProvisionActions">
+        <button class="btn btn-secondary" id="hwProvisionBackBtn" type="button">Back</button>
+        <button class="btn btn-primary" id="hwProvisionRetryBtn" type="button">Retry</button>
+      </div>
+    </div>
+
     <!-- ─── Step 4d: Mnemonic backup ─────────────────────────────────────── -->
     <div class="step-card hidden" id="step4Backup">
       <h2 class="step-title">Back Up Your Recovery Phrase</h2>

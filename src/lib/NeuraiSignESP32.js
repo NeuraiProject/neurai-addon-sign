@@ -592,7 +592,7 @@ var NeuraiSignESP32Bundle = (function () {
     function requireBuffer () {
     	if (hasRequiredBuffer) return buffer;
     	hasRequiredBuffer = 1;
-    	(function (exports) {
+    	(function (exports$1) {
 
     		const base64 = requireBase64Js();
     		const ieee754 = requireIeee754();
@@ -601,12 +601,12 @@ var NeuraiSignESP32Bundle = (function () {
     		    ? Symbol['for']('nodejs.util.inspect.custom') // eslint-disable-line dot-notation
     		    : null;
 
-    		exports.Buffer = Buffer;
-    		exports.SlowBuffer = SlowBuffer;
-    		exports.INSPECT_MAX_BYTES = 50;
+    		exports$1.Buffer = Buffer;
+    		exports$1.SlowBuffer = SlowBuffer;
+    		exports$1.INSPECT_MAX_BYTES = 50;
 
     		const K_MAX_LENGTH = 0x7fffffff;
-    		exports.kMaxLength = K_MAX_LENGTH;
+    		exports$1.kMaxLength = K_MAX_LENGTH;
 
     		/**
     		 * If `Buffer.TYPED_ARRAY_SUPPORT`:
@@ -1202,7 +1202,7 @@ var NeuraiSignESP32Bundle = (function () {
 
     		Buffer.prototype.inspect = function inspect () {
     		  let str = '';
-    		  const max = exports.INSPECT_MAX_BYTES;
+    		  const max = exports$1.INSPECT_MAX_BYTES;
     		  str = this.toString('hex', 0, max).replace(/(.{2})/g, '$1 ').trim();
     		  if (this.length > max) str += ' ... ';
     		  return '<Buffer ' + str + '>'
@@ -3438,12 +3438,7 @@ var NeuraiSignESP32Bundle = (function () {
     }
 
     //#region src/storages/globalConfig/globalConfig.ts
-    const DEFAULT_CONFIG = {
-    	lang: void 0,
-    	message: void 0,
-    	abortEarly: void 0,
-    	abortPipeEarly: void 0
-    };
+    let store$4;
     /**
     * Returns the global configuration.
     *
@@ -3453,7 +3448,12 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function getGlobalConfig(config$1) {
-    	return DEFAULT_CONFIG;
+    	return {
+    		lang: store$4?.lang,
+    		message: config$1?.message,
+    		abortEarly: store$4?.abortEarly,
+    		abortPipeEarly: store$4?.abortPipeEarly
+    	};
     }
 
     //#endregion
@@ -3563,7 +3563,6 @@ var NeuraiSignESP32Bundle = (function () {
 
     //#endregion
     //#region src/utils/_getStandardProps/_getStandardProps.ts
-    const _standardCache = /* @__PURE__ */ new WeakMap();
     /**
     * Returns the Standard Schema properties.
     *
@@ -3573,18 +3572,13 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function _getStandardProps(context) {
-    	let cached = _standardCache.get(context);
-    	if (!cached) {
-    		cached = {
-    			version: 1,
-    			vendor: "valibot",
-    			validate(value$1) {
-    				return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
-    			}
-    		};
-    		_standardCache.set(context, cached);
-    	}
-    	return cached;
+    	return {
+    		version: 1,
+    		vendor: "valibot",
+    		validate(value$1) {
+    			return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
+    		}
+    	};
     }
 
     //#endregion
@@ -3720,10 +3714,6 @@ var NeuraiSignESP32Bundle = (function () {
     }
 
     //#endregion
-    //#region src/const.ts
-    const ABORT_EARLY_CONFIG = { abortEarly: true };
-
-    //#endregion
     //#region src/methods/getFallback/getFallback.ts
     /**
     * Returns the fallback value of the schema.
@@ -3768,7 +3758,7 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function is(schema, input) {
-    	return !schema["~run"]({ value: input }, ABORT_EARLY_CONFIG).issues;
+    	return !schema["~run"]({ value: input }, { abortEarly: true }).issues;
     }
 
     //#endregion
@@ -4180,7 +4170,7 @@ var NeuraiSignESP32Bundle = (function () {
     /* @__NO_SIDE_EFFECTS__ */
     function _subIssues(datasets) {
     	let issues;
-    	if (datasets) for (const dataset of datasets) if (issues) for (const issue of dataset.issues) issues.push(issue);
+    	if (datasets) for (const dataset of datasets) if (issues) issues.push(...dataset.issues);
     	else issues = dataset.issues;
     	return issues;
     }
@@ -4239,7 +4229,7 @@ var NeuraiSignESP32Bundle = (function () {
     * @returns The parsed input.
     */
     function parse(schema, input, config$1) {
-    	const dataset = schema["~run"]({ value: input }, /* @__PURE__ */ getGlobalConfig());
+    	const dataset = schema["~run"]({ value: input }, /* @__PURE__ */ getGlobalConfig(config$1));
     	if (dataset.issues) throw new ValiError(dataset.issues);
     	return dataset.value;
     }
@@ -12949,6 +12939,85 @@ var NeuraiSignESP32Bundle = (function () {
             const response = await this.serial.sendCommand({ action: "ping" }, 5000);
             this.assertSuccess(response);
             return response;
+        }
+        /**
+         * Coarse device state, derived from `ping` and the firmware's gate errors:
+         * `ready` (keys derived, normal commands work), `locked` (encrypted seed
+         * stored, PIN not entered yet — ask the user to unlock on the device) or
+         * `unconfigured` (no seed stored — {@link setupSeed} or the on-device wizard
+         * applies). Safe to poll; never prompts on the device.
+         *
+         * Firmware predating the security layer answers `ping` successfully in every
+         * state, so it reports `ready`.
+         */
+        async getDeviceState() {
+            const response = await this.serial.sendCommand({ action: "ping" }, 5000);
+            if (response.status !== "error") {
+                return "ready";
+            }
+            const message = (response.message ?? "").toLowerCase();
+            if (message.includes("locked"))
+                return "locked";
+            if (message.includes("not configured"))
+                return "unconfigured";
+            throw new Error(`Device error: ${response.message}`);
+        }
+        /**
+         * Provision an UNCONFIGURED device with a host-held mnemonic (`setup_seed`).
+         *
+         * The firmware only accepts this while **no encrypted seed is stored** (first
+         * boot, dev-fallback mode, or after a wipe + reboot); on a configured device
+         * it errors without prompting. The owner must physically approve a summary on
+         * the device (word count + network + key type — the words are NEVER shown)
+         * within 60 s, and then creates the PIN **on the device**: the PIN never
+         * travels over USB. The seed transits the host and the USB link in plaintext
+         * by design (this host generated it) — on-device entry remains the more
+         * private path.
+         *
+         * Resolves with `{ state: "pin_required" }` once the owner approves. The
+         * protocol has no push events, so detect completion by polling — see
+         * {@link waitUntilReady}. If the owner cancels the PIN entry afterwards, the
+         * device stays unconfigured and `setupSeed` can simply be called again.
+         */
+        async setupSeed(options) {
+            // Client-side pre-checks for fast feedback; the device re-validates
+            // everything (including the BIP39 checksum) authoritatively.
+            const words = options.mnemonic.trim().split(/\s+/).filter(Boolean);
+            if (words.length !== 12 && words.length !== 24) {
+                throw new Error("Mnemonic must be 12 or 24 words");
+            }
+            if (options.keyType === "pq" && options.network !== "testnet") {
+                throw new Error("PQ key type requires testnet");
+            }
+            // 60 s on-device approval window + margin.
+            const response = await this.serial.sendCommand({
+                action: "setup_seed",
+                mnemonic: words.join(" "),
+                network: options.network,
+                key_type: options.keyType,
+            }, 70000);
+            this.assertSuccess(response);
+            return response;
+        }
+        /**
+         * Poll {@link getDeviceState} until the device reports `ready` — i.e. the
+         * owner finished creating the PIN after {@link setupSeed} (or unlocked the
+         * device) and the keys are derived. Resolves with the final state; throws on
+         * timeout.
+         */
+        async waitUntilReady(options) {
+            const pollMs = options?.pollMs ?? 2000;
+            const timeoutMs = options?.timeoutMs ?? 300000;
+            const start = Date.now();
+            for (;;) {
+                const state = await this.getDeviceState();
+                if (state === "ready")
+                    return state;
+                if (Date.now() - start > timeoutMs) {
+                    throw new Error(`Timed out waiting for device (last state: ${state})`);
+                }
+                await new Promise((resolve) => setTimeout(resolve, pollMs));
+            }
         }
         /**
          * Read the device's wallet info (network, key_type, master fingerprint, address,

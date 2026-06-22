@@ -1,5 +1,11 @@
 /* === Neurai Sign — Onboarding (MetaMask-style) === */
 
+/* Generic visibility helper (matches popup.css / expanded.css). Used to toggle
+   progress dots, the passphrase row and the hardware-setup provisioning UI. */
+.hidden {
+  display: none !important;
+}
+
 :root {
   --primary: #f6851b;
   --primary-hover: #e2761b;

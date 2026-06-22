@@ -86,6 +86,32 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     hwInfoNetwork: document.getElementById('hwInfoNetwork'),
     hwInfoType: document.getElementById('hwInfoType'),
     hwInfoPath: document.getElementById('hwInfoPath'),
+    // Step 4c - Hardware setup (unconfigured device → create / restore)
+    step4HwSetup: document.getElementById('step4HwSetup'),
+    step4HwCreate: document.getElementById('step4HwCreate'),
+    step4HwRecover: document.getElementById('step4HwRecover'),
+    step4HwProvision: document.getElementById('step4HwProvision'),
+    hwCreateBtn: document.getElementById('hwCreateBtn'),
+    hwRecoverBtn: document.getElementById('hwRecoverBtn'),
+    hwSetupBackBtn: document.getElementById('hwSetupBackBtn'),
+    hwCreateNetwork: document.getElementById('hwCreateNetwork') as HTMLSelectElement | null,
+    hwCreateKeyType: document.getElementById('hwCreateKeyType') as HTMLSelectElement | null,
+    hwCreateWordCount: document.getElementById('hwCreateWordCount') as HTMLSelectElement | null,
+    hwCreateError: document.getElementById('hwCreateError'),
+    hwCreateBackBtn: document.getElementById('hwCreateBackBtn'),
+    hwCreateContinueBtn: document.getElementById('hwCreateContinueBtn'),
+    hwRecoverNetwork: document.getElementById('hwRecoverNetwork') as HTMLSelectElement | null,
+    hwRecoverKeyType: document.getElementById('hwRecoverKeyType') as HTMLSelectElement | null,
+    hwRecoverSeed: document.getElementById('hwRecoverSeed') as HTMLTextAreaElement | null,
+    hwRecoverError: document.getElementById('hwRecoverError'),
+    hwRecoverBackBtn: document.getElementById('hwRecoverBackBtn'),
+    hwRecoverContinueBtn: document.getElementById('hwRecoverContinueBtn'),
+    hwProvisionText: document.getElementById('hwProvisionText'),
+    hwProvisionSpinner: document.getElementById('hwProvisionSpinner'),
+    hwProvisionError: document.getElementById('hwProvisionError'),
+    hwProvisionActions: document.getElementById('hwProvisionActions'),
+    hwProvisionBackBtn: document.getElementById('hwProvisionBackBtn'),
+    hwProvisionRetryBtn: document.getElementById('hwProvisionRetryBtn'),
     // Step 4d - Backup
     mnemonicGrid: document.getElementById('mnemonicGrid'),
     backupPassphraseRow: document.getElementById('backupPassphraseRow'),
@@ -150,6 +176,14 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   // reuses the same session.
   var hwDevice: NeuraiESP32Instance | null = null;
   var hwPing: NeuraiESP32PingResult | null = null;
+  // Host-driven provisioning of an UNCONFIGURED device (setup_seed). When active,
+  // the shared backup screen (step 45) sends the phrase to the device instead of
+  // saving a software wallet, and the phrase/network/keyType below feed
+  // provisionDevice() (also used by "Retry").
+  var hwSetupActive = false;
+  var hwSetupNetwork: NeuraiSignESP32Network = 'mainnet';
+  var hwSetupKeyType: NeuraiSignESP32KeyType = 'legacy';
+  var hwSetupMnemonic = '';
 
   async function tryReuseConfiguredSessionPin(expectedPinHash: string, unlockUntil: number) {
     if (!expectedPinHash || unlockUntil <= Date.now()) return false;
@@ -200,7 +234,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   var allStepCards = [
     el.step1, el.step2, el.step3,
     el.step4Import, el.step4Generate, el.step4Hardware,
-    el.step4HardwareDetected, el.step4HardwareInfo, el.step4Backup,
+    el.step4HardwareDetected, el.step4HardwareInfo,
+    el.step4HwSetup, el.step4HwCreate, el.step4HwRecover, el.step4HwProvision,
+    el.step4Backup,
     el.step5
   ].filter(Boolean) as HTMLElement[];
 
@@ -218,6 +254,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         return el.step4Import;
       case 6: return el.step4HardwareDetected;
       case 7: return el.step4HardwareInfo;
+      case 41: return el.step4HwSetup;
+      case 42: return el.step4HwCreate;
+      case 43: return el.step4HwRecover;
+      case 44: return el.step4HwProvision;
       case 45: return el.step4Backup;
       case 5: return el.step5;
       default: return el.step1;
@@ -251,8 +291,12 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     // Map the internal step number to a visual dot (1-based).
     var displayStep: number;
     if (isHw) {
-      // 1 welcome · 2 PIN · 3 method · 4 connect · 5 detected · 6 info · 7 success
-      var hwMap: Record<number, number> = { 1: 1, 2: 2, 3: 3, 4: 4, 6: 5, 7: 6, 5: 7 };
+      // 1 welcome · 2 PIN · 3 method · 4 connect/setup · 5 detected/provision ·
+      // 6 info · 7 success. The unconfigured-device sub-steps (41-45) fold into
+      // the "connect/setup" (4) and "provision" (5) stages.
+      var hwMap: Record<number, number> = {
+        1: 1, 2: 2, 3: 3, 4: 4, 41: 4, 42: 4, 43: 4, 45: 4, 44: 5, 6: 5, 7: 6, 5: 7
+      };
       displayStep = hwMap[stepNum] || stepNum;
     } else {
       // Visual progress: 1=welcome, 2=PIN(or skip), 3=method, 4=form, 5=success
@@ -406,6 +450,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   async function handleGenerateConfirm() {
     el.generateError!.textContent = '';
+    // Software generate path: ensure the shared backup screen saves a software
+    // wallet (not the hardware setup_seed branch in handleBackupNext).
+    hwSetupActive = false;
     showLoading('Generating wallet...');
 
     try {
@@ -470,6 +517,13 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   }
 
   async function handleBackupNext() {
+    // Hardware setup reuses this backup screen for the "create" path: once the
+    // owner has written the phrase down, send it to the device (setup_seed)
+    // instead of saving a software wallet here.
+    if (hwSetupActive) {
+      await provisionDevice();
+      return;
+    }
     showLoading('Saving wallet...');
     try {
       await saveWallet();
@@ -491,7 +545,12 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     el.hardwareError!.textContent = '';
     el.hardwareDetectedError!.textContent = '';
     el.hardwareInfoError!.textContent = '';
+    el.hwCreateError!.textContent = '';
+    el.hwRecoverError!.textContent = '';
+    el.hwProvisionError!.textContent = '';
     hwPing = null;
+    hwSetupActive = false;
+    hwSetupMnemonic = '';
     if (hwDevice) {
       var d = hwDevice;
       hwDevice = null;
@@ -505,8 +564,12 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     return value.slice(0, keep) + '…' + value.slice(-keep);
   }
 
-  // Phase 1: detect the device with `ping` (no on-device approval, no wallet
-  // data) and advance to the "Device Detected" screen.
+  // Phase 1: detect the device and classify its state with `getDeviceState`
+  // (a no-prompt ping that also distinguishes locked / unconfigured devices,
+  // where a plain `ping()` would just throw). Branch:
+  //  · ready        → "Device Detected" screen (read the wallet next).
+  //  · unconfigured → host-driven setup wizard (create / restore).
+  //  · locked       → ask the owner to unlock on the device first.
   async function handleHardwareConnect() {
     el.hardwareError!.textContent = '';
     showLoading('Detecting device...');
@@ -514,8 +577,33 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     try {
       var device = new NeuraiSignESP32.NeuraiESP32();
       await device.connect();
-      var pong = await device.ping();
       hwDevice = device;
+
+      var state = await device.getDeviceState();
+
+      if (state === 'unconfigured') {
+        // Empty device: offer to provision it (create / restore) over USB.
+        hwSetupActive = false;
+        el.hwCreateError!.textContent = '';
+        el.hwRecoverError!.textContent = '';
+        hideLoading();
+        goToStep(41); // → Device Not Configured
+        return;
+      }
+
+      if (state === 'locked') {
+        // A wallet exists but is locked; we cannot read it or set it up until
+        // the owner unlocks on the device. Drop the session so a later
+        // "Connect" re-opens the port cleanly.
+        hwDevice = null;
+        await device.disconnect().catch(function () { });
+        hideLoading();
+        el.hardwareError!.textContent = 'This device has a wallet but is locked. Unlock it (enter the PIN) on the device, then connect again.';
+        return;
+      }
+
+      // Ready: the no-prompt handshake populates the "Device Detected" screen.
+      var pong = await device.ping();
       hwPing = pong;
 
       el.pingDevice!.textContent = pong.device || 'NeuraiHW';
@@ -538,6 +626,60 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     }
   }
 
+  // Read the wallet from the device (`getInfo` is gated → on-device "ALLOW HOST?"
+  // approval), build the pending hardware walletResult and populate the review
+  // screen (step 7). Shared by the "already configured" path (handleHardwareProceed)
+  // and the post-provisioning path (provisionDevice). Throws on cancel/error; the
+  // caller maps the message to the right screen and hides the loader.
+  async function readWalletAndShowReview() {
+    var info = await hwDevice!.getInfo();
+
+    // The device is authoritative about its mode. Derive the stored network
+    // entirely from what the device reports (network axis + key_type) so
+    // signing later routes to the correct (legacy vs PQ) path.
+    var deviceKeyType: 'legacy' | 'pq' = info.key_type === 'pq' ? 'pq' : 'legacy';
+    var deviceAxis: 'mainnet' | 'testnet' =
+      String(info.network || '').toLowerCase().indexOf('test') !== -1
+        ? 'testnet'
+        : 'mainnet';
+    var resolvedNetwork =
+      typeof NeuraiSignESP32.resolveNetwork === 'function'
+        ? NeuraiSignESP32.resolveNetwork(deviceAxis, deviceKeyType)
+        : (deviceKeyType === 'pq'
+            ? (deviceAxis === 'testnet' ? 'xna-pq-test' : 'xna-pq')
+            : (deviceAxis === 'testnet' ? 'xna-test' : 'xna'));
+
+    walletResult = {
+      address: info.address,
+      publicKey: info.pubkey,
+      privateKey: null,
+      seedKey: null,
+      mnemonic: null,
+      passphrase: null,
+      network: resolvedNetwork,
+      walletType: 'hardware',
+      hardwareDeviceName: info.device || 'NeuraiHW',
+      hardwareDeviceNetwork: info.network || null,
+      // Prefer the real firmware version reported by ping; fall back to the
+      // protocol version from info.
+      hardwareFirmwareVersion: (hwPing && hwPing.firmware_version) || info.version || null,
+      hardwareDerivationPath: info.path || null,
+      hardwareMasterFingerprint: info.master_fingerprint || null
+    };
+
+    // Populate the review screen. Keep the device connected so "Back" can
+    // re-read it without forcing a full reconnect.
+    el.hwInfoAddress!.textContent = info.address || '--';
+    el.hwInfoPubkey!.textContent = truncateMiddle(info.pubkey || '', 24);
+    el.hwInfoFingerprint!.textContent = info.master_fingerprint || '--';
+    el.hwInfoNetwork!.textContent = info.network || '--';
+    el.hwInfoType!.textContent = deviceKeyType.toUpperCase();
+    el.hwInfoPath!.textContent = info.path || '--';
+
+    el.hardwareInfoError!.textContent = '';
+    goToStep(7); // → Hardware Wallet (review & add)
+  }
+
   // Phase 2: the user chose to proceed. `getInfo` is gated on current firmware —
   // the device shows "ALLOW HOST?" and only returns the wallet data once the
   // owner approves on the device screen (otherwise it replies "User cancelled").
@@ -552,53 +694,8 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     showLoading('Approve on your device to share wallet info...');
 
     try {
-      var info = await hwDevice.getInfo();
-
-      // The device is authoritative about its mode. Derive the stored network
-      // entirely from what the device reports (network axis + key_type) so
-      // signing later routes to the correct (legacy vs PQ) path.
-      var deviceKeyType: 'legacy' | 'pq' = info.key_type === 'pq' ? 'pq' : 'legacy';
-      var deviceAxis: 'mainnet' | 'testnet' =
-        String(info.network || '').toLowerCase().indexOf('test') !== -1
-          ? 'testnet'
-          : 'mainnet';
-      var resolvedNetwork =
-        typeof NeuraiSignESP32.resolveNetwork === 'function'
-          ? NeuraiSignESP32.resolveNetwork(deviceAxis, deviceKeyType)
-          : (deviceKeyType === 'pq'
-              ? (deviceAxis === 'testnet' ? 'xna-pq-test' : 'xna-pq')
-              : (deviceAxis === 'testnet' ? 'xna-test' : 'xna'));
-
-      walletResult = {
-        address: info.address,
-        publicKey: info.pubkey,
-        privateKey: null,
-        seedKey: null,
-        mnemonic: null,
-        passphrase: null,
-        network: resolvedNetwork,
-        walletType: 'hardware',
-        hardwareDeviceName: info.device || 'NeuraiHW',
-        hardwareDeviceNetwork: info.network || null,
-        // Prefer the real firmware version reported by ping; fall back to the
-        // protocol version from info.
-        hardwareFirmwareVersion: (hwPing && hwPing.firmware_version) || info.version || null,
-        hardwareDerivationPath: info.path || null,
-        hardwareMasterFingerprint: info.master_fingerprint || null
-      };
-
-      // Populate the review screen. Keep the device connected so "Back" can
-      // re-read it without forcing a full reconnect.
-      el.hwInfoAddress!.textContent = info.address || '--';
-      el.hwInfoPubkey!.textContent = truncateMiddle(info.pubkey || '', 24);
-      el.hwInfoFingerprint!.textContent = info.master_fingerprint || '--';
-      el.hwInfoNetwork!.textContent = info.network || '--';
-      el.hwInfoType!.textContent = deviceKeyType.toUpperCase();
-      el.hwInfoPath!.textContent = info.path || '--';
-
-      el.hardwareInfoError!.textContent = '';
+      await readWalletAndShowReview();
       hideLoading();
-      goToStep(7); // → Hardware Wallet (review & add)
     } catch (err) {
       hideLoading();
       // Keep the device connected so the user can retry the approval.
@@ -607,6 +704,120 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         el.hardwareDetectedError!.textContent = 'Approval was cancelled on the device. Click "Connect to wallet" to try again.';
       } else {
         el.hardwareDetectedError!.textContent = 'Connection failed: ' + error.message;
+      }
+    }
+  }
+
+  // ── Hardware setup (provision an unconfigured device) ──────────────────────
+
+  // Resolve the (network, keyType) pair from a setup screen's selects. PQ is
+  // testnet-only (the firmware and library both reject pq+mainnet), so a "pq"
+  // choice forces testnet here for a clear, early result.
+  function readHwSetupSelection(
+    networkSel: HTMLSelectElement | null,
+    keyTypeSel: HTMLSelectElement | null
+  ): { network: NeuraiSignESP32Network; keyType: NeuraiSignESP32KeyType } {
+    var keyType: NeuraiSignESP32KeyType = keyTypeSel!.value === 'pq' ? 'pq' : 'legacy';
+    var network: NeuraiSignESP32Network = networkSel!.value === 'testnet' ? 'testnet' : 'mainnet';
+    if (keyType === 'pq') network = 'testnet';
+    return { network: network, keyType: keyType };
+  }
+
+  // "Create New Wallet": pick network/type/length, generate the phrase on this
+  // host and show the backup screen. The phrase is sent to the device only after
+  // the user confirms the backup (handleBackupNext → provisionDevice).
+  function handleHwCreateContinue() {
+    el.hwCreateError!.textContent = '';
+    try {
+      var sel = readHwSetupSelection(el.hwCreateNetwork, el.hwCreateKeyType);
+      hwSetupNetwork = sel.network;
+      hwSetupKeyType = sel.keyType;
+
+      var wordCount: '12' | '24' = el.hwCreateWordCount!.value === '24' ? '24' : '12';
+      generatedMnemonic = generateMnemonicForWordCount(wordCount);
+      hwSetupMnemonic = generatedMnemonic;
+      hwSetupActive = true;
+
+      // Reuse the shared backup screen (no passphrase for hardware setup).
+      showMnemonicBackup(generatedMnemonic, null);
+    } catch (err) {
+      el.hwCreateError!.textContent = 'Could not generate phrase: ' + (err as Error).message;
+    }
+  }
+
+  // "Restore from Phrase": validate the word count (the device re-validates the
+  // BIP39 checksum authoritatively) and provision the device directly.
+  function handleHwRecoverContinue() {
+    el.hwRecoverError!.textContent = '';
+    var seedRaw = el.hwRecoverSeed!.value.trim().replace(/\s+/g, ' ');
+    var words = seedRaw ? seedRaw.split(' ') : [];
+    if (words.length !== 12 && words.length !== 24) {
+      el.hwRecoverError!.textContent = 'Please enter a valid 12 or 24-word recovery phrase.';
+      return;
+    }
+    // Catch a bad checksum early for a clear message; the device re-validates too.
+    if (typeof NeuraiKey.isMnemonicValid === 'function' && !NeuraiKey.isMnemonicValid(seedRaw)) {
+      el.hwRecoverError!.textContent = 'That recovery phrase is not valid (checksum failed). Check the words and order.';
+      return;
+    }
+
+    var sel = readHwSetupSelection(el.hwRecoverNetwork, el.hwRecoverKeyType);
+    hwSetupNetwork = sel.network;
+    hwSetupKeyType = sel.keyType;
+    hwSetupMnemonic = seedRaw;
+    hwSetupActive = true;
+
+    void provisionDevice();
+  }
+
+  // Send the (host-held) phrase to an unconfigured device via `setup_seed`, wait
+  // for the owner to approve + create the PIN on the device, then read the wallet
+  // back and show the review screen. Re-runnable via "Retry": if the owner
+  // cancels, the device stays unconfigured and setupSeed can be called again.
+  async function provisionDevice() {
+    if (!hwDevice || !hwSetupMnemonic) {
+      // Lost the session or phrase — fall back to the setup choice screen.
+      goToStep(41);
+      return;
+    }
+
+    el.hwProvisionError!.textContent = '';
+    el.hwProvisionActions!.classList.add('hidden');
+    el.hwProvisionSpinner!.classList.remove('hidden');
+    el.hwProvisionText!.textContent = 'Approve the setup on your device…';
+    goToStep(44); // → Configuring Device
+
+    try {
+      // Owner approves the summary (word count + network + key type) on-device.
+      await hwDevice.setupSeed({
+        mnemonic: hwSetupMnemonic,
+        network: hwSetupNetwork,
+        keyType: hwSetupKeyType
+      });
+
+      // Approved: the owner now creates the PIN on the device. Poll until the
+      // keys are derived (the device leaves the locked state).
+      el.hwProvisionText!.textContent = 'Create your PIN on the device to finish…';
+      await hwDevice.waitUntilReady({ timeoutMs: 300000 });
+
+      // Configured: read the wallet (gated getInfo → on-device approval) and
+      // advance to the review screen.
+      el.hwProvisionText!.textContent = 'Approve on your device to share wallet info…';
+      await readWalletAndShowReview();
+    } catch (err) {
+      el.hwProvisionSpinner!.classList.add('hidden');
+      el.hwProvisionActions!.classList.remove('hidden');
+      const error = err as Error;
+      var msg = String(error.message || '');
+      if (msg.includes('User cancelled')) {
+        el.hwProvisionText!.textContent = 'Setup was cancelled on the device.';
+        el.hwProvisionError!.textContent = 'You cancelled the setup on the device. Tap Retry to send it again.';
+      } else if (msg.includes('Timed out')) {
+        el.hwProvisionText!.textContent = 'Timed out waiting for the device.';
+        el.hwProvisionError!.textContent = 'The device did not finish in time. Make sure you approved and created the PIN, then tap Retry.';
+      } else {
+        el.hwProvisionText!.textContent = 'Setup failed.';
+        el.hwProvisionError!.textContent = 'Setup failed: ' + msg;
       }
     }
   }
@@ -763,6 +974,19 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     // Back from "Hardware Wallet" returns to "Device Detected"; the device stays connected.
     el.hardwareInfoBackBtn!.addEventListener('click', function () { el.hardwareInfoError!.textContent = ''; goToStep(6); });
     el.hardwareAddBtn!.addEventListener('click', handleHardwareAdd);
+
+    // Step 4c — hardware setup (unconfigured device → create / restore → provision)
+    el.hwCreateBtn!.addEventListener('click', function () { el.hwCreateError!.textContent = ''; goToStep(42); });
+    el.hwRecoverBtn!.addEventListener('click', function () { el.hwRecoverError!.textContent = ''; goToStep(43); });
+    // Back from the setup choice drops the session and returns to the connect step.
+    el.hwSetupBackBtn!.addEventListener('click', function () { resetHardwareUi(); goToStep(4); });
+    el.hwCreateBackBtn!.addEventListener('click', function () { el.hwCreateError!.textContent = ''; goToStep(41); });
+    el.hwCreateContinueBtn!.addEventListener('click', handleHwCreateContinue);
+    el.hwRecoverBackBtn!.addEventListener('click', function () { el.hwRecoverError!.textContent = ''; goToStep(41); });
+    el.hwRecoverContinueBtn!.addEventListener('click', handleHwRecoverContinue);
+    // Provisioning errors expose Back (→ setup choice, device stays connected) and Retry.
+    el.hwProvisionBackBtn!.addEventListener('click', function () { el.hwProvisionError!.textContent = ''; goToStep(41); });
+    el.hwProvisionRetryBtn!.addEventListener('click', function () { void provisionDevice(); });
 
     // Step 4d
     el.backupConfirmCheck!.addEventListener('change', function () {
