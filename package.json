@@ -12,6 +12,7 @@
     "sync-libs": "node sync-libs.js",
     "pack": "node build-ext.js && node pack.js",
     "typecheck": "tsc --noEmit",
+    "test": "node --test --no-warnings \"test/**/*.test.mjs\"",
     "verify:no-rpc-sign": "if grep -rn 'signrawtransaction' src/; then echo 'ERROR: forbidden RPC signing path present'; exit 1; fi"
   },
   "dependencies": {
