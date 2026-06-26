@@ -950,9 +950,9 @@ function hwSignerMismatchError(
   const signer = result.address;
   if (signer && expectedAddress && signer.toLowerCase() !== expectedAddress.toLowerCase()) {
     return (
-      `Firma rechazada: el dispositivo firmó con ${signer}, pero la cuenta activa de ` +
-      `Neurai Sign es ${expectedAddress}. Conecta el dispositivo correcto o cambia de ` +
-      `cuenta en la extensión.`
+      `Address mismatch: the connected device signed with ${signer}, but the active ` +
+      `Neurai Sign account is ${expectedAddress}. Connect the correct device or switch ` +
+      `accounts in the extension.`
     );
   }
   return null;

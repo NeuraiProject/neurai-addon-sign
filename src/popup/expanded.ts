@@ -2096,23 +2096,49 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (elements.hardwareCard) elements.hardwareCard.classList.remove('hidden');
     const isConnected = !!(hwDevice && hwDevice.connected);
 
+    // Detect a device/account mismatch: the connected ESP32 holds an address
+    // (B) that differs from the active account's stored address (A). The
+    // background signing guard (hwSignerMismatchError) is the safety net at
+    // sign time; this surfaces the problem proactively in the card so the user
+    // doesn't discover it only after approving a signature.
+    const deviceAddr = (hwDevice && hwDevice.info && hwDevice.info.address) || null;
+    const acctAddr = (wallet.address as string) || null;
+    const mismatch = !!(isConnected && deviceAddr && acctAddr &&
+      deviceAddr.toLowerCase() !== acctAddr.toLowerCase());
+
+    const successColor = 'var(--success, #10b981)';
+    const dangerColor = 'var(--danger, #ef4444)';
+    const warningColor = 'var(--warning, #f59e0b)';
+    const shortAddr = (a: string) => (a.length > 16 ? a.slice(0, 8) + '…' + a.slice(-6) : a);
+    const mismatchDetail = mismatch
+      ? `Device holds ${deviceAddr}, but the active account is ${acctAddr}`
+      : '';
+
     if (elements.hwStatusDot) {
-      elements.hwStatusDot.style.background = isConnected ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)';
-      elements.hwStatusDot.title = isConnected ? 'Connected' : 'Disconnected';
+      elements.hwStatusDot.style.background = mismatch ? warningColor : (isConnected ? successColor : dangerColor);
+      elements.hwStatusDot.title = mismatch ? mismatchDetail : (isConnected ? 'Connected' : 'Disconnected');
     }
     if (elements.hwStatusText) {
-      elements.hwStatusText.textContent = isConnected ? 'Connected' : 'Disconnected';
-      elements.hwStatusText.style.color = isConnected ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)';
+      elements.hwStatusText.textContent = mismatch ? 'Device mismatch' : (isConnected ? 'Connected' : 'Disconnected');
+      elements.hwStatusText.style.color = mismatch ? warningColor : (isConnected ? successColor : dangerColor);
     }
     if (elements.hwReconnectBtn) {
-      elements.hwReconnectBtn.classList.toggle('hidden', isConnected);
+      // Show Reconnect when disconnected OR mismatched (so the user can pick the
+      // right device); hide it only when connected to the correct device.
+      elements.hwReconnectBtn.classList.toggle('hidden', isConnected && !mismatch);
     }
     if (elements.hardwareCard) {
-      elements.hardwareCard.classList.toggle('hardware-card--connected', isConnected);
+      elements.hardwareCard.classList.toggle('hardware-card--connected', isConnected && !mismatch);
       elements.hardwareCard.classList.toggle('hardware-card--disconnected', !isConnected);
     }
     if (elements.statusValue) {
-      elements.statusValue.textContent = isConnected ? 'HW Connected' : 'HW Disconnected';
+      if (mismatch) {
+        elements.statusValue.textContent = `Device ${shortAddr(deviceAddr as string)} ≠ account ${shortAddr(acctAddr as string)}`;
+        elements.statusValue.title = mismatchDetail;
+      } else {
+        elements.statusValue.textContent = isConnected ? 'HW Connected' : 'HW Disconnected';
+        elements.statusValue.title = '';
+      }
     }
   }
 
