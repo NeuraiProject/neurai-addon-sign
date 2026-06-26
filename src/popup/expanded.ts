@@ -2301,9 +2301,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             ...(covenant ? { covenant } : {})
           };
         });
-        // [covenant-debug] TEMP
-        console.log('[covenant-debug] (expanded) pqInputs=',
-          pqInputs.map(i => ({ index: i.index, hasCovenant: 'covenant' in i })));
         const pqResult = await hwDevice.signPqRawTransaction({
           txHex: message.txHex as string,
           inputs: pqInputs,
