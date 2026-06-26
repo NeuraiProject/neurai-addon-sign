@@ -1164,10 +1164,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     return utxos.filter((u) => !u.assetName || u.assetName === 'XNA' || u.assetName === '');
   }
 
-  function getSendAssetUtxos(utxos: SendUtxo[], assetName: string): SendUtxo[] {
-    return utxos.filter((u) => u.assetName === assetName);
-  }
-
   function selectUtxosForSats(utxos: SendUtxo[], neededSats: bigint): SendUtxo[] {
     const selected: SendUtxo[] = [];
     let sum = 0n;
@@ -1312,109 +1308,28 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const outputs: Array<Record<string, number | { transfer: Record<string, number> }>> = [];
 
     if (isAssetMode) {
-      const assetUtxos = getSendAssetUtxos(utxos, assetName);
-      if (assetUtxos.length === 0) throw new Error(`No UTXOs available for asset ${assetName}.`);
-
-      // Asset amounts use the same 1e8 raw scaling as XNA satoshis (see
-      // assetUnitsToRaw === xnaToSatoshis in @neuraiproject/neurai-create-transaction).
-      const totalAssetRequestedRaw = recipients.reduce((acc, r) => {
-        return acc + BigInt(Math.round(r.amount * 1e8));
-      }, 0n);
-      const totalAssetAvailableRaw = assetUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
-      if (totalAssetAvailableRaw < totalAssetRequestedRaw) {
-        throw new Error(
-          `Insufficient ${assetName} balance — need ${recipients.reduce((a, r) => a + r.amount, 0)}, ` +
-          `have ${Number(totalAssetAvailableRaw) / 1e8}.`
-        );
-      }
-      const selectedAssetUtxos = selectUtxosForSats(assetUtxos, totalAssetRequestedRaw);
-      const selectedAssetSumRaw = selectedAssetUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
-      const assetChangeRaw = selectedAssetSumRaw - totalAssetRequestedRaw;
-
-      // Two-pass XNA selection so the fee accounts for the actual input count.
-      let selectedBaseUtxos: SendUtxo[] = xnaUtxos.length > 0 ? [xnaUtxos[0]] : [];
-      if (selectedBaseUtxos.length === 0) {
-        throw new Error('No XNA UTXOs available to cover the network fee.');
-      }
-      const tentativeOutputAddresses = [...toAddresses, walletAddress];
-      if (assetChangeRaw > 0n) tentativeOutputAddresses.push(walletAddress);
-      const tentativeSize = estimateSendSizeKB(
-        [...selectedAssetUtxos, ...selectedBaseUtxos],
-        tentativeOutputAddresses
-      );
-      let feeSats = feeSatsFromSendSize(tentativeSize, feeRate);
-      selectedBaseUtxos = selectUtxosForSats(xnaUtxos, feeSats + SEND_DUST_SATS);
-
-      const sizeWithChange = estimateSendSizeKB(
-        [...selectedAssetUtxos, ...selectedBaseUtxos],
-        [...toAddresses, walletAddress, ...(assetChangeRaw > 0n ? [walletAddress] : [])]
-      );
-      feeSats = feeSatsFromSendSize(sizeWithChange, feeRate);
-      const baseAvailable = selectedBaseUtxos.reduce((acc, u) => acc + BigInt(u.satoshis), 0n);
-      let xnaChangeSats = baseAvailable - feeSats;
-      if (xnaChangeSats < 0n) {
-        throw new Error('Selected UTXOs do not cover the network fee.');
-      }
-      let dustAbsorbed = 0n;
-      if (xnaChangeSats > 0n && xnaChangeSats < SEND_DUST_SATS) {
-        dustAbsorbed = xnaChangeSats;
-        feeSats += xnaChangeSats;
-        xnaChangeSats = 0n;
-      }
-
-      const transfers: NeuraiCreateTransactionTransferOutput[] = [];
-      for (const r of recipients) {
-        transfers.push({
-          address: r.address,
-          assetName,
-          amountRaw: BigInt(Math.round(r.amount * 1e8)),
-        });
-        outputs.push({ [r.address]: { transfer: { [assetName]: r.amount } } });
-      }
-      if (assetChangeRaw > 0n) {
-        transfers.push({
-          address: walletAddress,
-          assetName,
-          amountRaw: assetChangeRaw,
-        });
-        outputs.push({
-          [walletAddress]: { transfer: { [assetName]: Number(assetChangeRaw) / 1e8 } }
-        });
-      }
-      const payments: NeuraiCreateTransactionTxPaymentOutput[] = [];
-      if (xnaChangeSats > 0n) {
-        payments.push({ address: walletAddress, valueSats: xnaChangeSats });
-        outputs.push({ [walletAddress]: Number(xnaChangeSats) / 1e8 });
-      }
-
-      const inputs = [...selectedAssetUtxos, ...selectedBaseUtxos].map((u) => ({
-        txid: u.txid,
-        vout: u.outputIndex,
-      }));
-      const built = NeuraiCreateTransaction.createStandardAssetTransferTransaction({
-        inputs,
-        payments,
-        transfers,
+      // Delegate the whole transfer to @neuraiproject/neurai-assets: UTXO selection, fee
+      // estimation and — crucially — the DePIN owner-token spend/return that consensus
+      // requires (bad-txns-depin-transfer-not-by-owner). The builder's internal
+      // createrawtransaction is intercepted by createNeuraiAssetsClient and routed to the
+      // local builder (operationType 'TRANSFER'); no node-side createrawtransaction is used.
+      const neuraiAssets = createNeuraiAssetsClient(rpc, {
+        network,
+        addresses: [walletAddress],
+        changeAddress: walletAddress,
+        toAddress: walletAddress,
       });
-
-      void dustAbsorbed; // currently informational only
-
+      const result = await neuraiAssets.transferAsset({ assetName, recipients });
       return {
-        rawTx: built.rawTx,
-        fee: Number(feeSats) / 1e8,
-        inputs: [...selectedAssetUtxos, ...selectedBaseUtxos].map((u) => ({
-          txid: u.txid,
-          vout: u.outputIndex,
-          address: u.address,
-          satoshis: u.satoshis,
-          ...(u.assetName ? { assetName: u.assetName } : {}),
-        })),
-        outputs,
+        rawTx: result.rawTx,
+        fee: result.fee,
+        inputs: (result.inputs ?? []) as SendBuildResult['inputs'],
+        outputs: (result.outputs ?? []) as SendBuildResult['outputs'],
         network,
         burnAmount: 0,
         burnAddress: null,
-        changeAddress: walletAddress,
-        changeAmount: Number(xnaChangeSats) / 1e8,
+        changeAddress: result.changeAddress ?? walletAddress,
+        changeAmount: result.changeAmount ?? 0,
         buildStrategy: 'local-builder',
       };
     }
@@ -2884,6 +2799,36 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         break;
       }
 
+      case 'TRANSFER': {
+        // neurai-assets' TransferBuilder emits plain XNA-change outputs ({ addr: number })
+        // plus one `{ transfer: { name: amount } }` output per recipient, asset change, and
+        // (for DePIN) the returned owner token. Split them back into payments/transfers and
+        // reuse the same serializer the rest of the send path uses.
+        const payments: NeuraiCreateTransactionTxPaymentOutput[] = [];
+        const transfers: NeuraiCreateTransactionTransferOutput[] = [];
+        for (const entry of entries) {
+          const value = entry.value;
+          if (typeof value === 'number') {
+            payments.push({ address: entry.address, valueSats: NeuraiCreateTransaction.xnaToSatoshis(value) });
+          } else if (value && typeof value === 'object' && !Array.isArray(value)
+                     && (value as Record<string, unknown>).transfer) {
+            const map = (value as Record<string, unknown>).transfer as Record<string, unknown>;
+            for (const [aName, amt] of Object.entries(map)) {
+              transfers.push({
+                address: entry.address,
+                assetName: aName,
+                amountRaw: NeuraiCreateTransaction.assetUnitsToRaw(Number(amt)),
+              });
+            }
+          }
+        }
+        return NeuraiCreateTransaction.createStandardAssetTransferTransaction({
+          inputs: txInputs,
+          payments,
+          transfers,
+        }).rawTx;
+      }
+
       default:
         throw new Error(`Unsupported local asset operation: ${operationType}`);
     }
@@ -2939,6 +2884,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     wrapOperationMethod('createRootAsset', 'ISSUE_ROOT');
     wrapOperationMethod('createSubAsset', 'ISSUE_SUB');
     wrapOperationMethod('createDepinAsset', 'ISSUE_DEPIN');
+    wrapOperationMethod('transferAsset', 'TRANSFER');
     wrapOperationMethod('createUniqueAssets', 'ISSUE_UNIQUE');
     wrapOperationMethod('createQualifier', (params) => {
       const qualifierName = asStringValue(params.qualifierName);

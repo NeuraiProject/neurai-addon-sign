@@ -143,12 +143,19 @@ declare global {
     changeAddress?: string;
   }
 
+  interface NeuraiAssetsTransferParams {
+    assetName: string;
+    recipients: Array<{ address: string; amount: number }>;
+    changeAddress?: string;
+  }
+
   class NeuraiAssets {
     constructor(rpc: (method: string, params: unknown[]) => Promise<unknown>, config?: NeuraiAssetsConfig);
     updateConfig(config: Partial<NeuraiAssetsConfig>): void;
     createRootAsset(params: NeuraiAssetsCreateRootParams): Promise<NeuraiAssetsBuildResult>;
     createSubAsset(params: NeuraiAssetsCreateSubParams): Promise<NeuraiAssetsBuildResult>;
     createDepinAsset(params: NeuraiAssetsCreateDepinParams): Promise<NeuraiAssetsBuildResult>;
+    transferAsset(params: NeuraiAssetsTransferParams): Promise<NeuraiAssetsBuildResult>;
     createUniqueAssets(params: NeuraiAssetsCreateUniqueParams): Promise<NeuraiAssetsBuildResult>;
     createQualifier(params: NeuraiAssetsCreateQualifierParams): Promise<NeuraiAssetsBuildResult>;
     createRestrictedAsset(params: NeuraiAssetsCreateRestrictedParams): Promise<NeuraiAssetsBuildResult>;
