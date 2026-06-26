@@ -1779,13 +1779,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
       // Fetch full raw transactions for each UTXO (needed for nonWitnessUtxo)
       const utxos = (message.utxos || []) as Record<string, unknown>[];
-      // [covenant-debug] TEMP: shows whether the bareScriptHint reached the signer.
-      console.log('[covenant-debug] network=', state.network, ' utxos=',
-        utxos.map(u => ({
-          txid: u.txid, vout: u.vout,
-          hintKind: (u.bareScriptHint as { kind?: string } | undefined)?.kind,
-          hasScript: !!(u.bareScriptHint as { covenantScriptHex?: string } | undefined)?.covenantScriptHex,
-        })));
       const rpcUrl = getRpcUrlForNetwork(state.network);
       const txInputs = parseRawTransactionInputs(message.txHex as string);
       const enrichedUtxos = await fetchRawTxForUtxos(txInputs, rpcUrl);
@@ -1818,9 +1811,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
             ...(covenant ? { covenant } : {})
           };
         });
-        // [covenant-debug] TEMP: which inputs carry a covenant for the device.
-        console.log('[covenant-debug] pqInputs=',
-          pqInputs.map(i => ({ index: i.index, hasCovenant: 'covenant' in i })));
         const pqResult = await hwDevice.signPqRawTransaction({
           txHex: message.txHex as string,
           inputs: pqInputs,
