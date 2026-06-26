@@ -94,7 +94,7 @@
             sighashType: data.sighashType as string
           });
           if (resp && resp.success) {
-            result = { signedTxHex: resp.signedTxHex, complete: resp.complete };
+            result = { signedTxHex: resp.signedTxHex, complete: resp.complete, address: resp.address };
           } else {
             throw new Error(resp?.error || 'Failed to sign raw transaction');
           }

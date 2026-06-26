@@ -932,6 +932,32 @@ function finalizeSignRequest(requestId: string, result: SignApprovalResult): voi
 
 // ── Hardware wallet signing coordination ──────────────────────────────────────
 
+/**
+ * Guard against a device/account mismatch on the hardware signing path.
+ *
+ * The addon's selected account stores an address (A), but the connected ESP32
+ * may hold a different key (address B). If the device signed with B while the
+ * active account is A, returning the signature would silently attribute the
+ * operation to the wrong address. In that case we reject instead.
+ *
+ * Returns a clear error string on mismatch, or null when it's safe to proceed
+ * (matching addresses, or the device address could not be determined).
+ */
+function hwSignerMismatchError(
+  result: HwSignSuccess,
+  expectedAddress: string | undefined | null
+): string | null {
+  const signer = result.address;
+  if (signer && expectedAddress && signer.toLowerCase() !== expectedAddress.toLowerCase()) {
+    return (
+      `Firma rechazada: el dispositivo firmó con ${signer}, pero la cuenta activa de ` +
+      `Neurai Sign es ${expectedAddress}. Conecta el dispositivo correcto o cambia de ` +
+      `cuenta en la extensión.`
+    );
+  }
+  return null;
+}
+
 async function requestHardwareSignature(payload: HwSignPayload): Promise<HwSignResult> {
   const requestId = 'hw_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
   const approvalUrl = chrome.runtime.getURL('popup/hw-sign.html') +
@@ -1006,6 +1032,13 @@ async function executePendingHwSignRequest(requestId: string): Promise<Backgroun
     return { error: pending.lastError };
   }
 
+  const mismatch = hwSignerMismatchError(result as HwSignSuccess, pending.payload.address);
+  if (mismatch) {
+    pending.lastError = mismatch;
+    finalizeHwSignRequest(requestId, { error: mismatch });
+    return { error: mismatch };
+  }
+
   finalizeHwSignRequest(requestId, result);
   saveHwSignHistory(result as HwSignSuccess, pending.payload).catch((err) => {
     console.error('Failed to save HW sign history:', err);
@@ -1057,23 +1090,29 @@ async function resolveHwSignResult(message: HwSignResultMsg): Promise<Background
   if (!pending) return { error: 'Hardware sign request not found or expired' };
   pending.settling = true;
 
-  const result: HwSignResult = message.error
-    ? { error: message.error }
-    : {
-        success: true,
-        signature: message.signature,
-        address: message.address,
-        signedTxHex: message.signedTxHex,
-        complete: message.complete
-      } as HwSignSuccess;
-
-  finalizeHwSignRequest(message.requestId, result);
-
-  if (!message.error) {
-    saveHwSignHistory(result as HwSignSuccess, pending.payload).catch((err) => {
-      console.error('Failed to save HW sign history:', err);
-    });
+  if (message.error) {
+    finalizeHwSignRequest(message.requestId, { error: message.error });
+    return { success: true };
   }
+
+  const success: HwSignSuccess = {
+    success: true,
+    signature: message.signature,
+    address: message.address,
+    signedTxHex: message.signedTxHex,
+    complete: message.complete
+  } as HwSignSuccess;
+
+  const mismatch = hwSignerMismatchError(success, pending.payload.address);
+  if (mismatch) {
+    finalizeHwSignRequest(message.requestId, { error: mismatch });
+    return { success: true };
+  }
+
+  finalizeHwSignRequest(message.requestId, success);
+  saveHwSignHistory(success, pending.payload).catch((err) => {
+    console.error('Failed to save HW sign history:', err);
+  });
 
   return { success: true };
 }

@@ -229,6 +229,12 @@ export interface HwRawTxSignResult {
   success: true;
   signedTxHex: string;
   complete: boolean;
+  /**
+   * Address actually held by the signing device. Used to detect a mismatch
+   * between the addon's selected account and the connected ESP32 before the
+   * signed tx is broadcast. Optional for backwards compatibility.
+   */
+  address?: string;
 }
 
 export type HwSignSuccess = HwMessageSignResult | HwRawTxSignResult;

@@ -1803,7 +1803,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
           inputs: pqInputs,
           display: pqDisplay
         });
-        return { success: true, signedTxHex: pqResult.txHex, complete: true };
+        return { success: true, signedTxHex: pqResult.txHex, complete: true, address: metadata.address };
       }
 
       // Build PSBT from raw transaction
@@ -1839,7 +1839,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       // Finalize
       const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbtBase64, signResult.psbt, networkType);
 
-      return { success: true, signedTxHex: finalized.txHex, complete: true };
+      return { success: true, signedTxHex: finalized.txHex, complete: true, address: metadata.address };
     } catch (err) {
       updateHwConnectionUI();
       return { error: 'HW sign failed: ' + (err as Error).message };
@@ -1851,18 +1851,23 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     let publicKey = message.publicKey as string || state.publicKey || null;
     let derivationPath = message.derivationPath as string || activeWallet.hardwareDerivationPath as string || null;
     let masterFingerprint = message.masterFingerprint as string || activeWallet.hardwareMasterFingerprint as string || null;
+    // The address actually held by the connected device (NOT the stored account
+    // address). Used by the caller to detect a device/account mismatch.
+    let deviceAddress = (hwDevice as NeuraiESP32Instance).info?.address || null;
 
     const needsInfo = !masterFingerprint;
     const needsAddress = !publicKey || !derivationPath;
+    const needsDeviceAddress = !deviceAddress;
 
-    // `info` already carries master_fingerprint/pubkey/path, so we fill missing
-    // metadata from it instead of getAddress() (which would block on an on-device
-    // confirmation just to reconnect a wallet).
-    if (needsInfo || needsAddress) {
+    // `info` already carries master_fingerprint/pubkey/path/address, so we fill
+    // missing metadata from it instead of getAddress() (which would block on an
+    // on-device confirmation just to reconnect a wallet).
+    if (needsInfo || needsAddress || needsDeviceAddress) {
       const info = (hwDevice as NeuraiESP32Instance).info || await (hwDevice as NeuraiESP32Instance).getInfo();
       masterFingerprint = info?.master_fingerprint || masterFingerprint;
       publicKey = info?.pubkey || publicKey;
       derivationPath = info?.path || derivationPath;
+      deviceAddress = info?.address || deviceAddress;
     }
 
     if (publicKey && derivationPath && masterFingerprint && (
@@ -1879,7 +1884,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       await saveAccountsData();
     }
 
-    return { publicKey, derivationPath, masterFingerprint };
+    return { publicKey, derivationPath, masterFingerprint, address: deviceAddress };
   }
 
   async function fetchRawTxForUtxos(utxos: { txid: string; vout: number; sequence: number }[], rpcUrl: string) {
