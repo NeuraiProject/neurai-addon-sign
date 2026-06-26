@@ -1792,10 +1792,23 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
           : undefined;
         const pqInputs = enrichedUtxos.map((utxo, index) => {
           const prevout = utxo.rawTxHex ? parseRawTransactionOutputs(utxo.rawTxHex)[Number(utxo.vout)] : undefined;
+          // Covenant CANCEL inputs carry a `bareScriptHint` from the swap backend.
+          // Forward the covenant script so the device produces the NOAUTH
+          // covenant-cancel witness (it derives the OP_TXHASH selector from the
+          // script itself). Match by txid:vout, falling back to position.
+          const hinted = utxos.find(c =>
+            String(c.txid).toLowerCase() === String(utxo.txid).toLowerCase() &&
+            Number(c.vout) === Number(utxo.vout)
+          ) ?? utxos[index];
+          const hint = hinted?.bareScriptHint as { kind?: string; covenantScriptHex?: string } | undefined;
+          const covenant = hint && hint.kind === 'covenant-cancel-pq' && hint.covenantScriptHex
+            ? { script: hint.covenantScriptHex }
+            : undefined;
           return {
             index,
             amount: prevout ? Number(prevout.value) : 0,
-            ...(prevout ? { script_pub_key: prevout.scriptHex } : {})
+            ...(prevout ? { script_pub_key: prevout.scriptHex } : {}),
+            ...(covenant ? { covenant } : {})
           };
         });
         const pqResult = await hwDevice.signPqRawTransaction({

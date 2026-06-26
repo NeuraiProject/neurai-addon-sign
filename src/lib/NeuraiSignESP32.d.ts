@@ -252,10 +252,18 @@ declare global {
       feeRate?: number;
       display?: NeuraiESP32SignDisplay;
     }): Promise<NeuraiESP32SignTransactionResult>;
-    /** Sign an already-built unsigned raw transaction via `sign_tx` (PQ). */
+    /** Sign an already-built unsigned raw transaction via `sign_tx` (PQ).
+     *  An input may carry `covenant` to request the NOAUTH covenant-cancel
+     *  witness instead of a standard AuthScript self-spend; the device reads the
+     *  OP_TXHASH selector from the covenant `script` itself. */
     signPqRawTransaction(options: {
       txHex: string;
-      inputs: Array<{ index: number; amount: number; script_pub_key?: string }>;
+      inputs: Array<{
+        index: number;
+        amount: number;
+        script_pub_key?: string;
+        covenant?: { script: string };
+      }>;
       display?: NeuraiESP32SignDisplay;
     }): Promise<NeuraiESP32SignTransactionResult>;
   }
