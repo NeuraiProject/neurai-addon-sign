@@ -2280,14 +2280,30 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const pqDisplay = feeSatsPq !== null
           ? { feeAmount: formatSatoshisToXna(feeSatsPq), baseCurrency: 'XNA' }
           : undefined;
+        const hintList = utxos as Array<Record<string, unknown>>;
         const pqInputs = enrichedUtxos.map((utxo, index) => {
           const prevout = utxo.rawTxHex ? parseRawTransactionOutputs(utxo.rawTxHex)[Number(utxo.vout)] : undefined;
+          // Covenant CANCEL inputs carry a `bareScriptHint` from the swap backend.
+          // Forward the covenant script so the device produces the NOAUTH
+          // covenant-cancel witness (it derives the OP_TXHASH selector itself).
+          const hinted = hintList.find(c =>
+            String(c.txid).toLowerCase() === String(utxo.txid).toLowerCase() &&
+            Number(c.vout) === Number(utxo.vout)
+          ) ?? hintList[index];
+          const hint = hinted?.bareScriptHint as { kind?: string; covenantScriptHex?: string } | undefined;
+          const covenant = hint && hint.kind === 'covenant-cancel-pq' && hint.covenantScriptHex
+            ? { script: hint.covenantScriptHex }
+            : undefined;
           return {
             index,
             amount: prevout ? Number(prevout.value) : 0,
-            ...(prevout ? { script_pub_key: prevout.scriptHex } : {})
+            ...(prevout ? { script_pub_key: prevout.scriptHex } : {}),
+            ...(covenant ? { covenant } : {})
           };
         });
+        // [covenant-debug] TEMP
+        console.log('[covenant-debug] (expanded) pqInputs=',
+          pqInputs.map(i => ({ index: i.index, hasCovenant: 'covenant' in i })));
         const pqResult = await hwDevice.signPqRawTransaction({
           txHex: message.txHex as string,
           inputs: pqInputs,
