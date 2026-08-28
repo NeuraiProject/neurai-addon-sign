@@ -6,6 +6,13 @@ declare global {
     addresses?: string[];
     changeAddress?: string | null;
     toAddress?: string | null;
+    /**
+     * NIP-040 marker for locally built asset outputs. Passing it stops the
+     * library asking the node for `getblockchaininfo.asset_marker` itself,
+     * which matters here because the extension already resolved it and both
+     * paths must use the same value.
+     */
+    assetMarker?: NeuraiCreateTransactionAssetMarker;
   }
 
   type NeuraiAssetsOperationType =

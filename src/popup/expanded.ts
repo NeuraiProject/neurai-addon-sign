@@ -50,7 +50,7 @@ import {
   evaluateVerifierAgainstTags,
   explainSimpleVerifierFailure,
 } from './expanded/asset-utils.js';
-import { resolveAssetMarker } from './expanded/asset-marker.js';
+import { resolveAssetMarker, createAssetMarkerCache } from './expanded/asset-marker.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
@@ -67,6 +67,16 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   const PAGE_SIZE = 5;
   const DEBUG_AUTHSCRIPT_SIGN = false;
   const DEBUG_ASSET_OPS = false;
+  /**
+   * Times each phase between pressing a button and the confirmation modal, and
+   * counts the RPC round trips each one costs.
+   *
+   * Asset operations spend nearly all their time waiting on the node, not
+   * computing, so the useful question is always "how many calls, and were they
+   * sequential?". Turn this on and read the console: it prints a table per
+   * operation.
+   */
+  const DEBUG_TIMING = true;
 
   const ASSET_FEES: Record<string, number> = {
     ROOT: 1000,
@@ -1314,7 +1324,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       // requires (bad-txns-depin-transfer-not-by-owner). The builder's internal
       // createrawtransaction is intercepted by createNeuraiAssetsClient and routed to the
       // local builder (operationType 'TRANSFER'); no node-side createrawtransaction is used.
-      const neuraiAssets = createNeuraiAssetsClient(rpc, {
+      const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
         addresses: [walletAddress],
         changeAddress: walletAddress,
@@ -2385,8 +2395,21 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function fetchRawTxForUtxos(utxos: Array<{ txid: string; vout: number; sequence: number }>, rpcUrl: string) {
     const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
     const rawTxMap: Record<string, string> = {};
-    for (const txid of txids) {
+
+    // One getrawtransaction per distinct input, to recover the prevouts the
+    // signer needs. These do not depend on each other, so they run together:
+    // fetched one after another they dominated the wait before the
+    // confirmation modal — a transaction funded by eight UTXOs paid eight
+    // round trips to the node in sequence.
+    //
+    // Concurrency is capped rather than unbounded: a wallet with many small
+    // UTXOs would otherwise open dozens of simultaneous requests against a
+    // public RPC proxy, which is a good way to get rate-limited.
+    const MAX_CONCURRENT_FETCHES = 6;
+
+    async function fetchOne(txid: string): Promise<void> {
       try {
+        noteTimingRpc('getrawtransaction');
         const resp = await fetch(rpcUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2395,6 +2418,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const data = await resp.json() as { result?: string };
         if (data.result) rawTxMap[txid] = data.result;
       } catch (_) { }
+    }
+
+    for (let i = 0; i < txids.length; i += MAX_CONCURRENT_FETCHES) {
+      await Promise.all(txids.slice(i, i + MAX_CONCURRENT_FETCHES).map(fetchOne));
     }
     return utxos.map(u => ({
       txid: u.txid, vout: u.vout,
@@ -2471,6 +2498,66 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     console.warn(message, data);
   }
 
+  /** One timing run: phases in order, plus the RPC calls each one made. */
+  interface TimingRun {
+    label: string;
+    started: number;
+    phases: Array<{ name: string; ms: number; rpc: string[] }>;
+    phaseStart: number;
+    rpcSincePhase: string[];
+  }
+
+  let activeTiming: TimingRun | null = null;
+
+  function startTiming(label: string): void {
+    if (!DEBUG_TIMING) return;
+    const now = performance.now();
+    activeTiming = { label, started: now, phases: [], phaseStart: now, rpcSincePhase: [] };
+  }
+
+  /** Close the phase that was running and open the next one. */
+  function markPhase(name: string): void {
+    if (!DEBUG_TIMING || !activeTiming) return;
+    const now = performance.now();
+    activeTiming.phases.push({
+      name,
+      ms: now - activeTiming.phaseStart,
+      rpc: activeTiming.rpcSincePhase
+    });
+    activeTiming.phaseStart = now;
+    activeTiming.rpcSincePhase = [];
+  }
+
+  function noteTimingRpc(method: string): void {
+    if (!DEBUG_TIMING || !activeTiming) return;
+    activeTiming.rpcSincePhase.push(method);
+  }
+
+  function endTiming(): void {
+    if (!DEBUG_TIMING || !activeTiming) return;
+    const run = activeTiming;
+    activeTiming = null;
+    const total = performance.now() - run.started;
+
+    const rows = run.phases.map((phase) => {
+      const counts = phase.rpc.reduce<Record<string, number>>((acc, m) => {
+        acc[m] = (acc[m] || 0) + 1;
+        return acc;
+      }, {});
+      return {
+        phase: phase.name,
+        ms: Math.round(phase.ms),
+        '%': `${Math.round((phase.ms / total) * 100)}%`,
+        rpc: phase.rpc.length,
+        detail: Object.entries(counts).map(([m, n]) => (n > 1 ? `${m}×${n}` : m)).join(' ')
+      };
+    });
+
+    const totalRpc = run.phases.reduce((n, phase) => n + phase.rpc.length, 0);
+    console.log(`[timing] ${run.label}: ${Math.round(total)} ms, ${totalRpc} llamadas RPC`);
+    console.table(rows);
+  }
+
   function logAssetDebug(level: 'warn' | 'error', message: string, data?: unknown) {
     if (!DEBUG_ASSET_OPS) return;
     if (level === 'error') {
@@ -2537,6 +2624,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     outputs: NeuraiAssetsBuildResult['outputs'] | Array<Record<string, unknown>>;
     localRawBuild?: NeuraiAssetsLocalRawBuild;
     rpc?: (method: string, params: unknown[]) => Promise<unknown>;
+    /** Marcador ya resuelto para esta operación; evita repetir la consulta. */
+    assetMarker?: NeuraiCreateTransactionAssetMarker;
   }): Promise<string> {
     const entries = normalizeAssetOutputEntries(params.outputs);
     const operationType = params.localRawBuild?.operationType || params.operationType || inferLocalOperationTypeFromOutputs(params.outputs);
@@ -2552,10 +2641,16 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     // bad-txns-legacy-asset-marker-after-nip040. Se resuelve una vez por
     // operación y se aplica a nivel de transacción, de modo que alcanza a
     // todas las salidas que genere el serializador.
-    if (!params.rpc) {
-      throw new Error('An RPC function is required to resolve the NIP-040 asset marker.');
+    // Lo normal es recibirlo ya resuelto desde createNeuraiAssetsClient, que lo
+    // consulta una vez por operación y se lo pasa también a NeuraiAssets. Sólo
+    // se consulta aquí si el llamante no lo trae.
+    let assetMarker = params.assetMarker;
+    if (!assetMarker) {
+      if (!params.rpc) {
+        throw new Error('An RPC function is required to resolve the NIP-040 asset marker.');
+      }
+      assetMarker = await resolveAssetMarker(params.rpc);
     }
-    const assetMarker = await resolveAssetMarker(params.rpc);
 
     if (params.localRawBuild) {
       const build: NeuraiAssetsLocalRawBuild = {
@@ -2894,11 +2989,45 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     return NeuraiCreateTransaction.createFromOperation(build).rawTx;
   }
 
-  function createNeuraiAssetsClient(
+  /**
+   * NeuraiAssets con la construcción de la transacción hecha en local.
+   *
+   * El marcador NIP-040 se resuelve UNA vez aquí y se comparte por los dos
+   * caminos: se pasa a NeuraiAssets como `config.assetMarker` —que así no
+   * vuelve a consultarlo— y al constructor local que sustituye a
+   * `createrawtransaction`. Además de ahorrar una ida y vuelta al nodo por
+   * operación, garantiza que ambos usan exactamente el mismo valor: dos
+   * consultas podrían caer a distintos lados de una activación.
+   */
+  /**
+   * Una caché de marcador por sesión del popup. La lógica vive en
+   * ./expanded/asset-marker para poder ejercitarla con `node --test`; aquí
+   * sólo queda la instancia y de dónde sale la clave de red.
+   */
+  const assetMarkerCache = createAssetMarkerCache();
+
+  /**
+   * La clave de la caché. El precalentado y la operación deben derivarla igual,
+   * o el precalentado consulta una red y la operación no encuentra su entrada.
+   */
+  function markerNetworkKey(network: string | undefined): string {
+    return network || 'xna';
+  }
+
+  /** Arranca la consulta del marcador sin esperarla. */
+  function warmAssetMarker(): void {
+    const wallet = state.wallet as Record<string, unknown> | null;
+    if (!wallet || !wallet.address) return;
+    const network = markerNetworkKey(wallet.network as string | undefined);
+    assetMarkerCache.warm(network, buildRpcFn(network));
+  }
+
+  async function createNeuraiAssetsClient(
     rpc: (method: string, params: unknown[]) => Promise<unknown>,
     config: NeuraiAssetsConfig
-  ): NeuraiAssets {
-    const instance = new NeuraiAssets(rpc, config) as NeuraiAssets & {
+  ): Promise<NeuraiAssets> {
+    const assetMarker = await assetMarkerCache.resolve(markerNetworkKey(config.network), rpc);
+    const instance = new NeuraiAssets(rpc, { ...config, assetMarker }) as NeuraiAssets & {
       rpc: (method: string, params: unknown[]) => Promise<unknown>;
       __localCreateTransactionOperationType?: string;
       [key: string]: unknown;
@@ -2912,7 +3041,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           operationType: instance.__localCreateTransactionOperationType,
           inputs: Array.isArray(inputs) ? inputs as Array<{ txid: string; vout: number }> : [],
           outputs: Array.isArray(outputs) ? outputs as Array<Record<string, unknown>> : [],
-          rpc
+          rpc,
+          assetMarker
         });
       }
       return originalRpc(method, params);
@@ -3020,34 +3150,82 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     let currentSignedHex = signedHex;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const decoded = await rpc('decoderawtransaction', [currentSignedHex]) as {
-        vsize?: number;
-        size?: number;
-        weight?: number;
-      } | null;
-      const vsize = Math.max(
-        Number(decoded?.vsize || 0),
-        Number(decoded?.size || 0),
-        Math.ceil(Number(decoded?.weight || 0) / 4)
-      );
+      // Ninguna de las dos lecturas alimenta a la otra: el tamaño no depende
+      // del tipo de tasa ni al revés. Pedirlas a la vez ahorra una ida y
+      // vuelta completa en cada comprobación.
+      const [decoded, feeEstimate] = await Promise.all([
+        rpc('decoderawtransaction', [currentSignedHex]) as Promise<{
+          vsize?: number;
+          size?: number;
+          weight?: number;
+        } | null>,
+        // MISMO objetivo de confirmación que neurai-assets (UTXOSelector
+        // .getFeeRate usa 20). Con 6 esta comprobación pedía un tipo mayor que
+        // el que el constructor había presupuestado, así que en cuanto la red
+        // devuelve estimaciones distintas por objetivo —regtest no, mainnet
+        // sí— toda operación de asset se reconstruía y volvía a firmarse sin
+        // que hubiera nada mal. El suelo de 0.015 es el que protege del
+        // mínimo de relay; el objetivo sólo tiene que coincidir.
+        rpc('estimatesmartfee', [20]).catch(() => null) as Promise<{ feerate?: number } | null>
+      ]);
+      // The node charges by VSIZE, which already discounts the witness. Taking
+      // the largest of the three fields picked `size` instead — the raw
+      // serialized length — and for an AuthScript spend those are far apart:
+      // a PQ input carries an ML-DSA signature and public key, so a
+      // transaction the node reports as vsize 1193 has size 4003.
+      //
+      // The consequences were both a guaranteed rebuild (the fee could never
+      // satisfy a threshold computed from 3.4x the chargeable size) and, once
+      // it rebuilt, a fee 3.4x larger than the network asks for. Prefer vsize;
+      // fall back to size only for a node that does not report it, where the
+      // two are the same thing.
+      const vsize = Number(decoded?.vsize)
+        || Math.ceil(Number(decoded?.weight || 0) / 4)
+        || Number(decoded?.size || 0);
       if (!Number.isFinite(vsize) || vsize <= 0) return { buildResult: currentBuildResult, signedHex: currentSignedHex };
 
-      const feeEstimate = await rpc('estimatesmartfee', [6]).catch(() => null) as { feerate?: number } | null;
       const feeRate = Math.max(Number(feeEstimate?.feerate || 0), 0.015);
-      const requiredFeeSats = Math.ceil((vsize / 1000) * feeRate * 1e8 * 1.1);
+
+      // Two different numbers, on purpose.
+      //
+      // `minimumFeeSats` is what the node actually demands for this vsize, and
+      // it is the ONLY thing that may trigger a rebuild. `targetFeeSats` adds a
+      // 10% margin and is what a rebuild aims for, so the second pass clears
+      // the bar instead of landing exactly on it.
+      //
+      // Until now a single number did both jobs, with the margin baked in. A
+      // correctly estimated fee is by definition 10% below a 10%-inflated
+      // threshold, so every AuthScript asset operation rebuilt and re-signed
+      // once, unconditionally — a decode, an estimate, a marker lookup, a
+      // prevout fetch and a second decode/estimate that changed nothing. It
+      // was invisible while the fee estimate was too low anyway; once
+      // neurai-assets started sizing PQ inputs and asset payloads correctly,
+      // that guaranteed round trip became the slowest part of creating an
+      // asset.
+      // In integer satoshis, not through a float rate. `(vsize / 1000) *
+      // feeRate * 1e8` looks equivalent but is not: for 1193 vbytes at
+      // 0.015 XNA/kB it yields 1789500.0000000002, which Math.ceil turns into
+      // one satoshi MORE than neurai-assets budgets for the very same
+      // transaction. That single satoshi is enough to fail the comparison and
+      // rebuild, so the float form would keep the redundant round trip alive
+      // even without the 10% margin.
+      const feeRateSatsPerKb = Math.round(feeRate * 1e8);
+      const minimumFeeSats = Math.ceil((vsize * feeRateSatsPerKb) / 1000);
+      const targetFeeSats = Math.ceil(minimumFeeSats * 1.1);
       const currentFeeSats = xnaToSatoshis(currentBuildResult.fee);
 
-      if (currentFeeSats >= requiredFeeSats) {
+      if (currentFeeSats >= minimumFeeSats) {
         return { buildResult: currentBuildResult, signedHex: currentSignedHex };
       }
 
-      const additionalFeeSats = requiredFeeSats - currentFeeSats;
+      const additionalFeeSats = targetFeeSats - currentFeeSats;
       logAuthScriptDebug('warn', `[${contextLabel}][authscript-fee] Rebuilding AuthScript asset transaction with higher relay fee`, {
         walletAddress,
         vsize,
         feeRate,
         currentFeeXna: currentBuildResult.fee,
-        requiredFeeXna: satoshisToXna(requiredFeeSats),
+        minimumFeeXna: satoshisToXna(minimumFeeSats),
+        targetFeeXna: satoshisToXna(targetFeeSats),
         additionalFeeXna: satoshisToXna(additionalFeeSats)
       });
 
@@ -3070,6 +3248,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
       : (state.settings.rpcMainnet || C.RPC_URL);
     return async (method: string, params: unknown[]): Promise<unknown> => {
+      noteTimingRpc(method);
       const resp = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3253,7 +3432,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const network = (wallet.network as string) || 'xna';
       const address = wallet.address as string;
       const rpc = buildRpcFn(network);
-      const neuraiAssets = createNeuraiAssetsClient(rpc, {
+      const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
         addresses: [address],
         changeAddress: address,
@@ -3344,6 +3523,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   function updateCreateAssetUI() {
+    // El usuario aún tiene que elegir tipo y escribir el nombre: tiempo de
+    // sobra para que el marcador llegue antes de que pulse el botón.
+    warmAssetMarker();
+
     const type = state.createAssetType;
     const isSub = type === 'SUB';
     const isUnique = type === 'UNIQUE';
@@ -3521,6 +3704,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.caError!.classList.add('hidden');
     elements.caCreateBtn!.disabled = true;
     elements.caCreateBtn!.textContent = 'Creating…';
+    startTiming('create asset');
 
     try {
       const wallet = state.wallet as Record<string, unknown> | null;
@@ -3530,12 +3714,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const address = wallet.address as string;
       const rpc = buildRpcFn(network);
 
-      const neuraiAssets = createNeuraiAssetsClient(rpc, {
+      const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
         addresses: [address],
         changeAddress: address,
         toAddress: address,
       });
+      markPhase('resolver marcador NIP-040');
 
       const type = state.createAssetType;
       let result: NeuraiAssetsBuildResult;
@@ -3653,23 +3838,31 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         throw new Error('Unknown asset type: ' + type);
       }
 
+      markPhase('construir (selección de UTXOs + fee)');
+
       // Sign the raw transaction
       const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
 
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
+      markPhase('firmar');
       if (network === 'xna-pq' || network === 'xna-pq-test') {
         const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'create-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
+        markPhase('comprobar relay fee AuthScript');
       }
 
       // Store signed TX and show confirm modal instead of broadcasting immediately
       state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result };
       showTxConfirmModal(result, signedHex);
+      markPhase('pintar el modal');
+      endTiming();
 
     } catch (err) {
+      markPhase('fallo');
+      endTiming();
       const msg = (err as Error).message || 'Unknown error';
       elements.caError!.textContent = msg;
       elements.caError!.classList.remove('hidden');
@@ -4251,7 +4444,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const network = (wallet.network as string) || 'xna';
       const address = wallet.address as string;
       const rpc = buildRpcFn(network);
-      const neuraiAssets = createNeuraiAssetsClient(rpc, {
+      const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
         addresses: [address],
         changeAddress: address,

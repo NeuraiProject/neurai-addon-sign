@@ -164,6 +164,9 @@
         <label for="importNetwork">Network</label>
         <select class="form-select" id="importNetwork">
           <option value="xna">Neurai Mainnet (XNA)</option>
+          <!-- Removed at load by pruneUnavailableNetworks() in welcome.ts:
+               AuthScript PQ is not active on mainnet. Kept here so this list
+               stays the intended final set; re-enable from UNAVAILABLE_NETWORKS. -->
           <option value="xna-pq">Neurai Mainnet AuthScript PQ</option>
           <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
           <option value="xna-pq-test">Neurai Testnet AuthScript PQ</option>
@@ -204,6 +207,9 @@
         <label for="generateNetwork">Network</label>
         <select class="form-select" id="generateNetwork">
           <option value="xna">Neurai Mainnet (XNA)</option>
+          <!-- Removed at load by pruneUnavailableNetworks() in welcome.ts:
+               AuthScript PQ is not active on mainnet. Kept here so this list
+               stays the intended final set; re-enable from UNAVAILABLE_NETWORKS. -->
           <option value="xna-pq">Neurai Mainnet AuthScript PQ</option>
           <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
           <option value="xna-pq-test">Neurai Testnet AuthScript PQ</option>

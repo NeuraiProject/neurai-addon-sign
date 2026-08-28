@@ -132,6 +132,43 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── State ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Networks the wallet can represent but that are not usable yet, so they are
+   * not offered when creating or importing.
+   *
+   * AuthScript PQ exists on the DePIN-Test branch and works on testnet; mainnet
+   * has not activated it. Offering it there let a user create a wallet whose
+   * addresses no mainnet node will accept — a dead end that only shows itself
+   * after the seed phrase has been written down.
+   *
+   * TO RE-ENABLE: delete the entry. That is the whole change — the options stay
+   * in welcome.html and are removed from the DOM at load, so nothing else has
+   * to be edited, and the markup keeps documenting the intended final set.
+   */
+  const UNAVAILABLE_NETWORKS: readonly string[] = ['xna-pq'];
+
+  function isNetworkAvailable(network: string): boolean {
+    return !UNAVAILABLE_NETWORKS.includes(network);
+  }
+
+  /**
+   * Drop the unavailable options from every network selector, and make sure
+   * what remains is a valid selection.
+   */
+  function pruneUnavailableNetworks(): void {
+    for (const select of [el.importNetwork, el.generateNetwork]) {
+      if (!select) continue;
+      for (const option of Array.from(select.options)) {
+        if (!isNetworkAvailable(option.value)) option.remove();
+      }
+      // Removing the selected option leaves selectedIndex at -1 in some
+      // browsers; fall back to the first one that survived.
+      if (select.selectedIndex < 0 && select.options.length > 0) {
+        select.selectedIndex = 0;
+      }
+    }
+  }
+
   function isPQNetwork(network: string): network is NeuraiKeyPQNetwork {
     return network === 'xna-pq' || network === 'xna-pq-test';
   }
@@ -405,6 +442,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
     try {
       var network = el.importNetwork!.value;
+      if (!isNetworkAvailable(network)) {
+        throw new Error('Network not available yet: ' + network);
+      }
       var passphrase = el.importPassphrase!.value || null;
 
       if (isPQNetwork(network)) {
@@ -457,6 +497,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
     try {
       var network = el.generateNetwork!.value;
+      if (!isNetworkAvailable(network)) {
+        throw new Error('Network not available yet: ' + network);
+      }
       var passphrase = el.generatePassphrase!.value || null;
 
       generatedMnemonic = generateMnemonicForWordCount(el.generateWordCount!.value === '24' ? '24' : '12');
@@ -1077,6 +1120,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       }
     }
 
+    pruneUnavailableNetworks();
     setupListeners();
     chrome.storage.onChanged.addListener(function (changes, area) {
       if (area !== 'local' || !changes || !changes[C.SETTINGS_KEY]) return;

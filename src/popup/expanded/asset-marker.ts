@@ -58,3 +58,56 @@ export async function resolveAssetMarker(rpc: RpcFn): Promise<AssetMarker> {
   }
   return marker;
 }
+
+/** A marker cache bound to one popup session. */
+export interface AssetMarkerCache {
+  /** Resolve the marker for `network`, reusing an in-flight or settled lookup. */
+  resolve(network: string, rpc: RpcFn): Promise<AssetMarker>;
+  /** Start the lookup without waiting for it, ignoring failures. */
+  warm(network: string, rpc: RpcFn): void;
+}
+
+/**
+ * Memoise the marker for as long as a popup lives.
+ *
+ * Resolving it costs a round trip to the node (~840 ms against a remote proxy)
+ * and used to block the start of every operation. It is a property of the
+ * chain that only changes at the NIP-040 activation height, so it can be
+ * requested the moment a form opens and be ready by the time the user submits.
+ *
+ * What is stored is the promise, not the value, so two operations starting at
+ * once share a single lookup. A rejection CLEARS the entry: one failed request
+ * must not leave the session unable to build assets. The strict policy of
+ * `resolveAssetMarker` — never degrade to `rvn` — is untouched; a caller still
+ * receives the rejection.
+ *
+ * The cache is keyed by network so switching wallets cannot carry a mainnet
+ * answer into a testnet operation.
+ *
+ * @returns A cache instance; create one per popup session
+ */
+export function createAssetMarkerCache(): AssetMarkerCache {
+  const entries = new Map<string, Promise<AssetMarker>>();
+
+  function resolve(network: string, rpc: RpcFn): Promise<AssetMarker> {
+    const cached = entries.get(network);
+    if (cached) {
+      return cached;
+    }
+    const promise = resolveAssetMarker(rpc);
+    entries.set(network, promise);
+    promise.catch(() => {
+      if (entries.get(network) === promise) {
+        entries.delete(network);
+      }
+    });
+    return promise;
+  }
+
+  return {
+    resolve,
+    warm(network: string, rpc: RpcFn): void {
+      resolve(network, rpc).catch(() => {});
+    }
+  };
+}
