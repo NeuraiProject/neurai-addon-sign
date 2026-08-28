@@ -52,6 +52,12 @@ import {
 } from './expanded/asset-utils.js';
 import { resolveAssetMarker, createAssetMarkerCache } from './expanded/asset-marker.js';
 import { createConfirmPreparing } from './expanded/confirm-preparing.js';
+import { supportsDepin } from './expanded/depin-networks.js';
+import {
+  parseDepinAssets, manageableDepinParents, toDeviceRows, pruneDeviceSelection,
+  blockingReasonForFreeze, depinParent,
+  type DepinAsset, type DepinHolder, type DeviceMode
+} from './expanded/depin.js';
 import {
   loadHolders, toHolderRows, pruneSelection, selectableAddresses,
   type HolderListing, type FreezeMode
@@ -255,6 +261,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       document.addEventListener(eventName, () => { touchUnlockSession(); }, { passive: true });
     });
     bindCreateAsset();
+    bindDepinPanel();
   }
 
   // ── Section visibility ─────────────────────────────────────────────────────
@@ -276,6 +283,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.walletSection.classList.remove('hidden');
     renderWalletInfo();
     renderHistory();
+    // Aquí, no sólo al cambiar de cuenta: es el punto por el que pasan todos
+    // los caminos con la cartera ya cargada —arranque, desbloqueo, importar—
+    // y la pestaña DePIN nace oculta esperando saber en qué red estamos.
+    updateDepinTabVisibility();
     touchUnlockSession(true);
     startAutoRefresh();
 
@@ -1010,6 +1021,296 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     renderAssetsList();
   }
 
+  // --- Pestaña DePIN -------------------------------------------------------
+  //
+  // Todo lo que construye una transacción pasa por el mismo camino que el
+  // resto de la extensión: createNeuraiAssetsClient, la ventana de
+  // confirmación y handleBroadcast. Un segundo camino divergiría.
+
+  let depinAssets: DepinAsset[] = [];
+  let depinSelectedAsset = '';
+  let depinHolders: DepinHolder[] = [];
+  let depinMode: DeviceMode = 'FREEZE';
+  let depinCardMode: 'CREATE' | 'MANAGE' | 'SEND' = 'CREATE';
+  const depinSelection = new Set<string>();
+
+  /**
+   * Qué se ve en la pestaña. Mismo patrón que la tarjeta de Assets: un
+   * conmutador arriba y una sección por modo. La lista de assets es contexto
+   * compartido de Manage y Send —hay que elegir sobre cuál operar—, así que se
+   * enseña en ambos y se esconde al crear, donde no viene a cuento.
+   */
+  function updateDepinCardMode(): void {
+    const isCreate = depinCardMode === 'CREATE';
+    const isManage = depinCardMode === 'MANAGE';
+    const isSend = depinCardMode === 'SEND';
+
+    elements.depinModeTabs!.querySelectorAll('.asset-mode-btn').forEach(btn => {
+      btn.classList.toggle('active',
+        (btn as HTMLElement).dataset.depinMode === depinCardMode);
+    });
+
+    elements.depinAssetsSection!.classList.toggle('hidden', isCreate);
+    elements.depinCreateSection!.classList.toggle('hidden', !isCreate);
+    elements.depinManageSection!.classList.toggle('hidden', !isManage);
+    elements.depinSendSection!.classList.toggle('hidden', !isSend);
+
+    if (isCreate) {
+      elements.depinCardTitle!.textContent = 'Create DePIN asset';
+      elements.depinCardCopy!.textContent =
+        'Soulbound device assets. Create a root asset, or a sub-asset under one you own.';
+    } else if (isManage) {
+      elements.depinCardTitle!.textContent = 'Manage devices';
+      elements.depinCardCopy!.textContent =
+        'Block or unblock the devices holding an asset, mint more units, or renounce your own.';
+    } else {
+      elements.depinCardTitle!.textContent = 'Send to a device';
+      elements.depinCardCopy!.textContent =
+        'Hand units of an asset you own to a device address.';
+    }
+
+    renderDepinSelectedAsset();
+  }
+
+  /** Pone al día lo que depende del asset elegido, en el modo actual. */
+  function renderDepinSelectedAsset(): void {
+    const asset = depinAssets.find(a => a.name === depinSelectedAsset);
+    const picked = Boolean(asset);
+
+    elements.depinManagePromptCard!.classList.toggle('hidden', picked);
+    elements.depinManageBody!.classList.toggle('hidden', !picked);
+    elements.depinSendPromptCard!.classList.toggle('hidden', picked);
+    elements.depinSendBody!.classList.toggle('hidden', !picked);
+    if (!asset) return;
+
+    elements.depinDevicesTitle!.textContent = `Devices holding ${asset.name}`;
+    elements.depinApplyBtn!.textContent = asset.owned
+      ? (depinMode === 'FREEZE' ? 'Block selected' : 'Unblock selected')
+      : 'Renounce my asset';
+    elements.depinModeToggle!.classList.toggle('hidden', !asset.owned);
+    elements.depinMintGroup!.classList.toggle('hidden', !asset.owned);
+
+    // Repartir exige el token owner: el nodo rechaza cualquier otra
+    // transferencia con bad-txns-depin-transfer-not-by-owner. Sin él se dice,
+    // en vez de dejar un formulario que sólo puede fallar.
+    elements.depinSendTitle!.textContent = `Assign ${asset.name} to a device`;
+    elements.depinSendBody!.classList.toggle('hidden', !asset.owned);
+    if (!asset.owned) {
+      elements.depinSendPromptCard!.classList.remove('hidden');
+      elements.depinSendPrompt!.textContent =
+        `You hold ${asset.name} but not its owner token, so you cannot move it. ` +
+        `Only the owner can — you can renounce it under Manage.`;
+    }
+  }
+
+  function depinWalletAddress(): string {
+    return String((state.wallet as Record<string, unknown> | null)?.address || '');
+  }
+
+  function depinNetwork(): string {
+    return ((state.wallet as Record<string, unknown> | null)?.network as string) || 'xna';
+  }
+
+  /** La pestaña sólo existe donde el nodo soporta DePIN. */
+  function updateDepinTabVisibility(): void {
+    const available = supportsDepin(depinNetwork());
+    elements.depinViewTab?.classList.toggle('hidden', !available);
+    if (!available && elements.depinViewTab?.classList.contains('active')) {
+      switchPortfolioView('balance');
+    }
+  }
+
+  function renderDepinAssets(): void {
+    const list = elements.depinAssetList!;
+    list.innerHTML = '';
+
+    if (depinAssets.length === 0) {
+      list.innerHTML =
+        '<div class="depin-empty">No DePIN assets in this wallet yet. Create one below.</div>';
+      return;
+    }
+
+    for (const asset of depinAssets) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'depin-asset-row' + (asset.name === depinSelectedAsset ? ' is-selected' : '');
+      row.dataset.depth = String(Math.min(asset.depth, 3));
+
+      const name = document.createElement('span');
+      name.className = 'depin-asset-name';
+      name.textContent = asset.name;
+
+      const amount = document.createElement('span');
+      amount.className = 'depin-device-amount';
+      amount.textContent = asset.amount.toLocaleString();
+
+      const role = document.createElement('span');
+      role.className = `depin-badge depin-badge--${asset.owned ? 'owner' : 'holder'}`;
+      role.textContent = asset.owned ? 'Owner' : 'Holder';
+      role.title = asset.owned
+        ? 'You hold the owner token: you can create sub-assets and block devices'
+        : 'You hold units but not the owner token: you can only renounce your own';
+
+      const action = document.createElement('span');
+      action.className = 'depin-badge depin-badge--holder';
+      action.textContent = asset.owned ? 'Manage' : 'Renounce';
+
+      row.append(name, amount, role, action);
+      row.addEventListener('click', () => selectDepinAsset(asset.name));
+      list.appendChild(row);
+    }
+  }
+
+  async function selectDepinAsset(assetName: string): Promise<void> {
+    if (depinSelectedAsset !== assetName) depinSelection.clear();
+    depinSelectedAsset = assetName;
+    renderDepinAssets();
+
+    // Quién puede hacer qué con este asset lo decide renderDepinSelectedAsset:
+    // así Manage y Send comparten una única regla en vez de dos copias.
+    renderDepinSelectedAsset();
+    elements.depinDevicesError!.classList.add('hidden');
+    elements.depinAssignError!.classList.add('hidden');
+    elements.depinMintError!.classList.add('hidden');
+    elements.depinDeviceList!.innerHTML =
+      '<div class="depin-empty">Asking the node who holds it…</div>';
+
+    try {
+      const rpc = buildRpcFn(depinNetwork());
+      const holders = await rpc('listdepinholders', [assetName]) as DepinHolder[] | null;
+      if (depinSelectedAsset !== assetName) return;   // el usuario cambió de asset
+      depinHolders = Array.isArray(holders) ? holders : [];
+      renderDepinDevices();
+    } catch (error) {
+      depinHolders = [];
+      elements.depinDeviceList!.innerHTML = '';
+      const msg = document.createElement('div');
+      msg.className = 'depin-empty';
+      msg.textContent = 'Could not read the holders: ' +
+        ((error as Error).message || 'unknown error');
+      elements.depinDeviceList!.appendChild(msg);
+    }
+  }
+
+  function renderDepinDevices(): void {
+    const list = elements.depinDeviceList!;
+    const hint = elements.depinDevicesHint!;
+    list.innerHTML = '';
+
+    if (depinHolders.length === 0) {
+      list.innerHTML = '<div class="depin-empty">No address holds this asset yet.</div>';
+      hint.textContent = '';
+      return;
+    }
+
+    const still = pruneDeviceSelection(depinSelection, depinHolders, depinMode);
+    depinSelection.clear();
+    still.forEach(a => depinSelection.add(a));
+
+    const me = depinWalletAddress();
+    const rows = toDeviceRows(depinHolders, depinMode,
+      { ownerAddress: me, formatAmount: n => n.toLocaleString() });
+
+    for (const rowModel of rows) {
+      const row = document.createElement('label');
+      row.className = 'depin-device-row' + (rowModel.selectable ? '' : ' depin-device-row--blocked');
+
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.disabled = !rowModel.selectable;
+      box.checked = depinSelection.has(rowModel.address);
+      box.dataset.addr = rowModel.address;
+      box.addEventListener('change', () => {
+        if (box.checked) depinSelection.add(rowModel.address);
+        else depinSelection.delete(rowModel.address);
+      });
+
+      const addr = document.createElement('span');
+      addr.className = 'depin-device-addr';
+      addr.textContent = rowModel.address;
+      if (rowModel.isSelf) {
+        const self = document.createElement('span');
+        self.className = 'depin-self';
+        self.textContent = '(this wallet)';
+        addr.appendChild(self);
+      }
+
+      const amount = document.createElement('span');
+      amount.className = 'depin-device-amount';
+      amount.textContent = rowModel.amountText;
+
+      const badge = document.createElement('span');
+      badge.className = `depin-badge depin-badge--${rowModel.stateKind}`;
+      badge.textContent = rowModel.stateText;
+      badge.title = rowModel.stateTitle;
+
+      row.append(box, addr, amount, badge);
+      list.appendChild(row);
+    }
+
+    const available = rows.filter(r => r.selectable).length;
+    const blocked = depinHolders.filter(h => h.valid !== 1).length;
+    hint.textContent =
+      `${depinHolders.length} device${depinHolders.length === 1 ? '' : 's'}, ` +
+      `${blocked} blocked — ${available} available to ${depinMode === 'FREEZE' ? 'block' : 'unblock'}.`;
+    elements.depinSelectAll!.disabled = available === 0;
+  }
+
+  /** Recarga los assets del monedero y el desplegable de padres. */
+  async function refreshDepinAssets(): Promise<void> {
+    const address = depinWalletAddress();
+    if (!address) return;
+
+    elements.depinRefreshBtn!.disabled = true;
+    elements.depinAssetList!.innerHTML = '<div class="depin-empty">Loading…</div>';
+    try {
+      const rpc = buildRpcFn(depinNetwork());
+      const balances = await rpc('listassetbalancesbyaddress', [address]) as Record<string, unknown> | null;
+      depinAssets = parseDepinAssets(balances);
+      renderDepinAssets();
+
+      const select = elements.depinParentSelect!;
+      const previous = select.value;
+      select.innerHTML = '<option value="">-- Root asset (no parent) --</option>';
+      for (const parent of manageableDepinParents(balances)) {
+        const opt = document.createElement('option');
+        opt.value = parent;
+        opt.textContent = parent;
+        select.appendChild(opt);
+      }
+      if (previous) select.value = previous;
+      updateDepinCreateHints();
+    } catch (error) {
+      elements.depinAssetList!.innerHTML = '';
+      const msg = document.createElement('div');
+      msg.className = 'depin-empty';
+      msg.textContent = 'Could not load your assets: ' + ((error as Error).message || 'unknown error');
+      elements.depinAssetList!.appendChild(msg);
+    } finally {
+      elements.depinRefreshBtn!.disabled = false;
+    }
+  }
+
+  /** El nombre completo que se va a emitir, según haya padre o no. */
+  function depinNameToCreate(): string {
+    const parent = elements.depinParentSelect!.value;
+    const typed = (elements.depinNewName!.value || '').trim().toUpperCase();
+    if (!typed) return '';
+    return parent ? `${parent}/${typed}` : `&${typed.replace(/^&/, '')}`;
+  }
+
+  function updateDepinCreateHints(): void {
+    const parent = elements.depinParentSelect!.value;
+    elements.depinParentHint!.textContent = parent
+      ? `Spends and returns ${parent}! — the immediate parent's owner token`
+      : 'A sub-asset spends and returns its parent\'s owner token';
+    elements.depinNewName!.placeholder = parent ? 'SENSOR' : '&FLEET';
+    const full = depinNameToCreate();
+    elements.depinNameHint!.textContent = full
+      ? `Will create ${full}`
+      : '3+ characters, A-Z 0-9 _ .';
+  }
+
   function switchPortfolioView(view: string) {
     const tabs = elements.portfolioViewTabs;
     if (!tabs) return;
@@ -1021,7 +1322,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.portfolioBalancePanel?.classList.toggle('hidden', view !== 'balance');
     elements.portfolioSendPanel?.classList.toggle('hidden', view !== 'send');
     elements.portfolioAssetsPanel?.classList.toggle('hidden', view !== 'assets');
+    elements.portfolioDepinPanel?.classList.toggle('hidden', view !== 'depin');
     if (view === 'send') populateSendAssetSelect();
+    if (view === 'depin') {
+      updateDepinCardMode();
+      refreshDepinAssets();
+    }
   }
 
   function setSendMode(mode: string) {
@@ -1038,7 +1344,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const select = elements.sendAssetSelect;
     if (!select) return;
     const previous = select.value;
-    const ownedAssets = (state.assets as Array<{ name: string; amountText: string }>) || [];
+    // Un DePIN no se envía como cualquier asset: el nodo exige que lo firme el
+    // owner y que la transacción escolte el token owner
+    // (bad-txns-depin-transfer-not-by-owner). Se reparte desde la pestaña
+    // DePIN, que sí conoce esa regla y sabe si tienes el token.
+    const ownedAssets = ((state.assets as Array<{ name: string; amountText: string }>) || [])
+      .filter(a => !a.name.startsWith('&'));
     select.replaceChildren(
       option('', '-- Select asset --'),
       ...ownedAssets.map((a) => option(a.name, a.name + ' (' + a.amountText + ')'))
@@ -1553,6 +1864,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     updateCardMode('CREATE');
     updateCreateAssetUI();
     updateConfigureAssetUI();
+    updateDepinTabVisibility();
 
     // Create-asset form fields and populated selects (parent owner tokens,
     // restricted-base options, verifier tags) are all wallet-scoped.
@@ -3547,10 +3859,18 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const isUnique = type === 'UNIQUE';
     const isQualifier = type === 'QUALIFIER';
     const isRestricted = type === 'RESTRICTED';
-    const isDepin = type === 'DEPIN';
     const isReissue = type === 'REISSUE';
     const needsParent = isSub || isUnique || isReissue;
     const usesAssetNameInput = !needsParent && !isRestricted;
+
+    // Todo lo DePIN vive en su propia pestaña. Si el estado quedó en DEPIN
+    // —una sesión anterior, por ejemplo— se vuelve a Root en vez de dejar
+    // activo un tipo que este formulario ya no sabe construir.
+    if (type === 'DEPIN') {
+      state.createAssetType = 'ROOT';
+      updateCreateAssetUI();
+      return;
+    }
 
     // Tab active state
     elements.assetTypeTabs!.querySelectorAll('.asset-type-tab').forEach(btn => {
@@ -3581,9 +3901,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.caQuantityGroup!.classList.toggle('hidden', isUnique);
     elements.caQuantityLabel!.textContent = isReissue ? 'Additional Quantity' : 'Quantity';
 
-    // Units: hidden for QUALIFIER, UNIQUE, DEPIN, REISSUE (units can't change on reissue)
-    elements.caUnitsGroup!.classList.toggle('hidden', isQualifier || isUnique || isDepin || isReissue);
-    if (isDepin) elements.caUnits!.value = '0';
+    // Units: hidden for QUALIFIER, UNIQUE, REISSUE (units can't change on reissue)
+    elements.caUnitsGroup!.classList.toggle('hidden', isQualifier || isUnique || isReissue);
 
     // Reissuable: hidden for QUALIFIER and UNIQUE; label changes for REISSUE
     elements.caReissuableGroup!.classList.toggle('hidden', isQualifier || isUnique);
@@ -3615,10 +3934,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       elements.caAssetNameHint!.textContent = 'Name without # prefix — e.g. KYC_VERIFIED';
       elements.caQuantity!.max = '10';
       elements.caQuantity!.placeholder = '1';
-    } else if (type === 'DEPIN') {
-      elements.caAssetName!.placeholder = '&DEVICE/ROUTER001';
-      elements.caAssetNameHint!.textContent = 'Use &NAME or &ROOT/SUB. DePIN assets always use 0 decimals.';
-      elements.caQuantity!.placeholder = '1';
     } else if (type === 'RESTRICTED') {
       elements.caRestrictedBaseHint!.textContent = 'Select the root asset you control; the addon will issue its restricted form as $ASSET.';
     }
@@ -3626,7 +3941,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     // Reset quantity limits when leaving QUALIFIER
     if (!isQualifier) {
       elements.caQuantity!.max = '21000000000';
-      if (!isDepin) elements.caQuantity!.placeholder = '1000000';
+      elements.caQuantity!.placeholder = '1000000';
     }
 
     elements.caAssetName!.dispatchEvent(new Event('input'));
@@ -3791,17 +4106,6 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         result = await neuraiAssets.createQualifier({
           qualifierName,
           quantity: Number(elements.caQuantity!.value) || 1,
-          hasIpfs: !!elements.caIpfsHash!.value.trim(),
-          ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
-        });
-      } else if (type === 'DEPIN') {
-        const raw = elements.caAssetName!.value.trim().toUpperCase();
-        if (!raw) throw new Error('DePIN asset name is required.');
-        const assetName = raw.startsWith('&') ? raw : `&${raw}`;
-        result = await neuraiAssets.createDepinAsset({
-          assetName,
-          quantity: Number(elements.caQuantity!.value) || 1,
-          reissuable: elements.caReissuable!.checked,
           hasIpfs: !!elements.caIpfsHash!.value.trim(),
           ipfsHash: elements.caIpfsHash!.value.trim() || undefined,
         });
@@ -4184,7 +4488,33 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       state.pendingSignedTx = null;
       elements.caTxConfirmModal!.classList.add('hidden');
 
-      if (pendingKind === 'send-xna' || pendingKind === 'send-asset') {
+      if (pendingKind === 'depin') {
+        // El usuario está en la pestaña DePIN: el resultado va ahí, no a la
+        // tarjeta de Assets que no tiene delante.
+        if (elements.depinTxid) elements.depinTxid.textContent = txid;
+        if (elements.depinTxExplorerLink) {
+          const explorerUrl = resolveExplorerTxUrl(
+            (state.wallet as Record<string, unknown>)?.network as string | undefined,
+            txid,
+            state.settings as WalletSettings | null
+          );
+          if (explorerUrl) {
+            elements.depinTxExplorerLink.href = explorerUrl;
+            elements.depinTxExplorerLink.classList.remove('hidden');
+          } else {
+            elements.depinTxExplorerLink.classList.add('hidden');
+          }
+        }
+        elements.depinResult?.classList.remove('hidden');
+        // La lista todavía no refleja la transacción: está en el mempool, no
+        // minada. Se recarga igualmente para que el siguiente Refresh no sea
+        // el primero que enseñe algo distinto.
+        depinSelection.clear();
+        refreshDepinAssets().catch(() => { /* best-effort */ });
+        if (depinSelectedAsset) selectDepinAsset(depinSelectedAsset).catch(() => { });
+        updateDepinCardMode();
+        refreshBalance().catch(() => { /* best-effort */ });
+      } else if (pendingKind === 'send-xna' || pendingKind === 'send-asset') {
         // Render success inside the Send panel
         if (elements.sendTxid) elements.sendTxid.textContent = txid;
         if (elements.sendTxExplorerLink) {
@@ -4260,8 +4590,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       // listassetbalancesbyaddress returns {assetName: amount, ...}
       const balances = await rpc('listassetbalancesbyaddress', [address]) as Record<string, number> | null;
+      // Los DePIN se gestionan en su propia pestaña: ofrecerlos aquí llevaría a
+      // crear sub-DePIN o reemitirlos desde un formulario que no conoce sus
+      // reglas (0 decimales, escolta del token owner del padre).
       const ownerTokens = balances
-        ? Object.keys(balances).filter(name => name.endsWith('!') && balances[name] > 0)
+        ? Object.keys(balances).filter(name =>
+            name.endsWith('!') && balances[name] > 0 && !name.startsWith('&'))
         : [];
 
       if (ownerTokens.length === 0) {
@@ -4444,8 +4778,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.createAssetPanel!.classList.toggle('hidden', !isCreate);
     elements.configureAssetPanel!.classList.toggle('hidden', isCreate);
     elements.caCardTitle!.textContent = isCreate ? 'Create Asset' : 'Configure Asset';
+    // Los DePIN se crean y se gestionan en su propia pestaña.
     elements.caCardCopy!.textContent = isCreate
-      ? 'Issue new tokens, NFTs or DePIN assets on the Neurai network.'
+      ? 'Issue new tokens and NFTs on the Neurai network.'
       : 'Manage existing assets — tag addresses, reissue or freeze.';
     elements.caResult!.classList.add('hidden');
     if (mode === 'CONFIGURE') {
@@ -4906,6 +5241,229 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
   }
 
+  /**
+   * Construye, firma y ofrece una operación DePIN.
+   *
+   * Comparte con crear asset y enviar exactamente el mismo camino: el cliente
+   * de neurai-assets con el marcador ya resuelto, la ventana de confirmación
+   * que se abre antes de tener la transacción, y `handleBroadcast`. Lo único
+   * propio es qué método de la librería se llama.
+   */
+  async function runDepinOperation(
+    title: string,
+    ghostRows: number,
+    errorEl: HTMLElement,
+    button: HTMLButtonElement,
+    run: (assets: NeuraiAssets) => Promise<NeuraiAssetsBuildResult>
+  ): Promise<void> {
+    errorEl.textContent = '';
+    errorEl.classList.add('hidden');
+    button.disabled = true;
+    const prep = openTxConfirmPreparing(title, ghostRows);
+
+    try {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      if (!wallet?.address) throw new Error('No wallet loaded. Please unlock first.');
+      if (isAddonLocked()) throw new Error('Wallet is locked. Unlock first.');
+
+      const network = depinNetwork();
+      if (!supportsDepin(network)) {
+        throw new Error('DePIN assets are not available on this network yet.');
+      }
+      const address = wallet.address as string;
+      const rpc = buildRpcFn(network);
+
+      const neuraiAssets = await createNeuraiAssetsClient(rpc, {
+        network,
+        addresses: [address],
+        changeAddress: address,
+        toAddress: address
+      });
+
+      setConfirmProgress(prep, 'Selecting inputs and estimating the fee…');
+      let result = await run(neuraiAssets);
+
+      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
+        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
+        : (state.settings.rpcMainnet || C.RPC_URL);
+
+      setConfirmProgress(prep, 'Signing…');
+      let signedHex = await signRawTx(result.rawTx, rpcUrl);
+
+      if (network === 'xna-pq' || network === 'xna-pq-test') {
+        setConfirmProgress(prep, 'Checking the relay fee…');
+        const adjusted = await ensureAuthScriptAssetRelayFee(
+          result, signedHex, address, rpcUrl, rpc, 'depin');
+        result = adjusted.buildResult;
+        signedHex = adjusted.signedHex;
+      }
+
+      button.disabled = false;
+      if (!isPreparationCurrent(prep)) return;
+
+      state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result, kind: 'depin' };
+      showTxConfirmModal(result, signedHex);
+    } catch (err) {
+      const cancelled = !isPreparationCurrent(prep);
+      confirmPreparing.closeIfPreparing();
+      button.disabled = false;
+      if (cancelled) return;
+      errorEl.textContent = (err as Error).message || 'Unknown error';
+      errorEl.classList.remove('hidden');
+    }
+  }
+
+  /** Bloquear, desbloquear o renunciar, según el asset y el modo. */
+  async function handleDepinDeviceAction(): Promise<void> {
+    const asset = depinAssets.find(a => a.name === depinSelectedAsset);
+    if (!asset) return;
+
+    // Sin token owner sólo cabe renunciar al propio, que no necesita selección.
+    if (!asset.owned) {
+      await runDepinOperation(
+        'Confirm DePIN Renounce', 3,
+        elements.depinDevicesError!, elements.depinApplyBtn!,
+        assets => assets.selfRevokeDepin({ assetName: asset.name })
+      );
+      return;
+    }
+
+    const addresses = [...depinSelection];
+    const reason = blockingReasonForFreeze(addresses, depinWalletAddress());
+    if (reason) {
+      elements.depinDevicesError!.textContent = reason;
+      elements.depinDevicesError!.classList.remove('hidden');
+      return;
+    }
+
+    const freeze = depinMode === 'FREEZE';
+    await runDepinOperation(
+      freeze ? 'Confirm Device Block' : 'Confirm Device Unblock',
+      Math.min(addresses.length + 2, 6),
+      elements.depinDevicesError!, elements.depinApplyBtn!,
+      assets => freeze
+        ? assets.freezeAddresses({ assetName: asset.name, addresses })
+        : assets.unfreezeAddresses({ assetName: asset.name, addresses })
+    );
+  }
+
+  /** Repartir unidades del asset a un dispositivo. */
+  async function handleDepinAssign(): Promise<void> {
+    const asset = depinAssets.find(a => a.name === depinSelectedAsset);
+    if (!asset) return;
+
+    const address = (elements.depinAssignAddress!.value || '').trim();
+    const amount = Number(elements.depinAssignAmount!.value);
+    const fail = (message: string) => {
+      elements.depinAssignError!.textContent = message;
+      elements.depinAssignError!.classList.remove('hidden');
+    };
+
+    if (!address) return fail('Enter the device address.');
+    if (address === depinWalletAddress()) {
+      return fail('That is this wallet\'s own address; pick the device you want to assign to.');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) return fail('Amount must be greater than 0.');
+    if (!Number.isInteger(amount)) return fail('DePIN assets have no decimals: use a whole number.');
+    if (amount > asset.amount) {
+      return fail(`This wallet holds ${asset.amount} ${asset.name}; cannot assign ${amount}.`);
+    }
+
+    await runDepinOperation(
+      'Confirm Device Assignment', 4,
+      elements.depinAssignError!, elements.depinAssignBtn!,
+      assets => assets.transferAsset({
+        assetName: asset.name,
+        recipients: [{ address, amount }]
+      })
+    );
+  }
+
+  /** Emitir más unidades de un DePIN que ya existe. */
+  async function handleDepinMint(): Promise<void> {
+    const asset = depinAssets.find(a => a.name === depinSelectedAsset);
+    if (!asset) return;
+
+    const amount = Number(elements.depinMintAmount!.value);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      elements.depinMintError!.textContent =
+        'Amount must be a whole number greater than 0 — DePIN assets have no decimals.';
+      elements.depinMintError!.classList.remove('hidden');
+      return;
+    }
+
+    await runDepinOperation(
+      'Confirm DePIN Mint', 4,
+      elements.depinMintError!, elements.depinMintBtn!,
+      assets => assets.reissueAsset({ assetName: asset.name, quantity: amount })
+    );
+  }
+
+  async function handleDepinCreate(): Promise<void> {
+    const assetName = depinNameToCreate();
+    if (!assetName) {
+      elements.depinCreateError!.textContent = 'Enter a name for the asset.';
+      elements.depinCreateError!.classList.remove('hidden');
+      return;
+    }
+    const quantity = Number(elements.depinNewQuantity!.value) || 1;
+
+    await runDepinOperation(
+      depinParent(assetName) ? 'Confirm Sub-DePIN Creation' : 'Confirm DePIN Creation',
+      depinParent(assetName) ? 5 : 4,
+      elements.depinCreateError!, elements.depinCreateBtn!,
+      assets => assets.createDepinAsset({ assetName, quantity })
+    );
+  }
+
+  function bindDepinPanel(): void {
+    if (!elements.portfolioDepinPanel) return;
+
+    elements.depinRefreshBtn?.addEventListener('click', () => { refreshDepinAssets(); });
+    elements.depinCreateRefreshBtn?.addEventListener('click', () => { refreshDepinAssets(); });
+
+    elements.depinModeTabs?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.asset-mode-btn') as HTMLElement | null;
+      const mode = btn?.dataset.depinMode;
+      if (mode !== 'CREATE' && mode !== 'MANAGE' && mode !== 'SEND') return;
+      depinCardMode = mode;
+      updateDepinCardMode();
+      // Manage y Send necesitan la lista para elegir asset; al crear no.
+      if (mode !== 'CREATE' && depinAssets.length === 0) refreshDepinAssets();
+    });
+
+    elements.depinModeToggle?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.depin-mode-btn') as HTMLElement | null;
+      if (!btn?.dataset.mode) return;
+      depinMode = btn.dataset.mode as DeviceMode;
+      elements.depinModeToggle!.querySelectorAll('.depin-mode-btn').forEach(b => {
+        b.classList.toggle('active', (b as HTMLElement).dataset.mode === depinMode);
+      });
+      elements.depinApplyBtn!.textContent =
+        depinMode === 'FREEZE' ? 'Block selected' : 'Unblock selected';
+      renderDepinDevices();
+    });
+
+    elements.depinSelectAll?.addEventListener('click', () => {
+      toDeviceRows(depinHolders, depinMode)
+        .filter(r => r.selectable)
+        .forEach(r => depinSelection.add(r.address));
+      renderDepinDevices();
+    });
+    elements.depinClearSelection?.addEventListener('click', () => {
+      depinSelection.clear();
+      renderDepinDevices();
+    });
+
+    elements.depinApplyBtn?.addEventListener('click', () => { handleDepinDeviceAction(); });
+    elements.depinCreateBtn?.addEventListener('click', () => { handleDepinCreate(); });
+    elements.depinAssignBtn?.addEventListener('click', () => { handleDepinAssign(); });
+    elements.depinMintBtn?.addEventListener('click', () => { handleDepinMint(); });
+
+    elements.depinParentSelect?.addEventListener('change', updateDepinCreateHints);
+    elements.depinNewName?.addEventListener('input', updateDepinCreateHints);
+  }
+
   function bindCreateAsset() {
     if (!elements.createAssetCard) return;
 
@@ -4925,13 +5483,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     // Allowed chars per field: A-Z 0-9 _ .  (separator / or # not needed — handled by parent selector)
     const alphaNumDotUnderscore = /[A-Z0-9_.]/;
-    const depinAssetNameChars = /[A-Z0-9_./&]/;
 
-    bindAssetNameInput(elements.caAssetName!, {
-      test(char: string) {
-        return (state.createAssetType === 'DEPIN' ? depinAssetNameChars : alphaNumDotUnderscore).test(char);
-      }
-    });
+    bindAssetNameInput(elements.caAssetName!, alphaNumDotUnderscore);
     bindAssetNameInput(elements.caSubName!, alphaNumDotUnderscore);
     bindAssetNameInput(elements.caTag!, alphaNumDotUnderscore);
     renderVerifierPreview();

@@ -29,6 +29,18 @@
   --radius-md: 16px;
   --radius-sm: 12px;
 
+  /* Distintivos: fondo tenue con texto OSCURO. Usar el mismo tono para el
+   * fondo y el texto —verde claro sobre verde claro— es lo que los hacía
+   * ilegibles. Verificado con el ratio de contraste WCAG, no a ojo. */
+  --badge-ok-bg: rgba(21, 128, 61, 0.14);
+  --badge-ok-fg: #166534;
+  --badge-bad-bg: rgba(185, 28, 28, 0.12);
+  --badge-bad-fg: #b91c1c;
+  --badge-owner-bg: rgba(67, 56, 202, 0.13);
+  --badge-owner-fg: #4338ca;
+  --badge-neutral-bg: rgba(71, 85, 105, 0.13);
+  --badge-neutral-fg: #475569;
+
   --shadow-sm: 0 10px 30px rgba(15, 23, 42, 0.06);
   --shadow-md: 0 20px 48px rgba(15, 23, 42, 0.1);
   --shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.16);
@@ -58,6 +70,16 @@
 
   --border: rgba(148, 163, 184, 0.18);
   --border-strong: rgba(148, 163, 184, 0.28);
+
+  /* En oscuro se invierte: fondo tenue con texto CLARO. */
+  --badge-ok-bg: rgba(34, 197, 94, 0.16);
+  --badge-ok-fg: #86efac;
+  --badge-bad-bg: rgba(248, 113, 113, 0.16);
+  --badge-bad-fg: #fca5a5;
+  --badge-owner-bg: rgba(129, 140, 248, 0.18);
+  --badge-owner-fg: #c7d2fe;
+  --badge-neutral-bg: rgba(148, 163, 184, 0.18);
+  --badge-neutral-fg: #cbd5e1;
 
   --shadow-sm: 0 12px 32px rgba(0, 0, 0, 0.28);
   --shadow-md: 0 20px 54px rgba(0, 0, 0, 0.34);
@@ -2072,9 +2094,9 @@ select:focus,
   border-radius: 999px;
   white-space: nowrap;
 }
-.cf-holder-state--frozen  { background: rgba(59,130,246,.16); color: #60a5fa; }
-.cf-holder-state--free    { background: rgba(34,197,94,.12);  color: var(--success); }
-.cf-holder-state--unknown { background: rgba(148,163,184,.18); color: var(--text-muted); }
+.cf-holder-state--frozen  { background: var(--badge-bad-bg);     color: var(--badge-bad-fg); }
+.cf-holder-state--free    { background: var(--badge-ok-bg);      color: var(--badge-ok-fg); }
+.cf-holder-state--unknown { background: var(--badge-neutral-bg); color: var(--badge-neutral-fg); }
 
 .cf-holders-foot {
   display: flex;
@@ -2096,6 +2118,211 @@ select:focus,
 .cf-holders-empty {
   padding: 14px 10px;
   text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* --- Pestaña DePIN --------------------------------------------------------
+ *
+ * DePIN vivía como un tipo más del formulario de crear asset, con sus
+ * diferencias expresadas como negaciones repartidas por código compartido.
+ * Aquí tiene su propio sitio: sus assets, sus dispositivos y su creación.
+ */
+
+
+
+
+.depin-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.depin-asset-list,
+.depin-device-list {
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+
+/* Un asset: nombre, cantidad, si se gestiona, y qué se puede hacer. */
+.depin-asset-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+}
+.depin-asset-row:hover { background: var(--bg-muted); }
+.depin-asset-row.is-selected {
+  background: var(--primary-soft);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.depin-asset-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  color: var(--text-primary);
+}
+/* La sangría hace legible la jerarquía &A > &A/B > &A/B/C de un vistazo. */
+.depin-asset-row[data-depth="1"] .depin-asset-name { padding-left: 14px; }
+.depin-asset-row[data-depth="2"] .depin-asset-name { padding-left: 28px; }
+.depin-asset-row[data-depth="3"] .depin-asset-name { padding-left: 42px; }
+
+.depin-badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.depin-badge--owner   { background: var(--badge-owner-bg);   color: var(--badge-owner-fg); }
+.depin-badge--holder  { background: var(--badge-neutral-bg); color: var(--badge-neutral-fg); }
+.depin-badge--active  { background: var(--badge-ok-bg);      color: var(--badge-ok-fg); }
+.depin-badge--blocked { background: var(--badge-bad-bg);     color: var(--badge-bad-fg); }
+
+.depin-device-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.depin-device-row:hover { background: var(--bg-muted); }
+.depin-device-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+/* Una fila bloqueada se sigue leyendo —es información— pero no se marca. */
+.depin-device-row--blocked { opacity: .58; }
+.depin-device-row--blocked input[type="checkbox"] { cursor: not-allowed; }
+.depin-device-addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+.depin-device-addr .depin-self {
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 11px;
+  margin-left: 6px;
+}
+.depin-device-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.depin-mode-toggle { display: flex; gap: 4px; }
+.depin-mode-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.depin-mode-btn.active {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.depin-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.depin-actions .btn { margin-left: auto; }
+
+.depin-create-form { display: grid; gap: 12px; }
+.depin-empty {
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.depin-result {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(34,197,94,.12);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.depin-result code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+.depin-explorer-link { margin-left: 8px; color: var(--primary); }
+
+/* Repartir un DePIN a un dispositivo. Es gestión, no un envío cualquiera:
+ * el nodo exige que la firme el owner y que escolte el token owner. */
+
+
+
+
+
+/* El conmutador de la pestaña DePIN, con el mismo aspecto que el de Assets. */
+
+
+/* --- Pestaña DePIN: mismo lenguaje visual que la tarjeta de Assets -------- */
+
+/* La barra lateral no es sólo un conmutador: cada opción explica qué hace,
+ * porque «Manage» a secas no dice si sirve para bloquear, emitir o renunciar. */
+/* Tres opciones en fila, como el conmutador de Assets. Qué hace cada una se
+ * cuenta justo debajo, en el section-intro que cambia con el modo: repetirlo
+ * en el botón lo decía dos veces y hacía la barra el doble de alta. */
+.depin-mode-toggle-side {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Cada bloque es su propia tarjeta: dispositivos y emitir son operaciones
+ * distintas y mezclarlas en una sola caja las hacía parecer la misma. */
+.depin-card {
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+}
+.depin-manage-stack { display: grid; gap: 18px; }
+
+.depin-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.depin-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.depin-form-row {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.depin-form-row label {
   font-size: 12px;
   color: var(--text-muted);
 }

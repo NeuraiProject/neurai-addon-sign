@@ -30,7 +30,8 @@ declare global {
     | 'FREEZE_ADDRESSES'
     | 'UNFREEZE_ADDRESSES'
     | 'FREEZE_ASSET'
-    | 'UNFREEZE_ASSET';
+    | 'UNFREEZE_ASSET'
+    | 'SELF_REVOKE_DEPIN';
 
   type NeuraiAssetsBuildStrategy = 'rpc-node' | 'local-builder';
 
@@ -176,6 +177,13 @@ declare global {
     unfreezeAssetGlobally(params: NeuraiAssetsFreezeParams): Promise<NeuraiAssetsBuildResult>;
     checkAddressTag(address: string, qualifierName: string): Promise<boolean>;
     listTagsForAddress(address: string): Promise<string[]>;
+    /**
+     * Un titular renuncia a su propio asset DePIN (1.6.0+). No necesita el
+     * token owner: la prueba es gastar su propia UTXO del asset.
+     */
+    selfRevokeDepin(params: { assetName: string; holderAddress?: string }): Promise<NeuraiAssetsBuildResult>;
+    /** Direcciones con clave pública revelada (1.6.0+, el nodo necesita -pubkeyindex). */
+    listDepinAddresses(assetName: string, count?: number, start?: number): Promise<Array<{ address: string; pubkey: string }>>;
     listDepinHolders(assetName: string): Promise<unknown[]>;
     checkDepinValidity(assetName: string, address: string): Promise<unknown>;
     assetExists(assetName: string): Promise<boolean>;

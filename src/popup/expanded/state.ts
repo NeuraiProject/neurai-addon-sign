@@ -28,6 +28,6 @@ export const state = {
     hex: string;
     rpcUrl: string;
     buildResult: NeuraiAssetsBuildResult;
-    kind?: 'asset-op' | 'send-xna' | 'send-asset';
+    kind?: 'asset-op' | 'send-xna' | 'send-asset' | 'depin';
   } | null,
 };

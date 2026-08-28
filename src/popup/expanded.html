@@ -125,6 +125,10 @@
               <span class="portfolio-tab-eyebrow">Blockchain</span>
               <span class="portfolio-tab-title">Assets</span>
             </button>
+            <button class="portfolio-view-tab hidden" data-view="depin" id="depinViewTab" type="button" role="tab" aria-selected="false">
+              <span class="portfolio-tab-eyebrow">Devices</span>
+              <span class="portfolio-tab-title">DePIN</span>
+            </button>
           </div>
         </div>
 
@@ -254,7 +258,6 @@
               <button class="asset-type-tab" data-type="UNIQUE" type="button" role="tab">NFT</button>
               <button class="asset-type-tab" data-type="QUALIFIER" type="button" role="tab">Qualifier</button>
               <button class="asset-type-tab" data-type="RESTRICTED" type="button" role="tab">Restricted</button>
-              <button class="asset-type-tab" data-type="DEPIN" type="button" role="tab">DePIN</button>
               <button class="asset-type-tab" data-type="REISSUE" type="button" role="tab">Reissue</button>
             </div>
 
@@ -469,6 +472,153 @@
               <button class="btn btn-secondary btn-small" id="caNewBtn" type="button">Done</button>
             </div>
           </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="portfolio-view-panel hidden" id="portfolioDepinPanel" role="tabpanel">
+          <div class="create-asset-card">
+            <div class="create-asset-sidebar">
+              <div class="depin-mode-toggle-side" id="depinModeTabs">
+                <button class="asset-mode-btn active" data-depin-mode="CREATE" type="button">Create</button>
+                <button class="asset-mode-btn" data-depin-mode="MANAGE" type="button">Manage</button>
+                <button class="asset-mode-btn" data-depin-mode="SEND" type="button">Send</button>
+              </div>
+
+              <div class="section-intro">
+                <p class="eyebrow">Testnet only</p>
+                <h2 id="depinCardTitle">Create DePIN asset</h2>
+                <p class="section-copy" id="depinCardCopy">
+                  Soulbound device assets. Create a root asset, or a sub-asset under one you own.
+                </p>
+              </div>
+
+              <div class="create-asset-side-note">
+                <p class="panel-label">Soulbound</p>
+                <p>A DePIN asset cannot be moved by whoever holds it — only by the owner. A holder can always renounce its own.</p>
+              </div>
+            </div>
+
+            <div class="create-asset-body">
+              <p class="depin-result hidden" id="depinResult">
+                Broadcast — <code id="depinTxid"></code>
+                <a class="depin-explorer-link hidden" id="depinTxExplorerLink" target="_blank" rel="noopener">View in explorer</a>
+              </p>
+
+              <!-- Qué asset: contexto compartido por Manage y Send -->
+              <section class="depin-card hidden" id="depinAssetsSection">
+                <div class="depin-card-head">
+                  <h3>My DePIN assets</h3>
+                  <button class="btn btn-secondary btn-small" id="depinRefreshBtn" type="button">Refresh</button>
+                </div>
+                <div class="depin-asset-list" id="depinAssetList"></div>
+              </section>
+
+              <!-- CREATE -->
+              <section class="depin-card" id="depinCreateSection">
+                <div class="depin-card-head">
+                  <h3>New DePIN asset or sub-asset</h3>
+                  <button class="btn btn-secondary btn-small" id="depinCreateRefreshBtn" type="button">Refresh</button>
+                </div>
+                <div class="create-asset-form">
+                  <div class="form-group">
+                    <label for="depinParentSelect">Parent</label>
+                    <select id="depinParentSelect">
+                      <option value="">-- Root asset (no parent) --</option>
+                    </select>
+                    <span class="form-hint" id="depinParentHint">
+                      A sub-asset spends and returns its parent's owner token
+                    </span>
+                  </div>
+                  <div class="form-group">
+                    <label for="depinNewName">Name</label>
+                    <input type="text" id="depinNewName" placeholder="&amp;FLEET" spellcheck="false" autocomplete="off">
+                    <span class="form-hint" id="depinNameHint">3+ characters, A-Z 0-9 _ .</span>
+                  </div>
+                  <div class="form-group">
+                    <label for="depinNewQuantity">Quantity</label>
+                    <input type="number" id="depinNewQuantity" min="1" placeholder="1" value="1">
+                    <span class="form-hint">DePIN assets always use 0 decimals</span>
+                  </div>
+                  <div class="settings-actions">
+                    <button class="btn btn-primary" id="depinCreateBtn" type="button">Create DePIN Asset</button>
+                  </div>
+                  <p class="create-asset-error hidden" id="depinCreateError"></p>
+                </div>
+              </section>
+
+              <!-- MANAGE -->
+              <div class="hidden" id="depinManageSection">
+                <section class="depin-card hidden" id="depinManagePromptCard">
+                  <p class="depin-empty" id="depinManagePrompt">Pick one of your DePIN assets above.</p>
+                </section>
+
+                <div class="depin-manage-stack hidden" id="depinManageBody">
+                  <section class="depin-card">
+                    <div class="depin-card-head">
+                      <h3 id="depinDevicesTitle">Devices</h3>
+                      <div class="depin-mode-toggle" id="depinModeToggle" role="tablist">
+                        <button class="depin-mode-btn active" data-mode="FREEZE" type="button" role="tab">Block</button>
+                        <button class="depin-mode-btn" data-mode="UNFREEZE" type="button" role="tab">Unblock</button>
+                      </div>
+                    </div>
+                    <p class="depin-hint" id="depinDevicesHint"></p>
+                    <div class="depin-device-list" id="depinDeviceList"></div>
+                    <div class="depin-actions">
+                      <button class="cf-holders-link" id="depinSelectAll" type="button">Select all available</button>
+                      <button class="cf-holders-link" id="depinClearSelection" type="button">Clear</button>
+                      <button class="btn btn-primary btn-small" id="depinApplyBtn" type="button">Block selected</button>
+                    </div>
+                    <p class="create-asset-error hidden" id="depinDevicesError"></p>
+                  </section>
+
+                  <section class="depin-card hidden" id="depinMintGroup">
+                    <div class="depin-card-head">
+                      <h3>Mint more units</h3>
+                    </div>
+                    <p class="depin-hint">
+                      Only if the asset was created as reissuable. Costs 200 XNA burned.
+                    </p>
+                    <div class="depin-form-row">
+                      <label for="depinMintAmount">Additional units</label>
+                      <input type="number" id="depinMintAmount" min="1" value="1" placeholder="1">
+                    </div>
+                    <div class="depin-actions">
+                      <button class="btn btn-primary btn-small" id="depinMintBtn" type="button">Mint units</button>
+                    </div>
+                    <p class="create-asset-error hidden" id="depinMintError"></p>
+                  </section>
+                </div>
+              </div>
+
+              <!-- SEND -->
+              <div class="hidden" id="depinSendSection">
+                <section class="depin-card hidden" id="depinSendPromptCard">
+                  <p class="depin-empty" id="depinSendPrompt">Pick one of your DePIN assets above.</p>
+                </section>
+
+                <section class="depin-card hidden" id="depinSendBody">
+                  <div class="depin-card-head">
+                    <h3 id="depinSendTitle">Assign to a device</h3>
+                  </div>
+                  <p class="depin-hint" id="depinSendHint">
+                    A DePIN transfer must be signed by the owner and escorts the owner
+                    token, so it can only be done from the wallet that owns the asset.
+                  </p>
+                  <div class="depin-form-row">
+                    <label for="depinAssignAddress">Device address</label>
+                    <input type="text" id="depinAssignAddress" placeholder="Device address…" spellcheck="false" autocomplete="off">
+                  </div>
+                  <div class="depin-form-row">
+                    <label for="depinAssignAmount">Units</label>
+                    <input type="number" id="depinAssignAmount" min="1" value="1" placeholder="1">
+                  </div>
+                  <div class="depin-actions">
+                    <button class="btn btn-primary btn-small" id="depinAssignBtn" type="button">Assign units</button>
+                  </div>
+                  <p class="create-asset-error hidden" id="depinAssignError"></p>
+                </section>
+              </div>
             </div>
           </div>
         </div>

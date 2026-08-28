@@ -758,6 +758,50 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 
 		  /**
+		   * List DEPIN addresses that have revealed a public key on chain.
+		   *
+		   * Sólo quien ha revelado su clave pública puede participar en la mensajería
+		   * DePIN, así que esta lista es un subconjunto de `listDepinHolders` y no
+		   * sustituye a aquella: no dice nada sobre validez ni cantidades.
+		   *
+		   * @param {string} assetName - DEPIN asset name
+		   * @param {number} [count] - Máximo de resultados (el nodo topa en 50000)
+		   * @param {number} [start] - Desplazamiento
+		   * @returns {Promise<Array<{address: string, pubkey: string}>>} Direcciones
+		   */
+		  async listDepinAddresses(assetName, count, start) {
+		    if (!assetName) {
+		      throw new Error('DEPIN asset name is required');
+		    }
+
+		    const params = [assetName];
+		    if (count !== undefined) params.push(count);
+		    if (start !== undefined) params.push(start);
+
+		    try {
+		      const result = await this.rpc('listdepinaddresses', params);
+		      return result || [];
+		    } catch (error) {
+		      if (rpcErrorMessage(error).includes('not found')) {
+		        throw new AssetNotFoundError(
+		          `DEPIN asset ${assetName} not found on blockchain`,
+		          assetName
+		        );
+		      }
+		      const message = rpcErrorMessage(error);
+		      // El nodo necesita un índice aparte para esto y su aviso es fácil de
+		      // perder dentro de un «Failed to…» genérico: se conserva entero.
+		      if (message.includes('pubkeyindex')) {
+		        throw new Error(
+		          `listdepinaddresses needs the node running with -pubkeyindex (and a reindex). ` +
+		          `Node said: ${message}`
+		        );
+		      }
+		      throw new Error(`Failed to list DEPIN addresses: ${message}`);
+		    }
+		  }
+
+		  /**
 		   * List DEPIN holders with validity status
 		   * @param {string} assetName - DEPIN asset name
 		   * @returns {Promise<Array>} Array of holder objects
@@ -4340,10 +4384,15 @@ var NeuraiAssetsBundle = (function (exports) {
 		      // QUALIFIER or SUB_QUALIFIER: #NAME or #ROOT/SUB
 		      if (cleanName.includes('/')) {
 		        type = AssetType.SUB_QUALIFIER;
-		        const withoutHash = cleanName.substring(1);
-		        const parts = withoutHash.split('/');
-		        parent = '#' + parts[0];
-		        subName = parts[1];
+		    // El padre es el INMEDIATO, no la raíz: el dueño de "A/B/C" es "A/B!".
+		    // El nodo lo resuelve con find_last_of (assets.cpp GetParentName, misma
+		    // rama para SUB y DEPIN). Partir por el primer '/' devolvía "A", así que
+		    // toda emisión de tercer nivel buscaba el token owner equivocado y el nodo
+		    // la rechazaba con «Trying to create outpoint for asset that you don't
+		    // have».
+		        const slash = cleanName.lastIndexOf('/');
+		        parent = cleanName.slice(0, slash);
+		        subName = cleanName.slice(slash + 1);
 		        prefix = '#';
 		      } else {
 		        type = AssetType.QUALIFIER;
@@ -4358,9 +4407,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		      type = AssetType.DEPIN;
 		      prefix = '&';
 		      if (cleanName.includes('/')) {
-		        const parts = cleanName.split('/');
-		        parent = parts[0];
-		        subName = parts.slice(1).join('/');
+		        const slash = cleanName.lastIndexOf('/');
+		        parent = cleanName.slice(0, slash);
+		        subName = cleanName.slice(slash + 1);
 		      }
 		    } else if (cleanName.includes('#')) {
 		      // UNIQUE: ROOT#TAG
@@ -4371,9 +4420,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		    } else if (cleanName.includes('/')) {
 		      // SUB: ROOT/SUB
 		      type = AssetType.SUB;
-		      const parts = cleanName.split('/');
-		      parent = parts[0];
-		      subName = parts[1];
+		      const slash = cleanName.lastIndexOf('/');
+		      parent = cleanName.slice(0, slash);
+		      subName = cleanName.slice(slash + 1);
 		    } else {
 		      // ROOT
 		      type = AssetType.ROOT;
@@ -9370,7 +9419,12 @@ var NeuraiAssetsBundle = (function (exports) {
 		hasRequiredIssueDepinBuilder = 1;
 		const BaseAssetTransactionBuilder = requireBaseAssetTransactionBuilder();
 		const { OutputFormatter } = requireUtils();
-		const { AssetExistsError } = requireErrors();
+		const AssetNameParser = requireAssetNameParser();
+		const {
+		  AssetExistsError,
+		  ParentAssetNotFoundError,
+		  OwnerTokenNotFoundError
+		} = requireErrors();
 		const { IpfsValidator } = requireValidators();
 
 		class IssueDepinBuilder extends BaseAssetTransactionBuilder {
@@ -9421,12 +9475,54 @@ var NeuraiAssetsBundle = (function (exports) {
 		      ipfsHash = ''
 		    } = this.params;
 
+		    // Un sub-DePIN ("&RAIZ/SENSOR") sigue siendo AssetType::DEPIN para el nodo
+		    // —misma quema que la raíz— pero exige GASTAR y devolver el token owner del
+		    // padre inmediato, igual que cualquier sub-asset (assets.cpp:731, :3784).
+		    // Sin ese input el nodo rechaza con «Trying to create outpoint for asset
+		    // that you don't have: &RAIZ!».
+		    const parentAssetName = AssetNameParser.getParent(assetName);
+		    const parentOwnerTokenName = parentAssetName
+		      ? AssetNameParser.getOwnerTokenName(parentAssetName)
+		      : null;
+
+		    const addresses = await this._getAddresses();
+		    const parentOwnerLookup = parentOwnerTokenName
+		      ? this.ownerTokenManager.findOwnerTokenUTXO(parentOwnerTokenName, addresses)
+		      : null;
+		    if (parentOwnerLookup) parentOwnerLookup.catch(() => {});
+
 		    const exists = await this.assetExists(assetName);
 		    if (exists) {
 		      throw new AssetExistsError(
 		        `Asset ${assetName} already exists on the blockchain`,
 		        assetName
 		      );
+		    }
+
+		    if (parentAssetName) {
+		      const parentExists = await this.assetExists(parentAssetName);
+		      if (!parentExists) {
+		        throw new ParentAssetNotFoundError(
+		          `Parent DEPIN asset ${parentAssetName} does not exist. Create it before ${assetName}.`,
+		          parentAssetName
+		        );
+		      }
+		    }
+
+		    let parentOwnerUTXO = null;
+		    if (parentOwnerLookup) {
+		      try {
+		        parentOwnerUTXO = await parentOwnerLookup;
+		      } catch (error) {
+		        if (error instanceof OwnerTokenNotFoundError) {
+		          throw new OwnerTokenNotFoundError(
+		            `You must own the parent asset's owner token (${parentOwnerTokenName}) to create ` +
+		            `the sub-DEPIN asset ${assetName}.`,
+		            parentOwnerTokenName
+		          );
+		        }
+		        throw error;
+		      }
 		    }
 
 		    const burnInfo = this.burnManager.getIssueDepinBurn();
@@ -9436,11 +9532,20 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
+		      // La escolta del padre se devuelve como transferencia: lleva importe.
+		      ...(parentOwnerUTXO
+		        ? [{ address: changeAddress, assetName: parentOwnerTokenName }]
+		        : []),
 		      { address: toAddress, assetName, kind: 'issue', hasIpfs },
 		      { address: changeAddress, assetName: `${assetName}!`, kind: 'owner' },
 		    ];
 		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
-		    const funding = await this.fundXnaInputs({ outputs: outputAddresses, burnSats });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: parentOwnerUTXO ? [parentOwnerUTXO] : [],
+		      exclude: parentOwnerUTXO ? [parentOwnerUTXO] : []
+		    });
 
 		    const baseCurrencyUTXOs = funding.utxos;
 		    const actualFee = this.satsToDisplay(funding.feeSats);
@@ -9453,11 +9558,28 @@ var NeuraiAssetsBundle = (function (exports) {
 		      satoshis: utxo.satoshis
 		    }));
 
+		    if (parentOwnerUTXO) {
+		      inputs.push({
+		        txid: parentOwnerUTXO.txid,
+		        vout: parentOwnerUTXO.outputIndex,
+		        address: parentOwnerUTXO.address,
+		        assetName: parentOwnerUTXO.assetName,
+		        satoshis: parentOwnerUTXO.satoshis
+		      });
+		    }
+
 		    const outputs = [];
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    if (xnaChangeSats > 0n) {
 		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
+		    }
+
+		    if (parentOwnerUTXO) {
+		      outputs.push(this.ownerTokenManager.createOwnerTokenReturnOutput(
+		        parentOwnerTokenName,
+		        changeAddress
+		      ));
 		    }
 
 		    const issueOutput = OutputFormatter.formatIssueOutput({
@@ -9474,9 +9596,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const orderedOutputs = this.outputOrderer.order(outputs);
 		    const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
 
+		    const allUTXOs = parentOwnerUTXO
+		      ? [...baseCurrencyUTXOs, parentOwnerUTXO]
+		      : baseCurrencyUTXOs;
+
 		    return this.formatResult(
 		      rawTx,
-		      baseCurrencyUTXOs,
+		      allUTXOs,
 		      inputs,
 		      orderedOutputs,
 		      actualFee,
@@ -9484,6 +9610,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		      {
 		        assetName,
 		        ownerTokenName: `${assetName}!`,
+		        parentAssetName,
+		        parentOwnerTokenUsed: parentOwnerTokenName,
 		        operationType: 'ISSUE_DEPIN',
 		        createTransactionBuild: await this.buildCreateTransactionBuild(
 		          'ISSUE_DEPIN',
@@ -9495,6 +9623,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		            quantityRaw: this.assetAmountToRaw(quantity, 0, 'quantity'),
 		            ipfsHash: hasIpfs ? ipfsHash : undefined,
 		            ownerTokenAddress: changeAddress,
+		            ...(parentOwnerUTXO ? { parentOwnerAddress: changeAddress } : {}),
 		            reissuable,
 		            // Canonical label, so create-transaction's mainnet DePIN guard
 		            // actually runs: it treats any unknown value (including the alias
@@ -9514,6 +9643,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		            quantityRaw: this.toSatoshis(quantity, 0),
 		            ipfsHash: hasIpfs ? ipfsHash : undefined,
 		            ownerTokenAddress: changeAddress,
+		            ...(parentOwnerUTXO ? { parentOwnerAddress: changeAddress } : {}),
 		            reissuable
 		          }
 		        )
@@ -11547,13 +11677,19 @@ var NeuraiAssetsBundle = (function (exports) {
 	 * Freeze Address Builder
 	 * Builds transactions for freezing/unfreezing addresses and assets
 	 *
-	 * Freeze operations (restricted assets only):
+	 * Freeze operations (restricted and DEPIN assets):
 	 * - Freeze specific addresses (prevent trading)
 	 * - Unfreeze specific addresses (allow trading again)
 	 * - Global asset freeze (freeze entire asset)
 	 * - Global asset unfreeze (unfreeze entire asset)
 	 * - Cost: No burn (but requires fee)
-	 * - Requires restricted asset's owner token ($ASSET!)
+	 * - Requires the asset's owner token ($ASSET! or &ASSET!)
+	 *
+	 * Un DePIN se congela con la MISMA transacción que un restringido: escolta del
+	 * token owner más una salida de datos nulos con (nombre, flag). Es literalmente
+	 * lo que construye el nodo en UpdateDEPINAddressRestriction (rpc/assets.cpp:70),
+	 * así que comparte builder en vez de tener uno paralelo que acabaría
+	 * divergiendo.
 	 * - Owner token must be returned
 	 */
 
@@ -11580,8 +11716,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      throw new Error('assetName is required');
 		    }
 
-		    // Validate asset name is restricted
-		    this.validateAssetName(params.assetName, 'RESTRICTED');
+		    // Restringido o DePIN: son los dos tipos que el nodo admite aquí
+		    // (assets.cpp:4496 acepta QUALIFIER, SUB_QUALIFIER, RESTRICTED y DEPIN;
+		    // los qualifiers usan tag/untag, no esta operación).
+		    this.validateAssetName(
+		      params.assetName,
+		      AssetNameParser.isDepin(params.assetName) ? 'DEPIN' : 'RESTRICTED'
+		    );
 
 		    // For address-specific operations, validate addresses
 		    if (operationType === 'FREEZE_ADDRESSES' || operationType === 'UNFREEZE_ADDRESSES') {
@@ -11615,6 +11756,17 @@ var NeuraiAssetsBundle = (function (exports) {
 		    await this.validateParams(this.params, operationType);
 
 		    const { assetName } = this.params;
+		    const isDepin = AssetNameParser.isDepin(assetName);
+
+		    // La congelación global es de assets restringidos: el nodo la expone como
+		    // checkglobalrestriction y no tiene equivalente DePIN. Un DePIN se
+		    // gestiona dispositivo a dispositivo.
+		    if (isDepin && (operationType === 'FREEZE_ASSET' || operationType === 'UNFREEZE_ASSET')) {
+		      throw new Error(
+		        `Global freeze does not apply to DEPIN assets (${assetName}). ` +
+		        `Freeze the holder addresses instead.`
+		      );
+		    }
 
 		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
 		    // las lecturas del asset ahorra una ida y vuelta completa. Se ESPERA en su
@@ -11646,11 +11798,23 @@ var NeuraiAssetsBundle = (function (exports) {
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
-		          `You must own the restricted asset's owner token (${ownerTokenName}) to freeze/unfreeze addresses or the asset.`,
+		          `You must own the asset's owner token (${ownerTokenName}) to freeze/unfreeze addresses or the asset.`,
 		          ownerTokenName
 		        );
 		      }
 		      throw error;
+		    }
+
+		    // La dirección que sostiene el token owner no puede congelarse ni
+		    // revocarse: el nodo lo rechaza (rpc/assets.cpp:106) y, si se colara,
+		    // dejaría el asset sin nadie que pudiera descongelarlo. Se comprueba aquí
+		    // para dar el motivo en vez de un error de consenso.
+		    const targets = this.params.addresses || [];
+		    if (targets.includes(ownerTokenUTXO.address)) {
+		      throw new Error(
+		        `${ownerTokenUTXO.address} holds the owner token ${ownerTokenName} and cannot be ` +
+		        `frozen or revoked: nobody would be able to undo it.`
+		      );
 		    }
 
 		    // 5. No burn for freeze operations (only fee)
@@ -11758,8 +11922,29 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // 13. Order outputs (protocol requirement)
 		    const orderedOutputs = this.outputOrderer.order(outputs);
 
-		    // 14. Create raw transaction
-		    const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
+		    const canonicalParams =
+		      operationType === 'FREEZE_ADDRESSES' || operationType === 'UNFREEZE_ADDRESSES'
+		        ? { assetName, targetAddresses, ownerChangeAddress: changeAddress }
+		        : { assetName, ownerChangeAddress: changeAddress };
+
+		    const createTransactionBuild = await this.buildCreateTransactionBuild(
+		      operationType,
+		      inputs,
+		      { changeAddress, changeSats: xnaChangeSats },
+		      canonicalParams
+		    );
+
+		    // 14. Create raw transaction.
+		    //
+		    // Para un DePIN el `createrawtransaction` del nodo no sirve: su objeto
+		    // freeze_addresses exige un nombre restringido y responde «a valid
+		    // restricted asset name must be provided». Es un límite de esa interfaz
+		    // RPC, no de la operación —el nodo acepta la transacción perfectamente—,
+		    // así que el hex sale del códec local, igual que ya hacen las reemisiones
+		    // desde 1.5.0. Para restringidos se conserva la ruta de siempre.
+		    const rawTx = isDepin
+		      ? this.buildRawTransactionLocally(createTransactionBuild)
+		      : await this.buildRawTransaction(inputs, orderedOutputs);
 
 		    // 15. Format and return result
 		    const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
@@ -11777,21 +11962,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		        targetAddresses: targetAddresses.length > 0 ? targetAddresses : null,
 		        addressCount: targetAddresses.length,
 		        operationType,
-		        createTransactionBuild: await this.buildCreateTransactionBuild(
-		          operationType,
-		          inputs,
-		          { changeAddress, changeSats: xnaChangeSats },
-		          operationType === 'FREEZE_ADDRESSES' || operationType === 'UNFREEZE_ADDRESSES'
-		            ? {
-		                assetName,
-		                targetAddresses,
-		                ownerChangeAddress: changeAddress
-		              }
-		            : {
-		                assetName,
-		                ownerChangeAddress: changeAddress
-		              }
-		        ),
+		        buildStrategy: isDepin ? 'local-builder' : undefined,
+		        createTransactionBuild,
 		        localRawBuild: await this.buildLocalRawBuild(
 		          operationType,
 		          inputs,
@@ -11851,6 +12023,185 @@ var NeuraiAssetsBundle = (function (exports) {
 	}
 
 	/**
+	 * DePIN Self-Revoke Builder
+	 *
+	 * Un dispositivo renuncia a su propio asset DePIN. No hace falta el token
+	 * owner: la prueba de que uno es el titular es GASTAR su propia UTXO del
+	 * asset, que vuelve a la misma dirección junto con la marca de revocación.
+	 *
+	 * Sólo el owner puede deshacerlo (`unfreezeAddresses`). Si la dirección que se
+	 * revoca sostiene además el token owner, nadie podrá: por eso se rechaza aquí.
+	 *
+	 * Estructura (create-transaction `SELF_REVOKE_DEPIN`):
+	 * - una autotransferencia de "&X" a la propia dirección
+	 * - una salida de datos nulos con flag 1
+	 * - sin quema y sin token owner
+	 */
+
+	var DepinSelfRevokeBuilder_1;
+	var hasRequiredDepinSelfRevokeBuilder;
+
+	function requireDepinSelfRevokeBuilder () {
+		if (hasRequiredDepinSelfRevokeBuilder) return DepinSelfRevokeBuilder_1;
+		hasRequiredDepinSelfRevokeBuilder = 1;
+		const BaseAssetTransactionBuilder = requireBaseAssetTransactionBuilder();
+		const { OutputFormatter, AssetNameParser } = requireUtils();
+		const { toProtocolInteger } = requireAssetAmount();
+		const { AssetNotFoundError, InvalidAddressError } = requireErrors();
+
+		class DepinSelfRevokeBuilder extends BaseAssetTransactionBuilder {
+		  /**
+		   * @param {object} params - Parámetros
+		   * @throws {Error} Si la validación falla
+		   */
+		  validateParams(params) {
+		    if (!params.assetName) {
+		      throw new Error('assetName is required');
+		    }
+		    if (!AssetNameParser.isDepin(params.assetName)) {
+		      throw new Error(
+		        `selfRevokeDepin only applies to DEPIN assets (&NAME); got ${params.assetName}`
+		      );
+		    }
+		    this.validateAssetName(params.assetName, 'DEPIN');
+
+		    if (params.holderAddress !== undefined && typeof params.holderAddress !== 'string') {
+		      throw new InvalidAddressError('holderAddress must be a string', params.holderAddress);
+		    }
+		    return true;
+		  }
+
+		  /**
+		   * @returns {Promise<object>} Resultado de la transacción
+		   */
+		  async build() {
+		    await this.validateParams(this.params);
+
+		    const { assetName } = this.params;
+
+		    const assetData = await this.getAssetData(assetName);
+		    if (!assetData) {
+		      throw new AssetNotFoundError(
+		        `Asset ${assetName} does not exist on the blockchain`,
+		        assetName
+		      );
+		    }
+
+		    const addresses = await this._getAddresses();
+		    const changeAddress = await this.getChangeAddress();
+
+		    // La UTXO del asset que se va a gastar: es la prueba de titularidad.
+		    const selection = await this.utxoSelector.selectAssetUTXOs(addresses, assetName, 1);
+		    if (!selection.utxos || selection.utxos.length === 0) {
+		      throw new AssetNotFoundError(
+		        `This wallet holds no ${assetName} to revoke`,
+		        assetName
+		      );
+		    }
+
+		    // Una sola UTXO y su dirección: la marca de revocación va dirigida a ella,
+		    // así que mezclar varias direcciones produciría una revocación ambigua.
+		    const assetUTXO = selection.utxos[0];
+		    const holderAddress = this.params.holderAddress || assetUTXO.address;
+		    if (assetUTXO.address !== holderAddress) {
+		      throw new Error(
+		        `The ${assetName} UTXO lives on ${assetUTXO.address}, not on ${holderAddress}: ` +
+		        `revoke from the address that holds it.`
+		      );
+		    }
+
+		    // Revocarse teniendo el token owner deja el asset sin nadie que pueda
+		    // deshacerlo. El nodo aplica la misma regla (rpc/assets.cpp:106).
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
+		    const ownerUTXOs = await this.utxoSelector.getUTXOs([holderAddress], ownerTokenName);
+		    if (ownerUTXOs.length > 0) {
+		      throw new Error(
+		        `${holderAddress} also holds the owner token ${ownerTokenName}. Move it to another ` +
+		        `address first, or nobody will be able to undo this revocation.`
+		      );
+		    }
+
+		    const amountRaw = toProtocolInteger(assetUTXO.satoshis, 'asset utxo satoshis');
+
+		    const outputAddresses = [
+		      changeAddress,
+		      { address: holderAddress, assetName },
+		      { address: holderAddress, assetName, kind: 'restriction' }
+		    ];
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      extraInputs: [assetUTXO],
+		      exclude: [assetUTXO]
+		    });
+
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
+
+		    const inputs = baseCurrencyUTXOs.map(utxo => ({
+		      txid: utxo.txid,
+		      vout: utxo.outputIndex,
+		      address: utxo.address,
+		      satoshis: utxo.satoshis
+		    }));
+		    inputs.push({
+		      txid: assetUTXO.txid,
+		      vout: assetUTXO.outputIndex,
+		      address: assetUTXO.address,
+		      assetName: assetUTXO.assetName,
+		      satoshis: assetUTXO.satoshis
+		    });
+
+		    const outputs = [];
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
+		    }
+		    outputs.push({
+		      [holderAddress]: OutputFormatter.formatTransferOutput(assetName, Number(amountRaw))
+		    });
+		    outputs.push({
+		      [holderAddress]: OutputFormatter.formatFreezeAddressesOutput({
+		        asset_name: assetName,
+		        addresses: [holderAddress]
+		      })
+		    });
+
+		    const orderedOutputs = this.outputOrderer.order(outputs);
+
+		    const createTransactionBuild = await this.buildCreateTransactionBuild(
+		      'SELF_REVOKE_DEPIN',
+		      inputs,
+		      { changeAddress, changeSats: xnaChangeSats },
+		      { assetName, holderAddress, amountRaw, network: this.canonicalNetwork() }
+		    );
+
+		    // El `createrawtransaction` del nodo no sabe expresar esta operación, así
+		    // que el hex sale del códec local; el nodo sí acepta el resultado.
+		    const rawTx = this.buildRawTransactionLocally(createTransactionBuild);
+
+		    return this.formatResult(
+		      rawTx,
+		      [...baseCurrencyUTXOs, assetUTXO],
+		      inputs,
+		      orderedOutputs,
+		      actualFee,
+		      0,
+		      {
+		        assetName,
+		        holderAddress,
+		        operationType: 'SELF_REVOKE_DEPIN',
+		        buildStrategy: 'local-builder',
+		        createTransactionBuild
+		      }
+		    );
+		  }
+		}
+
+		DepinSelfRevokeBuilder_1 = DepinSelfRevokeBuilder;
+		return DepinSelfRevokeBuilder_1;
+	}
+
+	/**
 	 * Builders Module
 	 * Exports all transaction builder classes
 	 */
@@ -11878,6 +12229,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		const ReissueRestrictedBuilder = requireReissueRestrictedBuilder();
 		const TagAddressBuilder = requireTagAddressBuilder();
 		const FreezeAddressBuilder = requireFreezeAddressBuilder();
+		const DepinSelfRevokeBuilder = requireDepinSelfRevokeBuilder();
 
 		builders$1 = {
 		  // Base
@@ -11896,7 +12248,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		  IssueRestrictedBuilder,
 		  ReissueRestrictedBuilder,
 		  TagAddressBuilder,
-		  FreezeAddressBuilder
+		  FreezeAddressBuilder,
+
+		  // DEPIN
+		  DepinSelfRevokeBuilder
 		};
 		return builders$1;
 	}
@@ -11935,6 +12290,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		  IssueRootBuilder,
 		  IssueSubBuilder,
 		  IssueDepinBuilder,
+		  DepinSelfRevokeBuilder,
 		  IssueUniqueBuilder,
 		  IssueQualifierBuilder,
 		  IssueRestrictedBuilder,
@@ -12208,9 +12564,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 
 		  /**
-		   * Freeze specific addresses for a restricted asset
+		   * Freeze specific addresses for a restricted or DEPIN asset
 		   * @param {object} params - Freeze parameters
-		   * @param {string} params.assetName - Restricted asset name ($NAME)
+		   * @param {string} params.assetName - Restricted ($NAME) or DEPIN (&NAME) asset
 		   * @param {Array<string>} params.addresses - Addresses to freeze
 		   * @returns {Promise<object>} Transaction data
 		   */
@@ -12220,9 +12576,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 
 		  /**
-		   * Unfreeze specific addresses for a restricted asset
+		   * Unfreeze specific addresses for a restricted or DEPIN asset
 		   * @param {object} params - Unfreeze parameters
-		   * @param {string} params.assetName - Restricted asset name ($NAME)
+		   * @param {string} params.assetName - Restricted ($NAME) or DEPIN (&NAME) asset
 		   * @param {Array<string>} params.addresses - Addresses to unfreeze
 		   * @returns {Promise<object>} Transaction data
 		   */
@@ -12410,6 +12766,40 @@ var NeuraiAssetsBundle = (function (exports) {
 		   */
 		  async cancelSnapshotRequest(assetName, blockHeight) {
 		    return await this.queries.cancelSnapshotRequest(assetName, blockHeight);
+		  }
+
+		  /**
+		   * Self-revoke a DEPIN asset held by this wallet.
+		   *
+		   * No hace falta el token owner: la prueba de titularidad es gastar la propia
+		   * UTXO del asset, que vuelve a su dirección con la marca de revocación.
+		   * Sólo el owner puede deshacerlo con `unfreezeAddresses`.
+		   *
+		   * @param {object} params - Parámetros
+		   * @param {string} params.assetName - Asset DEPIN (&NAME)
+		   * @param {string} [params.holderAddress] - Dirección que renuncia; por
+		   *   defecto, la que tiene la UTXO del asset
+		   * @returns {Promise<object>} Transaction data
+		   */
+		  async selfRevokeDepin(params) {
+		    const builder = new DepinSelfRevokeBuilder(this.rpc, this._buildParams(params));
+		    return await builder.build();
+		  }
+
+		  /**
+		   * List DEPIN addresses that have revealed a public key on chain.
+		   *
+		   * Es la lista que la mensajería DePIN necesita: sólo puede participar quien
+		   * ha revelado su clave pública. Distinta de `listDepinHolders`, que lista a
+		   * todos los titulares con su validez.
+		   *
+		   * @param {string} assetName - Asset DEPIN (&NAME)
+		   * @param {number} [count] - Máximo de resultados
+		   * @param {number} [start] - Desplazamiento
+		   * @returns {Promise<Array<{address: string, pubkey: string}>>} Direcciones
+		   */
+		  async listDepinAddresses(assetName, count, start) {
+		    return await this.queries.listDepinAddresses(assetName, count, start);
 		  }
 
 		  /**
