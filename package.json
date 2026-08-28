@@ -1,29 +1,30 @@
 {
   "name": "neurai-wallet-extension",
-  "version": "0.12.11",
+  "version": "0.13.0",
   "description": "Neurai Sign (XNA) Chrome Extension - Manage wallet, sign messages, check balance",
   "private": true,
   "scripts": {
     "postinstall": "node sync-libs.js",
     "dev": "vite --config vite.config.test.js",
-    "build": "node build-all.js",
-    "build:ext": "node build-ext.js",
+    "build": "node verify-libs.js && node build-all.js",
+    "build:ext": "node verify-libs.js && node build-ext.js",
     "build:test": "vite build --config vite.config.test.js",
     "sync-libs": "node sync-libs.js",
-    "pack": "node build-ext.js && node pack.js",
+    "pack": "node verify-libs.js && node build-ext.js && node pack.js",
     "typecheck": "tsc --noEmit",
     "test": "node --test --no-warnings \"test/**/*.test.mjs\"",
-    "verify:no-rpc-sign": "if grep -rn 'signrawtransaction' src/; then echo 'ERROR: forbidden RPC signing path present'; exit 1; fi"
+    "verify:no-rpc-sign": "if grep -rn 'signrawtransaction' src/; then echo 'ERROR: forbidden RPC signing path present'; exit 1; fi",
+    "verify:libs": "node verify-libs.js"
   },
   "dependencies": {
-    "@neuraiproject/neurai-assets": "^1.3.3",
-    "@neuraiproject/neurai-create-transaction": "^0.3.1",
+    "@neuraiproject/neurai-assets": "^1.5.0",
+    "@neuraiproject/neurai-create-transaction": "^0.8.0",
     "@neuraiproject/neurai-key": "^4.0.0",
     "@neuraiproject/neurai-message": "^0.9.1",
-    "@neuraiproject/neurai-reader": "^0.0.9",
-    "@neuraiproject/neurai-scripts": "^0.6.2",
-    "@neuraiproject/neurai-sign-esp32": "^0.5.7",
-    "@neuraiproject/neurai-sign-transaction": "^2.1.3"
+    "@neuraiproject/neurai-reader": "^0.1.0",
+    "@neuraiproject/neurai-scripts": "^0.8.1",
+    "@neuraiproject/neurai-sign-esp32": "^0.6.0",
+    "@neuraiproject/neurai-sign-transaction": "^2.4.1"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.38",

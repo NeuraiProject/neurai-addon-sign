@@ -50,6 +50,7 @@ import {
   evaluateVerifierAgainstTags,
   explainSimpleVerifierFailure,
 } from './expanded/asset-utils.js';
+import { resolveAssetMarker } from './expanded/asset-marker.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
@@ -2545,6 +2546,17 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const txInputs = toTxInputs(params.inputs);
     const envelope = findXnaEnvelope(entries, operationType);
 
+    // NIP-040: cada salida de asset que se construya aquí debe llevar el
+    // marcador que exige el nodo contra el que se va a publicar. Sin esto se
+    // emite el `rvn` heredado por defecto y la cadena lo rechaza con
+    // bad-txns-legacy-asset-marker-after-nip040. Se resuelve una vez por
+    // operación y se aplica a nivel de transacción, de modo que alcanza a
+    // todas las salidas que genere el serializador.
+    if (!params.rpc) {
+      throw new Error('An RPC function is required to resolve the NIP-040 asset marker.');
+    }
+    const assetMarker = await resolveAssetMarker(params.rpc);
+
     if (params.localRawBuild) {
       const build: NeuraiAssetsLocalRawBuild = {
         operationType: params.localRawBuild.operationType,
@@ -2564,6 +2576,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         build.params.xnaChangeSats = envelope.xnaChangeSats;
       }
 
+      build.params.assetMarker = assetMarker;
       return NeuraiCreateTransaction.createFromOperation(build).rawTx;
     }
 
@@ -2865,6 +2878,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           inputs: txInputs,
           payments,
           transfers,
+          assetMarker,
         }).rawTx;
       }
 
@@ -2876,6 +2890,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       throw new Error(`Unable to build local asset operation: ${operationType}`);
     }
 
+    build.params.assetMarker = assetMarker;
     return NeuraiCreateTransaction.createFromOperation(build).rawTx;
   }
 

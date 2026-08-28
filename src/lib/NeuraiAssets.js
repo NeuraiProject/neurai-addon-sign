@@ -8,6 +8,55 @@ var NeuraiAssetsBundle = (function (exports) {
 	var src = {exports: {}};
 
 	/**
+	 * Extract a human-readable message from an RPC rejection.
+	 *
+	 * @neuraiproject/neurai-rpc >= 0.5 never rejects with a plain Error, so
+	 * `error.message` is undefined for every node failure. It uses three shapes:
+	 *
+	 *   1. {error: {code, message}, description}      JSON-RPC error (also on HTTP 200)
+	 *   2. {statusText, status, description, error}   HTTP response other than 200
+	 *   3. {originalError, type: 'ServerUnreachable', error, description}
+	 *
+	 * In shape 3 `error` is a string, in shapes 1 and 2 it is an object (or
+	 * null). Plain Errors (thrown by this library or by mocks) keep working
+	 * through the `error.message` candidate.
+	 */
+
+	var rpcErrorMessage_1;
+	var hasRequiredRpcErrorMessage;
+
+	function requireRpcErrorMessage () {
+		if (hasRequiredRpcErrorMessage) return rpcErrorMessage_1;
+		hasRequiredRpcErrorMessage = 1;
+		function rpcErrorMessage(error) {
+		  if (!error) {
+		    return '';
+		  }
+		  if (typeof error === 'string') {
+		    return error;
+		  }
+
+		  const candidates = [
+		    error.error && error.error.message,
+		    typeof error.error === 'string' ? error.error : null,
+		    error.description,
+		    error.message,
+		    error.statusText
+		  ];
+
+		  for (const candidate of candidates) {
+		    if (typeof candidate === 'string' && candidate.length > 0) {
+		      return candidate;
+		    }
+		  }
+		  return '';
+		}
+
+		rpcErrorMessage_1 = { rpcErrorMessage };
+		return rpcErrorMessage_1;
+	}
+
+	/**
 	 * Validation Error Classes
 	 * Errors thrown during parameter validation
 	 */
@@ -332,6 +381,7 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireAssetQueries () {
 		if (hasRequiredAssetQueries) return AssetQueries_1;
 		hasRequiredAssetQueries = 1;
+		const { rpcErrorMessage } = requireRpcErrorMessage();
 		const { AssetNotFoundError, InvalidAddressError } = requireErrors();
 
 		class AssetQueries {
@@ -373,14 +423,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		      }
 
 		      // RPC error - likely asset doesn't exist
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        throw new AssetNotFoundError(
 		          `Asset ${assetName} not found on blockchain`,
 		          assetName
 		        );
 		      }
 
-		      throw new Error(`Failed to get asset data: ${error.message}`);
+		      throw new Error(`Failed to get asset data: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -397,7 +447,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const assets = await this.rpc('listassets', [filter, verbose, count, start]);
 		      return assets || [];
 		    } catch (error) {
-		      throw new Error(`Failed to list assets: ${error.message}`);
+		      throw new Error(`Failed to list assets: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -415,7 +465,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const myAssets = await this.rpc('listmyassets', [assetName, verbose, count, start, confs]);
 		      return myAssets || {};
 		    } catch (error) {
-		      throw new Error(`Failed to list my assets: ${error.message}`);
+		      throw new Error(`Failed to list my assets: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -436,13 +486,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('listaddressesbyasset', [assetName, onlyCount, count, start]);
 		      return result || (onlyCount ? 0 : []);
 		    } catch (error) {
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        throw new AssetNotFoundError(
 		          `Asset ${assetName} not found on blockchain`,
 		          assetName
 		        );
 		      }
-		      throw new Error(`Failed to list addresses by asset: ${error.message}`);
+		      throw new Error(`Failed to list addresses by asset: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -463,7 +513,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('listassetbalancesbyaddress', [address, onlyTotal, count, start]);
 		      return result || (onlyTotal ? 0 : []);
 		    } catch (error) {
-		      throw new Error(`Failed to list asset balances by address: ${error.message}`);
+		      throw new Error(`Failed to list asset balances by address: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -487,10 +537,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		      return result === true || result === 1;
 		    } catch (error) {
 		      // If tag doesn't exist or address doesn't have it, return false
-		      if (error.message && (error.message.includes('not found') || error.message.includes('does not have'))) {
+		      if (rpcErrorMessage(error).includes('not found') || rpcErrorMessage(error).includes('does not have')) {
 		        return false;
 		      }
-		      throw new Error(`Failed to check address tag: ${error.message}`);
+		      throw new Error(`Failed to check address tag: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -509,10 +559,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		      return tags || [];
 		    } catch (error) {
 		      // If no tags found, return empty array
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        return [];
 		      }
-		      throw new Error(`Failed to list tags for address: ${error.message}`);
+		      throw new Error(`Failed to list tags for address: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -530,13 +580,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const addresses = await this.rpc('listaddressesfortag', [qualifierName]);
 		      return addresses || [];
 		    } catch (error) {
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        throw new AssetNotFoundError(
 		          `Qualifier ${qualifierName} not found on blockchain`,
 		          qualifierName
 		        );
 		      }
-		      throw new Error(`Failed to list addresses for tag: ${error.message}`);
+		      throw new Error(`Failed to list addresses for tag: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -560,10 +610,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		      return result === true || result === 1;
 		    } catch (error) {
 		      // If address doesn't meet requirements, return false
-		      if (error.message && (error.message.includes('not found') || error.message.includes('does not meet'))) {
+		      if (rpcErrorMessage(error).includes('not found') || rpcErrorMessage(error).includes('does not meet')) {
 		        return false;
 		      }
-		      throw new Error(`Failed to check address restriction: ${error.message}`);
+		      throw new Error(`Failed to check address restriction: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -590,7 +640,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      }
 		      return false;
 		    } catch (error) {
-		      throw new Error(`Failed to check if address is frozen: ${error.message}`);
+		      throw new Error(`Failed to check if address is frozen: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -608,13 +658,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('checkglobalrestriction', [restrictedAssetName]);
 		      return result === true || result === 1;
 		    } catch (error) {
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        throw new AssetNotFoundError(
 		          `Restricted asset ${restrictedAssetName} not found on blockchain`,
 		          restrictedAssetName
 		        );
 		      }
-		      throw new Error(`Failed to check global restriction: ${error.message}`);
+		      throw new Error(`Failed to check global restriction: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -632,13 +682,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('getverifierstring', [restrictedAssetName]);
 		      return result || '';
 		    } catch (error) {
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        throw new AssetNotFoundError(
 		          `Restricted asset ${restrictedAssetName} not found on blockchain`,
 		          restrictedAssetName
 		        );
 		      }
-		      throw new Error(`Failed to get verifier string: ${error.message}`);
+		      throw new Error(`Failed to get verifier string: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -680,7 +730,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('getsnapshotrequest', [assetName, blockHeight]);
 		      return result;
 		    } catch (error) {
-		      throw new Error(`Failed to get snapshot request: ${error.message}`);
+		      throw new Error(`Failed to get snapshot request: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -703,7 +753,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('cancelsnapshotrequest', [assetName, blockHeight]);
 		      return result === true || result === 1;
 		    } catch (error) {
-		      throw new Error(`Failed to cancel snapshot request: ${error.message}`);
+		      throw new Error(`Failed to cancel snapshot request: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -721,13 +771,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('listdepinholders', [assetName]);
 		      return result || [];
 		    } catch (error) {
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        throw new AssetNotFoundError(
 		          `DEPIN asset ${assetName} not found on blockchain`,
 		          assetName
 		        );
 		      }
-		      throw new Error(`Failed to list DEPIN holders: ${error.message}`);
+		      throw new Error(`Failed to list DEPIN holders: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -750,7 +800,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const result = await this.rpc('checkdepinvalidity', [assetName, address]);
 		      return result || { has_asset: false };
 		    } catch (error) {
-		      throw new Error(`Failed to check DEPIN validity: ${error.message}`);
+		      throw new Error(`Failed to check DEPIN validity: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -764,7 +814,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const assets = await this.listAssets('*', false, 1, 0);
 		      return Array.isArray(assets) ? assets.length : 0;
 		    } catch (error) {
-		      throw new Error(`Failed to get asset count: ${error.message}`);
+		      throw new Error(`Failed to get asset count: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -834,6 +884,2687 @@ var NeuraiAssetsBundle = (function (exports) {
 		  AssetQueries
 		};
 		return queries;
+	}
+
+	var dist = {};
+
+	var hasRequiredDist_1;
+
+	function requireDist_1 () {
+		if (hasRequiredDist_1) return dist;
+		hasRequiredDist_1 = 1;
+
+		function ensureHex(hex, label = 'hex') {
+		    const normalized = String(hex || '').trim().toLowerCase();
+		    if (!/^[0-9a-f]*$/.test(normalized) || normalized.length % 2 !== 0) {
+		        throw new Error(`Invalid ${label}: expected even-length hex string`);
+		    }
+		    return normalized;
+		}
+		function hexToBytes(hex) {
+		    const normalized = ensureHex(hex);
+		    const bytes = new Uint8Array(normalized.length / 2);
+		    for (let i = 0; i < normalized.length; i += 2) {
+		        bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
+		    }
+		    return bytes;
+		}
+		function bytesToHex(bytes) {
+		    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+		}
+		function concatBytes(...parts) {
+		    const total = parts.reduce((sum, part) => sum + part.length, 0);
+		    const out = new Uint8Array(total);
+		    let offset = 0;
+		    for (const part of parts) {
+		        out.set(part, offset);
+		        offset += part.length;
+		    }
+		    return out;
+		}
+		function asciiBytes(text) {
+		    return Uint8Array.from(Array.from(text, (char) => char.charCodeAt(0)));
+		}
+		function serializeString(text) {
+		    const bytes = asciiBytes(text);
+		    return concatBytes(compactSize(bytes.length), bytes);
+		}
+		function reverseBytes(bytes) {
+		    return Uint8Array.from(Array.from(bytes).reverse());
+		}
+		function u32LE(value) {
+		    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+		        throw new Error(`uint32 out of range: ${value}`);
+		    }
+		    const out = new Uint8Array(4);
+		    const view = new DataView(out.buffer);
+		    view.setUint32(0, value, true);
+		    return out;
+		}
+		function u64LE(value) {
+		    const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+		    if (bigintValue < 0n || bigintValue > 0xffffffffffffffffn) {
+		        throw new Error(`uint64 out of range: ${bigintValue}`);
+		    }
+		    const out = new Uint8Array(8);
+		    let remaining = bigintValue;
+		    for (let i = 0; i < 8; i += 1) {
+		        out[i] = Number(remaining & 0xffn);
+		        remaining >>= 8n;
+		    }
+		    return out;
+		}
+		function i64LE(value) {
+		    const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+		    if (bigintValue < -0x8000000000000000n || bigintValue > 0x7fffffffffffffffn) {
+		        throw new Error(`int64 out of range: ${bigintValue}`);
+		    }
+		    const out = new Uint8Array(8);
+		    const view = new DataView(out.buffer);
+		    view.setBigInt64(0, bigintValue, true);
+		    return out;
+		}
+		function compactSize(value) {
+		    const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+		    if (bigintValue < 0n)
+		        throw new Error('CompactSize cannot encode negative numbers');
+		    if (bigintValue < 253n) {
+		        return Uint8Array.of(Number(bigintValue));
+		    }
+		    if (bigintValue <= 0xffffn) {
+		        return concatBytes(Uint8Array.of(0xfd), u16LE(Number(bigintValue)));
+		    }
+		    if (bigintValue <= 0xffffffffn) {
+		        return concatBytes(Uint8Array.of(0xfe), u32LE(Number(bigintValue)));
+		    }
+		    return concatBytes(Uint8Array.of(0xff), u64LE(bigintValue));
+		}
+		function u16LE(value) {
+		    if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+		        throw new Error(`uint16 out of range: ${value}`);
+		    }
+		    const out = new Uint8Array(2);
+		    const view = new DataView(out.buffer);
+		    view.setUint16(0, value, true);
+		    return out;
+		}
+		function pushData(data) {
+		    if (data.length > 0xffff) {
+		        throw new Error(`Pushdata too large for current implementation: ${data.length} bytes`);
+		    }
+		    if (data.length < 0x4c) {
+		        return concatBytes(Uint8Array.of(data.length), data);
+		    }
+		    if (data.length <= 0xff) {
+		        return concatBytes(Uint8Array.of(0x4c, data.length), data);
+		    }
+		    return concatBytes(Uint8Array.of(0x4d), u16LE(data.length), data);
+		}
+
+		// base-x encoding / decoding
+		// Copyright (c) 2018 base-x contributors
+		// Copyright (c) 2014-2018 The Bitcoin Core developers (base58.cpp)
+		// Distributed under the MIT software license, see the accompanying
+		// file LICENSE or http://www.opensource.org/licenses/mit-license.php.
+		function base (ALPHABET) {
+		  if (ALPHABET.length >= 255) { throw new TypeError('Alphabet too long') }
+		  const BASE_MAP = new Uint8Array(256);
+		  for (let j = 0; j < BASE_MAP.length; j++) {
+		    BASE_MAP[j] = 255;
+		  }
+		  for (let i = 0; i < ALPHABET.length; i++) {
+		    const x = ALPHABET.charAt(i);
+		    const xc = x.charCodeAt(0);
+		    if (BASE_MAP[xc] !== 255) { throw new TypeError(x + ' is ambiguous') }
+		    BASE_MAP[xc] = i;
+		  }
+		  const BASE = ALPHABET.length;
+		  const LEADER = ALPHABET.charAt(0);
+		  const FACTOR = Math.log(BASE) / Math.log(256); // log(BASE) / log(256), rounded up
+		  const iFACTOR = Math.log(256) / Math.log(BASE); // log(256) / log(BASE), rounded up
+		  function encode (source) {
+		    // eslint-disable-next-line no-empty
+		    if (source instanceof Uint8Array) ; else if (ArrayBuffer.isView(source)) {
+		      source = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+		    } else if (Array.isArray(source)) {
+		      source = Uint8Array.from(source);
+		    }
+		    if (!(source instanceof Uint8Array)) { throw new TypeError('Expected Uint8Array') }
+		    if (source.length === 0) { return '' }
+		    // Skip & count leading zeroes.
+		    let zeroes = 0;
+		    let length = 0;
+		    let pbegin = 0;
+		    const pend = source.length;
+		    while (pbegin !== pend && source[pbegin] === 0) {
+		      pbegin++;
+		      zeroes++;
+		    }
+		    // Allocate enough space in big-endian base58 representation.
+		    const size = ((pend - pbegin) * iFACTOR + 1) >>> 0;
+		    const b58 = new Uint8Array(size);
+		    // Process the bytes.
+		    while (pbegin !== pend) {
+		      let carry = source[pbegin];
+		      // Apply "b58 = b58 * 256 + ch".
+		      let i = 0;
+		      for (let it1 = size - 1; (carry !== 0 || i < length) && (it1 !== -1); it1--, i++) {
+		        carry += (256 * b58[it1]) >>> 0;
+		        b58[it1] = (carry % BASE) >>> 0;
+		        carry = (carry / BASE) >>> 0;
+		      }
+		      if (carry !== 0) { throw new Error('Non-zero carry') }
+		      length = i;
+		      pbegin++;
+		    }
+		    // Skip leading zeroes in base58 result.
+		    let it2 = size - length;
+		    while (it2 !== size && b58[it2] === 0) {
+		      it2++;
+		    }
+		    // Translate the result into a string.
+		    let str = LEADER.repeat(zeroes);
+		    for (; it2 < size; ++it2) { str += ALPHABET.charAt(b58[it2]); }
+		    return str
+		  }
+		  function decodeUnsafe (source) {
+		    if (typeof source !== 'string') { throw new TypeError('Expected String') }
+		    if (source.length === 0) { return new Uint8Array() }
+		    let psz = 0;
+		    // Skip and count leading '1's.
+		    let zeroes = 0;
+		    let length = 0;
+		    while (source[psz] === LEADER) {
+		      zeroes++;
+		      psz++;
+		    }
+		    // Allocate enough space in big-endian base256 representation.
+		    const size = (((source.length - psz) * FACTOR) + 1) >>> 0; // log(58) / log(256), rounded up.
+		    const b256 = new Uint8Array(size);
+		    // Process the characters.
+		    while (psz < source.length) {
+		      // Find code of next character
+		      const charCode = source.charCodeAt(psz);
+		      // Base map can not be indexed using char code
+		      if (charCode > 255) { return }
+		      // Decode character
+		      let carry = BASE_MAP[charCode];
+		      // Invalid character
+		      if (carry === 255) { return }
+		      let i = 0;
+		      for (let it3 = size - 1; (carry !== 0 || i < length) && (it3 !== -1); it3--, i++) {
+		        carry += (BASE * b256[it3]) >>> 0;
+		        b256[it3] = (carry % 256) >>> 0;
+		        carry = (carry / 256) >>> 0;
+		      }
+		      if (carry !== 0) { throw new Error('Non-zero carry') }
+		      length = i;
+		      psz++;
+		    }
+		    // Skip leading zeroes in b256.
+		    let it4 = size - length;
+		    while (it4 !== size && b256[it4] === 0) {
+		      it4++;
+		    }
+		    const vch = new Uint8Array(zeroes + (size - it4));
+		    let j = zeroes;
+		    while (it4 !== size) {
+		      vch[j++] = b256[it4++];
+		    }
+		    return vch
+		  }
+		  function decode (string) {
+		    const buffer = decodeUnsafe(string);
+		    if (buffer) { return buffer }
+		    throw new Error('Non-base' + BASE + ' character')
+		  }
+		  return {
+		    encode,
+		    decodeUnsafe,
+		    decode
+		  }
+		}
+
+		var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+		var base58 = base(ALPHABET);
+
+		const IPFS_LENGTH = 0x20;
+		const TXID_PREFIX = 0x54;
+		function encodeAssetDataReference(value) {
+		    const normalized = String(value || '').trim();
+		    if (!normalized) {
+		        return new Uint8Array();
+		    }
+		    if (normalized.startsWith('Qm') && normalized.length === 46) {
+		        const decoded = Uint8Array.from(base58.decode(normalized));
+		        if (decoded.length !== 34) {
+		            throw new Error(`Invalid CIDv0 length for asset data: ${decoded.length}`);
+		        }
+		        return decoded;
+		    }
+		    if (normalized.length === 64 && /^[0-9a-fA-F]+$/.test(normalized)) {
+		        const txidBytes = hexToBytes(normalized);
+		        return Uint8Array.of(TXID_PREFIX, IPFS_LENGTH, ...txidBytes);
+		    }
+		    if (normalized.length === 68 && /^[0-9a-fA-F]+$/.test(normalized)) {
+		        const raw = hexToBytes(normalized);
+		        if (raw[1] !== IPFS_LENGTH) {
+		            throw new Error('Invalid raw asset data reference length prefix');
+		        }
+		        return raw;
+		    }
+		    throw new Error('Unsupported asset data reference. Expected CIDv0 (Qm...), 64-char txid, or 68-char raw hex');
+		}
+		function decodeAssetDataReferenceHex(value) {
+		    return bytesToHex(encodeAssetDataReference(value));
+		}
+		function isEncodedAssetDataReferenceHex(hex) {
+		    const normalized = ensureHex(hex);
+		    return normalized.length === 68 || normalized.length === 0;
+		}
+		function isCidV0AssetReference(value) {
+		    const normalized = String(value || '').trim();
+		    return normalized.startsWith('Qm') && normalized.length === 46;
+		}
+		function isTxidAssetReference(value) {
+		    const normalized = String(value || '').trim();
+		    return normalized.length === 64 && /^[0-9a-fA-F]+$/.test(normalized);
+		}
+		function isRawAssetDataReferenceHex(value) {
+		    const normalized = String(value || '').trim();
+		    return normalized.length === 68 && /^[0-9a-fA-F]+$/.test(normalized);
+		}
+		function formatAssetDataReferenceHex(value) {
+		    return bytesToHex(encodeAssetDataReference(value));
+		}
+
+		var dist$1 = {};
+
+		var hasRequiredDist;
+
+		function requireDist () {
+			if (hasRequiredDist) return dist$1;
+			hasRequiredDist = 1;
+			Object.defineProperty(dist$1, "__esModule", { value: true });
+			dist$1.bech32m = dist$1.bech32 = void 0;
+			const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+			const ALPHABET_MAP = {};
+			for (let z = 0; z < ALPHABET.length; z++) {
+			    const x = ALPHABET.charAt(z);
+			    ALPHABET_MAP[x] = z;
+			}
+			function polymodStep(pre) {
+			    const b = pre >> 25;
+			    return (((pre & 0x1ffffff) << 5) ^
+			        (-((b >> 0) & 1) & 0x3b6a57b2) ^
+			        (-((b >> 1) & 1) & 0x26508e6d) ^
+			        (-((b >> 2) & 1) & 0x1ea119fa) ^
+			        (-((b >> 3) & 1) & 0x3d4233dd) ^
+			        (-((b >> 4) & 1) & 0x2a1462b3));
+			}
+			function prefixChk(prefix) {
+			    let chk = 1;
+			    for (let i = 0; i < prefix.length; ++i) {
+			        const c = prefix.charCodeAt(i);
+			        if (c < 33 || c > 126)
+			            return 'Invalid prefix (' + prefix + ')';
+			        chk = polymodStep(chk) ^ (c >> 5);
+			    }
+			    chk = polymodStep(chk);
+			    for (let i = 0; i < prefix.length; ++i) {
+			        const v = prefix.charCodeAt(i);
+			        chk = polymodStep(chk) ^ (v & 0x1f);
+			    }
+			    return chk;
+			}
+			function convert(data, inBits, outBits, pad) {
+			    let value = 0;
+			    let bits = 0;
+			    const maxV = (1 << outBits) - 1;
+			    const result = [];
+			    for (let i = 0; i < data.length; ++i) {
+			        value = (value << inBits) | data[i];
+			        bits += inBits;
+			        while (bits >= outBits) {
+			            bits -= outBits;
+			            result.push((value >> bits) & maxV);
+			        }
+			    }
+			    if (pad) {
+			        if (bits > 0) {
+			            result.push((value << (outBits - bits)) & maxV);
+			        }
+			    }
+			    else {
+			        if (bits >= inBits)
+			            return 'Excess padding';
+			        if ((value << (outBits - bits)) & maxV)
+			            return 'Non-zero padding';
+			    }
+			    return result;
+			}
+			function toWords(bytes) {
+			    return convert(bytes, 8, 5, true);
+			}
+			function fromWordsUnsafe(words) {
+			    const res = convert(words, 5, 8, false);
+			    if (Array.isArray(res))
+			        return res;
+			}
+			function fromWords(words) {
+			    const res = convert(words, 5, 8, false);
+			    if (Array.isArray(res))
+			        return res;
+			    throw new Error(res);
+			}
+			function getLibraryFromEncoding(encoding) {
+			    let ENCODING_CONST;
+			    if (encoding === 'bech32') {
+			        ENCODING_CONST = 1;
+			    }
+			    else {
+			        ENCODING_CONST = 0x2bc830a3;
+			    }
+			    function encode(prefix, words, LIMIT) {
+			        LIMIT = LIMIT || 90;
+			        if (prefix.length + 7 + words.length > LIMIT)
+			            throw new TypeError('Exceeds length limit');
+			        prefix = prefix.toLowerCase();
+			        // determine chk mod
+			        let chk = prefixChk(prefix);
+			        if (typeof chk === 'string')
+			            throw new Error(chk);
+			        let result = prefix + '1';
+			        for (let i = 0; i < words.length; ++i) {
+			            const x = words[i];
+			            if (x >> 5 !== 0)
+			                throw new Error('Non 5-bit word');
+			            chk = polymodStep(chk) ^ x;
+			            result += ALPHABET.charAt(x);
+			        }
+			        for (let i = 0; i < 6; ++i) {
+			            chk = polymodStep(chk);
+			        }
+			        chk ^= ENCODING_CONST;
+			        for (let i = 0; i < 6; ++i) {
+			            const v = (chk >> ((5 - i) * 5)) & 0x1f;
+			            result += ALPHABET.charAt(v);
+			        }
+			        return result;
+			    }
+			    function __decode(str, LIMIT) {
+			        LIMIT = LIMIT || 90;
+			        if (str.length < 8)
+			            return str + ' too short';
+			        if (str.length > LIMIT)
+			            return 'Exceeds length limit';
+			        // don't allow mixed case
+			        const lowered = str.toLowerCase();
+			        const uppered = str.toUpperCase();
+			        if (str !== lowered && str !== uppered)
+			            return 'Mixed-case string ' + str;
+			        str = lowered;
+			        const split = str.lastIndexOf('1');
+			        if (split === -1)
+			            return 'No separator character for ' + str;
+			        if (split === 0)
+			            return 'Missing prefix for ' + str;
+			        const prefix = str.slice(0, split);
+			        const wordChars = str.slice(split + 1);
+			        if (wordChars.length < 6)
+			            return 'Data too short';
+			        let chk = prefixChk(prefix);
+			        if (typeof chk === 'string')
+			            return chk;
+			        const words = [];
+			        for (let i = 0; i < wordChars.length; ++i) {
+			            const c = wordChars.charAt(i);
+			            const v = ALPHABET_MAP[c];
+			            if (v === undefined)
+			                return 'Unknown character ' + c;
+			            chk = polymodStep(chk) ^ v;
+			            // not in the checksum?
+			            if (i + 6 >= wordChars.length)
+			                continue;
+			            words.push(v);
+			        }
+			        if (chk !== ENCODING_CONST)
+			            return 'Invalid checksum for ' + str;
+			        return { prefix, words };
+			    }
+			    function decodeUnsafe(str, LIMIT) {
+			        const res = __decode(str, LIMIT);
+			        if (typeof res === 'object')
+			            return res;
+			    }
+			    function decode(str, LIMIT) {
+			        const res = __decode(str, LIMIT);
+			        if (typeof res === 'object')
+			            return res;
+			        throw new Error(res);
+			    }
+			    return {
+			        decodeUnsafe,
+			        decode,
+			        encode,
+			        toWords,
+			        fromWordsUnsafe,
+			        fromWords,
+			    };
+			}
+			dist$1.bech32 = getLibraryFromEncoding('bech32');
+			dist$1.bech32m = getLibraryFromEncoding('bech32m');
+			return dist$1;
+		}
+
+		var distExports = requireDist();
+
+		/**
+		 * Utilities for hex, bytes, CSPRNG.
+		 * @module
+		 */
+		/*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+		// We use WebCrypto aka globalThis.crypto, which exists in browsers and node.js 16+.
+		// node.js versions earlier than v19 don't declare it in global scope.
+		// For node.js, package.json#exports field mapping rewrites import
+		// from `crypto` to `cryptoNode`, which imports native module.
+		// Makes the utils un-importable in browsers without a bundler.
+		// Once node.js 18 is deprecated (2025-04-30), we can just drop the import.
+		/** Checks if something is Uint8Array. Be careful: nodejs Buffer will return true. */
+		function isBytes$1(a) {
+		    return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
+		}
+		/** Asserts something is Uint8Array. */
+		function abytes$1(b, ...lengths) {
+		    if (!isBytes$1(b))
+		        throw new Error('Uint8Array expected');
+		    if (lengths.length > 0 && !lengths.includes(b.length))
+		        throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
+		}
+		/** Asserts a hash instance has not been destroyed / finished */
+		function aexists$1(instance, checkFinished = true) {
+		    if (instance.destroyed)
+		        throw new Error('Hash instance has been destroyed');
+		    if (checkFinished && instance.finished)
+		        throw new Error('Hash#digest() has already been called');
+		}
+		/** Asserts output is properly-sized byte array */
+		function aoutput$1(out, instance) {
+		    abytes$1(out);
+		    const min = instance.outputLen;
+		    if (out.length < min) {
+		        throw new Error('digestInto() expects output buffer of length at least ' + min);
+		    }
+		}
+		/** Zeroize a byte array. Warning: JS provides no guarantees. */
+		function clean$1(...arrays) {
+		    for (let i = 0; i < arrays.length; i++) {
+		        arrays[i].fill(0);
+		    }
+		}
+		/** Create DataView of an array for easy byte-level manipulation. */
+		function createView$1(arr) {
+		    return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+		}
+		/** The rotate right (circular right shift) operation for uint32 */
+		function rotr$1(word, shift) {
+		    return (word << (32 - shift)) | (word >>> shift);
+		}
+		/**
+		 * Converts string to bytes using UTF8 encoding.
+		 * @example utf8ToBytes('abc') // Uint8Array.from([97, 98, 99])
+		 */
+		function utf8ToBytes(str) {
+		    if (typeof str !== 'string')
+		        throw new Error('string expected');
+		    return new Uint8Array(new TextEncoder().encode(str)); // https://bugzil.la/1681809
+		}
+		/**
+		 * Normalizes (non-hex) string or Uint8Array to Uint8Array.
+		 * Warning: when Uint8Array is passed, it would NOT get copied.
+		 * Keep in mind for future mutable operations.
+		 */
+		function toBytes(data) {
+		    if (typeof data === 'string')
+		        data = utf8ToBytes(data);
+		    abytes$1(data);
+		    return data;
+		}
+		/** For runtime check if class implements interface */
+		class Hash {
+		}
+		/** Wraps hash function, creating an interface on top of it */
+		function createHasher$1(hashCons) {
+		    const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
+		    const tmp = hashCons();
+		    hashC.outputLen = tmp.outputLen;
+		    hashC.blockLen = tmp.blockLen;
+		    hashC.create = () => hashCons();
+		    return hashC;
+		}
+
+		/**
+		 * Internal Merkle-Damgard hash utils.
+		 * @module
+		 */
+		/** Polyfill for Safari 14. https://caniuse.com/mdn-javascript_builtins_dataview_setbiguint64 */
+		function setBigUint64(view, byteOffset, value, isLE) {
+		    if (typeof view.setBigUint64 === 'function')
+		        return view.setBigUint64(byteOffset, value, isLE);
+		    const _32n = BigInt(32);
+		    const _u32_max = BigInt(0xffffffff);
+		    const wh = Number((value >> _32n) & _u32_max);
+		    const wl = Number(value & _u32_max);
+		    const h = isLE ? 4 : 0;
+		    const l = isLE ? 0 : 4;
+		    view.setUint32(byteOffset + h, wh, isLE);
+		    view.setUint32(byteOffset + l, wl, isLE);
+		}
+		/** Choice: a ? b : c */
+		function Chi$1(a, b, c) {
+		    return (a & b) ^ (~a & c);
+		}
+		/** Majority function, true if any two inputs is true. */
+		function Maj$1(a, b, c) {
+		    return (a & b) ^ (a & c) ^ (b & c);
+		}
+		/**
+		 * Merkle-Damgard hash construction base class.
+		 * Could be used to create MD5, RIPEMD, SHA1, SHA2.
+		 */
+		let HashMD$1 = class HashMD extends Hash {
+		    constructor(blockLen, outputLen, padOffset, isLE) {
+		        super();
+		        this.finished = false;
+		        this.length = 0;
+		        this.pos = 0;
+		        this.destroyed = false;
+		        this.blockLen = blockLen;
+		        this.outputLen = outputLen;
+		        this.padOffset = padOffset;
+		        this.isLE = isLE;
+		        this.buffer = new Uint8Array(blockLen);
+		        this.view = createView$1(this.buffer);
+		    }
+		    update(data) {
+		        aexists$1(this);
+		        data = toBytes(data);
+		        abytes$1(data);
+		        const { view, buffer, blockLen } = this;
+		        const len = data.length;
+		        for (let pos = 0; pos < len;) {
+		            const take = Math.min(blockLen - this.pos, len - pos);
+		            // Fast path: we have at least one block in input, cast it to view and process
+		            if (take === blockLen) {
+		                const dataView = createView$1(data);
+		                for (; blockLen <= len - pos; pos += blockLen)
+		                    this.process(dataView, pos);
+		                continue;
+		            }
+		            buffer.set(data.subarray(pos, pos + take), this.pos);
+		            this.pos += take;
+		            pos += take;
+		            if (this.pos === blockLen) {
+		                this.process(view, 0);
+		                this.pos = 0;
+		            }
+		        }
+		        this.length += data.length;
+		        this.roundClean();
+		        return this;
+		    }
+		    digestInto(out) {
+		        aexists$1(this);
+		        aoutput$1(out, this);
+		        this.finished = true;
+		        // Padding
+		        // We can avoid allocation of buffer for padding completely if it
+		        // was previously not allocated here. But it won't change performance.
+		        const { buffer, view, blockLen, isLE } = this;
+		        let { pos } = this;
+		        // append the bit '1' to the message
+		        buffer[pos++] = 0b10000000;
+		        clean$1(this.buffer.subarray(pos));
+		        // we have less than padOffset left in buffer, so we cannot put length in
+		        // current block, need process it and pad again
+		        if (this.padOffset > blockLen - pos) {
+		            this.process(view, 0);
+		            pos = 0;
+		        }
+		        // Pad until full block byte with zeros
+		        for (let i = pos; i < blockLen; i++)
+		            buffer[i] = 0;
+		        // Note: sha512 requires length to be 128bit integer, but length in JS will overflow before that
+		        // You need to write around 2 exabytes (u64_max / 8 / (1024**6)) for this to happen.
+		        // So we just write lowest 64 bits of that value.
+		        setBigUint64(view, blockLen - 8, BigInt(this.length * 8), isLE);
+		        this.process(view, 0);
+		        const oview = createView$1(out);
+		        const len = this.outputLen;
+		        // NOTE: we do division by 4 later, which should be fused in single op with modulo by JIT
+		        if (len % 4)
+		            throw new Error('_sha2: outputLen should be aligned to 32bit');
+		        const outLen = len / 4;
+		        const state = this.get();
+		        if (outLen > state.length)
+		            throw new Error('_sha2: outputLen bigger than state');
+		        for (let i = 0; i < outLen; i++)
+		            oview.setUint32(4 * i, state[i], isLE);
+		    }
+		    digest() {
+		        const { buffer, outputLen } = this;
+		        this.digestInto(buffer);
+		        const res = buffer.slice(0, outputLen);
+		        this.destroy();
+		        return res;
+		    }
+		    _cloneInto(to) {
+		        to || (to = new this.constructor());
+		        to.set(...this.get());
+		        const { blockLen, buffer, length, finished, destroyed, pos } = this;
+		        to.destroyed = destroyed;
+		        to.finished = finished;
+		        to.length = length;
+		        to.pos = pos;
+		        if (length % blockLen)
+		            to.buffer.set(buffer);
+		        return to;
+		    }
+		    clone() {
+		        return this._cloneInto();
+		    }
+		};
+		/**
+		 * Initial SHA-2 state: fractional parts of square roots of first 16 primes 2..53.
+		 * Check out `test/misc/sha2-gen-iv.js` for recomputation guide.
+		 */
+		/** Initial SHA256 state. Bits 0..32 of frac part of sqrt of primes 2..19 */
+		const SHA256_IV$1 = /* @__PURE__ */ Uint32Array.from([
+		    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+		]);
+
+		/**
+		 * SHA2 hash function. A.k.a. sha256, sha384, sha512, sha512_224, sha512_256.
+		 * SHA256 is the fastest hash implementable in JS, even faster than Blake3.
+		 * Check out [RFC 4634](https://datatracker.ietf.org/doc/html/rfc4634) and
+		 * [FIPS 180-4](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf).
+		 * @module
+		 */
+		/**
+		 * Round constants:
+		 * First 32 bits of fractional parts of the cube roots of the first 64 primes 2..311)
+		 */
+		// prettier-ignore
+		const SHA256_K$1 = /* @__PURE__ */ Uint32Array.from([
+		    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+		    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+		    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+		    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+		    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+		    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+		    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+		    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+		]);
+		/** Reusable temporary buffer. "W" comes straight from spec. */
+		const SHA256_W$1 = /* @__PURE__ */ new Uint32Array(64);
+		class SHA256 extends HashMD$1 {
+		    constructor(outputLen = 32) {
+		        super(64, outputLen, 8, false);
+		        // We cannot use array here since array allows indexing by variable
+		        // which means optimizer/compiler cannot use registers.
+		        this.A = SHA256_IV$1[0] | 0;
+		        this.B = SHA256_IV$1[1] | 0;
+		        this.C = SHA256_IV$1[2] | 0;
+		        this.D = SHA256_IV$1[3] | 0;
+		        this.E = SHA256_IV$1[4] | 0;
+		        this.F = SHA256_IV$1[5] | 0;
+		        this.G = SHA256_IV$1[6] | 0;
+		        this.H = SHA256_IV$1[7] | 0;
+		    }
+		    get() {
+		        const { A, B, C, D, E, F, G, H } = this;
+		        return [A, B, C, D, E, F, G, H];
+		    }
+		    // prettier-ignore
+		    set(A, B, C, D, E, F, G, H) {
+		        this.A = A | 0;
+		        this.B = B | 0;
+		        this.C = C | 0;
+		        this.D = D | 0;
+		        this.E = E | 0;
+		        this.F = F | 0;
+		        this.G = G | 0;
+		        this.H = H | 0;
+		    }
+		    process(view, offset) {
+		        // Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array
+		        for (let i = 0; i < 16; i++, offset += 4)
+		            SHA256_W$1[i] = view.getUint32(offset, false);
+		        for (let i = 16; i < 64; i++) {
+		            const W15 = SHA256_W$1[i - 15];
+		            const W2 = SHA256_W$1[i - 2];
+		            const s0 = rotr$1(W15, 7) ^ rotr$1(W15, 18) ^ (W15 >>> 3);
+		            const s1 = rotr$1(W2, 17) ^ rotr$1(W2, 19) ^ (W2 >>> 10);
+		            SHA256_W$1[i] = (s1 + SHA256_W$1[i - 7] + s0 + SHA256_W$1[i - 16]) | 0;
+		        }
+		        // Compression function main loop, 64 rounds
+		        let { A, B, C, D, E, F, G, H } = this;
+		        for (let i = 0; i < 64; i++) {
+		            const sigma1 = rotr$1(E, 6) ^ rotr$1(E, 11) ^ rotr$1(E, 25);
+		            const T1 = (H + sigma1 + Chi$1(E, F, G) + SHA256_K$1[i] + SHA256_W$1[i]) | 0;
+		            const sigma0 = rotr$1(A, 2) ^ rotr$1(A, 13) ^ rotr$1(A, 22);
+		            const T2 = (sigma0 + Maj$1(A, B, C)) | 0;
+		            H = G;
+		            G = F;
+		            F = E;
+		            E = (D + T1) | 0;
+		            D = C;
+		            C = B;
+		            B = A;
+		            A = (T1 + T2) | 0;
+		        }
+		        // Add the compressed chunk to the current hash value
+		        A = (A + this.A) | 0;
+		        B = (B + this.B) | 0;
+		        C = (C + this.C) | 0;
+		        D = (D + this.D) | 0;
+		        E = (E + this.E) | 0;
+		        F = (F + this.F) | 0;
+		        G = (G + this.G) | 0;
+		        H = (H + this.H) | 0;
+		        this.set(A, B, C, D, E, F, G, H);
+		    }
+		    roundClean() {
+		        clean$1(SHA256_W$1);
+		    }
+		    destroy() {
+		        this.set(0, 0, 0, 0, 0, 0, 0, 0);
+		        clean$1(this.buffer);
+		    }
+		}
+		/**
+		 * SHA2-256 hash function from RFC 4634.
+		 *
+		 * It is the fastest JS hash, even faster than Blake3.
+		 * To break sha256 using birthday attack, attackers need to try 2^128 hashes.
+		 * BTC network is doing 2^70 hashes/sec (2^95 hashes/year) as per 2025.
+		 */
+		const sha256$2 = /* @__PURE__ */ createHasher$1(() => new SHA256());
+
+		/**
+		 * SHA2-256 a.k.a. sha256. In JS, it is the fastest hash, even faster than Blake3.
+		 *
+		 * To break sha256 using birthday attack, attackers need to try 2^128 hashes.
+		 * BTC network is doing 2^70 hashes/sec (2^95 hashes/year) as per 2025.
+		 *
+		 * Check out [FIPS 180-4](https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf).
+		 * @module
+		 * @deprecated
+		 */
+		/** @deprecated Use import from `noble/hashes/sha2` module */
+		const sha256$1 = sha256$2;
+
+		function bs58checkBase (checksumFn) {
+		    // Encode a buffer as a base58-check encoded string
+		    function encode(payload) {
+		        var payloadU8 = Uint8Array.from(payload);
+		        var checksum = checksumFn(payloadU8);
+		        var length = payloadU8.length + 4;
+		        var both = new Uint8Array(length);
+		        both.set(payloadU8, 0);
+		        both.set(checksum.subarray(0, 4), payloadU8.length);
+		        return base58.encode(both);
+		    }
+		    function decodeRaw(buffer) {
+		        var payload = buffer.slice(0, -4);
+		        var checksum = buffer.slice(-4);
+		        var newChecksum = checksumFn(payload);
+		        // eslint-disable-next-line
+		        if (checksum[0] ^ newChecksum[0] |
+		            checksum[1] ^ newChecksum[1] |
+		            checksum[2] ^ newChecksum[2] |
+		            checksum[3] ^ newChecksum[3])
+		            return;
+		        return payload;
+		    }
+		    // Decode a base58-check encoded string to a buffer, no result if checksum is wrong
+		    function decodeUnsafe(str) {
+		        var buffer = base58.decodeUnsafe(str);
+		        if (buffer == null)
+		            return;
+		        return decodeRaw(buffer);
+		    }
+		    function decode(str) {
+		        var buffer = base58.decode(str);
+		        var payload = decodeRaw(buffer);
+		        if (payload == null)
+		            throw new Error('Invalid checksum');
+		        return payload;
+		    }
+		    return {
+		        encode: encode,
+		        decode: decode,
+		        decodeUnsafe: decodeUnsafe
+		    };
+		}
+
+		// SHA256(SHA256(buffer))
+		function sha256x2(buffer) {
+		    return sha256$1(sha256$1(buffer));
+		}
+		var bs58check = bs58checkBase(sha256x2);
+
+		function resolveAddressInput(address) {
+		    if (typeof address === 'string') {
+		        return String(address).trim();
+		    }
+		    if (address && typeof address.address === 'string') {
+		        return String(address.address).trim();
+		    }
+		    throw new Error('Address must be a string or an object with an address field');
+		}
+
+		const LEGACY_MAINNET_PREFIX = 53;
+		const LEGACY_TESTNET_PREFIX = 127;
+		const PQ_MAINNET_HRP = 'nq';
+		const PQ_TESTNET_HRP = 'tnq';
+		const OP_XNA_ASSET = 0xc0;
+		const OP_DROP = 0x75;
+		const OP_1 = 0x51;
+		const OP_RESERVED = 0x50;
+		/**
+		 * NIP-040 asset payload marker.
+		 *
+		 * Every transfer / new / owner / reissue payload opens with a 3-byte marker
+		 * followed by the type byte. The marker is consensus: blocks below the NIP-040
+		 * activation height of a network only accept `rvn` on new asset outputs and
+		 * blocks at or above it only accept `xna` (mainnet: not scheduled; testnet:
+		 * 303000; regtest: 1). This library does NOT know chain state and never
+		 * infers the marker from a network or an address: the caller passes the
+		 * value reported by the node for the next block
+		 * (`getblockchaininfo.asset_marker`, node commit 347362b) — or, when building
+		 * offline, the marker it knows to be right. Without it the default is `rvn`,
+		 * byte-for-byte identical to 0.6.0.
+		 */
+		const DEFAULT_ASSET_MARKER = 'rvn';
+		const ASSET_MARKER_BYTES = {
+		    rvn: [0x72, 0x76, 0x6e],
+		    xna: [0x78, 0x6e, 0x61]
+		};
+		const ASSET_PAYLOAD_TYPE_BYTE = {
+		    transfer: 0x74, // 't'
+		    new: 0x71, // 'q'
+		    owner: 0x6f, // 'o'
+		    reissue: 0x72 // 'r'
+		};
+		/**
+		 * Applies the default only when the marker was not given at all (`undefined`)
+		 * and rejects anything else that is not `'rvn'` or `'xna'` — including
+		 * `null`, which is what a missing or null `asset_marker` in a JSON reply
+		 * becomes: it must fail loudly, not silently build a legacy output.
+		 */
+		function resolveAssetMarker(value) {
+		    if (value === undefined)
+		        return DEFAULT_ASSET_MARKER;
+		    if (value === 'rvn' || value === 'xna')
+		        return value;
+		    throw new Error(`Invalid assetMarker: ${String(value)} (expected 'rvn' or 'xna', the value of getblockchaininfo.asset_marker)`);
+		}
+		/**
+		 * The only place marker bytes are assembled (mirror of the node's
+		 * `AppendAssetMarkerPrefix`): `<marker 3B> <type 1B>`.
+		 */
+		function assetPayloadPrefix(marker, type) {
+		    const typeByte = ASSET_PAYLOAD_TYPE_BYTE[type];
+		    if (typeByte === undefined) {
+		        throw new Error(`Unknown asset payload type: ${String(type)}`);
+		    }
+		    const [a, b, c] = ASSET_MARKER_BYTES[resolveAssetMarker(marker)];
+		    return Uint8Array.of(a, b, c, typeByte);
+		}
+		function inferNetworkFromAddress(address) {
+		    const normalized = resolveAddressInput(address).toLowerCase();
+		    if (normalized.startsWith(PQ_MAINNET_HRP + '1'))
+		        return 'xna-pq';
+		    if (normalized.startsWith(PQ_TESTNET_HRP + '1'))
+		        return 'xna-pq-test';
+		    if (normalized.startsWith('n'))
+		        return 'xna';
+		    if (normalized.startsWith('t'))
+		        return 'xna-test';
+		    throw new Error(`Unsupported Neurai address: ${address}`);
+		}
+
+		function decodeAddress(address) {
+		    const normalized = resolveAddressInput(address);
+		    const lowered = normalized.toLowerCase();
+		    if (!normalized)
+		        throw new Error('Address is required');
+		    if (lowered.startsWith(PQ_MAINNET_HRP + '1') || lowered.startsWith(PQ_TESTNET_HRP + '1')) {
+		        const decoded = distExports.bech32m.decode(normalized);
+		        const version = decoded.words[0];
+		        const program = Uint8Array.from(distExports.bech32m.fromWords(decoded.words.slice(1)));
+		        if (version !== 1 || program.length !== 32) {
+		            throw new Error(`Unsupported AuthScript address program for ${address}`);
+		        }
+		        const network = lowered.startsWith(PQ_TESTNET_HRP + '1') ? 'xna-pq-test' : 'xna-pq';
+		        return { address: normalized, type: 'authscript', network, program, commitment: program };
+		    }
+		    const payload = Uint8Array.from(bs58check.decode(normalized));
+		    if (payload.length !== 21) {
+		        throw new Error(`Unsupported legacy address payload length for ${address}`);
+		    }
+		    const prefix = payload[0];
+		    if (prefix !== LEGACY_MAINNET_PREFIX && prefix !== LEGACY_TESTNET_PREFIX) {
+		        throw new Error(`Unsupported legacy address prefix ${prefix} for ${address}`);
+		    }
+		    return {
+		        address: normalized,
+		        type: 'p2pkh',
+		        network: inferNetworkFromAddress(normalized),
+		        program: payload.slice(1),
+		        hash: payload.slice(1)
+		    };
+		}
+		function encodeP2PKHScript(address) {
+		    const destination = decodeAddress(address);
+		    if (destination.type !== 'p2pkh') {
+		        throw new Error(`Address ${address} is not legacy P2PKH`);
+		    }
+		    return Uint8Array.of(0x76, 0xa9, 0x14, ...destination.hash, 0x88, 0xac);
+		}
+		function encodeAuthScriptDestinationScript(address) {
+		    const destination = decodeAddress(address);
+		    if (destination.type !== 'authscript') {
+		        throw new Error(`Address ${address} is not AuthScript witness v1`);
+		    }
+		    return concatBytes(Uint8Array.of(OP_1), pushData(destination.commitment));
+		}
+		function encodeDestinationScript(address) {
+		    const destination = decodeAddress(address);
+		    return destination.type === 'authscript'
+		        ? encodeAuthScriptDestinationScript(address)
+		        : encodeP2PKHScript(address);
+		}
+		function encodeNullAssetDestinationScript(address, mode = 'strict') {
+		    const destination = decodeAddress(address);
+		    if (destination.type === 'authscript') {
+		        if (mode === 'hash20') {
+		            throw new Error('hash20 null-asset mode is not supported for AuthScript destinations');
+		        }
+		        return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_1), pushData(destination.commitment));
+		    }
+		    return concatBytes(Uint8Array.of(OP_XNA_ASSET), pushData(destination.hash));
+		}
+		const encodePQWitnessScript = encodeAuthScriptDestinationScript;
+
+		const OWNER_ASSET_AMOUNT = 100000000n;
+		const UNIQUE_ASSET_AMOUNT = 100000000n;
+		const UNIQUE_ASSET_UNITS = 0;
+		const UNIQUE_ASSETS_REISSUABLE = false;
+		const MAINNET_BURN_ADDRESSES = {
+		    ISSUE_ROOT: 'NbURNXXXXXXXXXXXXXXXXXXXXXXXT65Gdr',
+		    ISSUE_SUB: 'NXissueSubAssetXXXXXXXXXXXXXX6B2JF',
+		    ISSUE_UNIQUE: 'NXissueUniqueAssetXXXXXXXXXXUBzP4Z',
+		    ISSUE_DEPIN: 'NXissueUniqueAssetXXXXXXXXXXUBzP4Z',
+		    ISSUE_MSGCHANNEL: 'NXissueMsgChanneLAssetXXXXXXTUzrtJ',
+		    REISSUE: 'NXReissueAssetXXXXXXXXXXXXXXWLe4Ao',
+		    REISSUE_RESTRICTED: 'NXReissueAssetXXXXXXXXXXXXXXWLe4Ao',
+		    ISSUE_RESTRICTED: 'NXissueRestrictedXXXXXXXXXXXWpXx4H',
+		    ISSUE_QUALIFIER: 'NXissueQuaLifierXXXXXXXXXXXXWurNcU',
+		    ISSUE_SUB_QUALIFIER: 'NXissueSubQuaLifierXXXXXXXXXV71vM3',
+		    TAG_ADDRESS: 'NXaddTagBurnXXXXXXXXXXXXXXXXWucUTr',
+		    UNTAG_ADDRESS: 'NXaddTagBurnXXXXXXXXXXXXXXXXWucUTr'
+		};
+		const TESTNET_BURN_ADDRESSES = {
+		    ISSUE_ROOT: 'tBURNXXXXXXXXXXXXXXXXXXXXXXXVZLroy',
+		    ISSUE_SUB: 'tSubAssetXXXXXXXXXXXXXXXXXXXXGTvF4',
+		    ISSUE_UNIQUE: 'tUniqueAssetXXXXXXXXXXXXXXXXVCgpLs',
+		    ISSUE_DEPIN: 'tUniqueAssetXXXXXXXXXXXXXXXXVCgpLs',
+		    ISSUE_MSGCHANNEL: 'tMsgChanneLAssetXXXXXXXXXXXXVsJoya',
+		    REISSUE: 'tAssetXXXXXXXXXXXXXXXXXXXXXXas6pz8',
+		    REISSUE_RESTRICTED: 'tAssetXXXXXXXXXXXXXXXXXXXXXXas6pz8',
+		    ISSUE_RESTRICTED: 'tRestrictedXXXXXXXXXXXXXXXXXVyPBEK',
+		    ISSUE_QUALIFIER: 'tQuaLifierXXXXXXXXXXXXXXXXXXT5czoV',
+		    ISSUE_SUB_QUALIFIER: 'tSubQuaLifierXXXXXXXXXXXXXXXW5MmGk',
+		    TAG_ADDRESS: 'tTagBurnXXXXXXXXXXXXXXXXXXXXYm6pxA',
+		    UNTAG_ADDRESS: 'tTagBurnXXXXXXXXXXXXXXXXXXXXYm6pxA'
+		};
+		const BURN_COSTS_XNA = {
+		    ISSUE_ROOT: 1000,
+		    ISSUE_SUB: 200,
+		    ISSUE_UNIQUE: 10,
+		    ISSUE_DEPIN: 10,
+		    ISSUE_MSGCHANNEL: 200,
+		    ISSUE_QUALIFIER: 2000,
+		    ISSUE_SUB_QUALIFIER: 200,
+		    ISSUE_RESTRICTED: 3000,
+		    REISSUE: 200,
+		    REISSUE_RESTRICTED: 200,
+		    TAG_ADDRESS: 0.2,
+		    UNTAG_ADDRESS: 0.2
+		};
+		// Regtest chainparams use one global burn address for every operation
+		// (node chainparams.cpp strGlobalBurnAddress). Pass it as the
+		// `burnAddress` override of the issuance/reissue builders when targeting
+		// regtest; `getBurnAddressForOperation` only models mainnet/testnet.
+		const REGTEST_GLOBAL_BURN_ADDRESS = 'tBURNXXXXXXXXXXXXXXXXXXXXXXXVZLroy';
+		/**
+		 * Every value `SupportedNetwork` admits, and the chain family each belongs to.
+		 *
+		 * Written as an exhaustive map rather than a couple of comparisons so that a
+		 * network added to the union upstream fails to compile here instead of
+		 * silently defaulting to testnet.
+		 */
+		const NETWORK_FAMILY = {
+		    'xna': 'mainnet',
+		    'xna-legacy': 'mainnet',
+		    'xna-pq': 'mainnet',
+		    'xna-test': 'testnet',
+		    'xna-legacy-test': 'testnet',
+		    'xna-pq-test': 'testnet'
+		};
+		/**
+		 * Resolve a network to its chain family, rejecting anything unrecognised.
+		 *
+		 * This used to return `'testnet'` for every value that was not explicitly
+		 * mainnet. TypeScript keeps its own callers honest, but a JavaScript consumer
+		 * passing the alias `'mainnet'` — which other libraries in the stack accept —
+		 * landed in the testnet branch and **slipped past the DEPIN mainnet guard**,
+		 * while the canonical `'xna'` triggered it. An unrecognised label is a caller
+		 * error, not an implicit testnet.
+		 *
+		 * Callers that speak in aliases must normalize first: `'mainnet'` to `'xna'`,
+		 * `'testnet'` to `'xna-test'`.
+		 *
+		 * Regtest is not a member of `SupportedNetwork` — it shares testnet's address
+		 * prefixes — and now throws here. That reaches `getBurnAddressForOperation`,
+		 * which used to answer with the TESTNET burn addresses: wrong for regtest,
+		 * whose chainparams use a single global burn address for every operation, so
+		 * only ISSUE_ROOT happened to coincide. Pass `REGTEST_GLOBAL_BURN_ADDRESS` as
+		 * the `burnAddress` override instead; the previous answer had to be replaced
+		 * anyway.
+		 *
+		 * @param network - Network label
+		 * @returns The chain family
+		 * @throws If the label is not a supported network
+		 */
+		function resolveNetworkFamily(network) {
+		    const family = NETWORK_FAMILY[network];
+		    if (family === undefined) {
+		        throw new Error(`Unsupported network: ${JSON.stringify(network)}. Expected one of ` +
+		            `${Object.keys(NETWORK_FAMILY).join(', ')}. Aliases such as 'mainnet' ` +
+		            `or 'testnet' must be normalized by the caller ('xna', 'xna-test'); ` +
+		            `for regtest, pass REGTEST_GLOBAL_BURN_ADDRESS as the burnAddress override.`);
+		    }
+		    return family;
+		}
+		function getBurnAddressForOperation(network, operation) {
+		    const byFamily = resolveNetworkFamily(network) === 'mainnet'
+		        ? MAINNET_BURN_ADDRESSES
+		        : TESTNET_BURN_ADDRESSES;
+		    return byFamily[operation];
+		}
+		function getBurnAmountXna(operation, multiplier = 1) {
+		    return BURN_COSTS_XNA[operation] * multiplier;
+		}
+		function getBurnAmountSats(operation, multiplier = 1) {
+		    return BigInt(Math.round(getBurnAmountXna(operation, multiplier) * 1e8));
+		}
+		function inferNetworkFromAnyAddress(address) {
+		    return inferNetworkFromAddress(address);
+		}
+		function getOwnerTokenName(assetName) {
+		    if (assetName.startsWith('$')) {
+		        return `${assetName.slice(1)}!`;
+		    }
+		    return `${assetName}!`;
+		}
+		function getParentAssetName(assetName) {
+		    // The parent is the immediate one, not the root: "A/B/C" is owned by "A/B!"
+		    // (node GetParentName resolves with find_last_of for SUB and DEPIN alike).
+		    const slashIndex = assetName.lastIndexOf('/');
+		    if (slashIndex === -1) {
+		        return null;
+		    }
+		    return assetName.slice(0, slashIndex);
+		}
+		function getUniqueAssetName(rootName, tag) {
+		    return `${rootName}#${tag}`;
+		}
+		function normalizeVerifierString(verifierString) {
+		    return String(verifierString || '')
+		        .replace(/\s+/g, '')
+		        .replace(/#/g, '');
+		}
+		// The node accepts DEPIN names up to 121 chars where DePIN is enabled, but a
+		// 121-char base name yields a 122-char owner token ("&X!") that fails the
+		// global name-length check, making the asset untransferable. Capped at 120
+		// here so every name this library issues keeps a nameable owner token.
+		const DEPIN_MAX_NAME_LENGTH = 120;
+		function isDepinAssetName(assetName) {
+		    const normalized = String(assetName || '').trim();
+		    if (normalized.length > DEPIN_MAX_NAME_LENGTH) {
+		        return false;
+		    }
+		    if (!normalized.includes('/')) {
+		        return /^&[A-Z0-9._]{3,}$/.test(normalized);
+		    }
+		    if (!/^&[A-Z0-9._]+\/[A-Z0-9._/]+$/.test(normalized)) {
+		        return false;
+		    }
+		    // The node parser lets the first part count its leading '&' toward the
+		    // 3-char minimum ("&AB/CDE" parses), but such an asset can never be issued:
+		    // its parent "&AB" is not a valid root, so the parent owner token "&AB!"
+		    // required at issuance cannot exist. Require 3 real chars in every segment.
+		    const [root, ...rest] = normalized.split('/');
+		    return root.length >= 4 && rest.every((part) => part.length >= 3);
+		}
+		function assertDepinAssetName(assetName) {
+		    if (!isDepinAssetName(assetName)) {
+		        throw new Error(`Invalid DEPIN asset name: ${assetName}`);
+		    }
+		}
+		function assertDepinNetwork(network) {
+		    if (network !== undefined && resolveNetworkFamily(network) === 'mainnet') {
+		        throw new Error(`DEPIN assets are only available on testnet/regtest networks: ${network}`);
+		    }
+		}
+
+		function xnaToSatoshis(amount) {
+		    return BigInt(Math.round(Number(amount || 0) * 1e8));
+		}
+		function assetUnitsToRaw(amount) {
+		    return xnaToSatoshis(amount);
+		}
+		function encodeAssetTransferPayload(assetName, amountRaw, message, expireTime, options) {
+		    const payload = [
+		        assetPayloadPrefix(options?.assetMarker, 'transfer'),
+		        serializeString(assetName),
+		        u64LE(amountRaw)
+		    ];
+		    const encodedMessage = encodeAssetDataReference(message);
+		    if (encodedMessage.length > 0) {
+		        payload.push(encodedMessage);
+		        if (expireTime !== undefined && BigInt(expireTime) !== 0n) {
+		            payload.push(i64LE(expireTime));
+		        }
+		    }
+		    return concatBytes(...payload);
+		}
+		function encodeAssetTransferScript(address, assetName, amountRaw, message, expireTime, options) {
+		    return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeAssetTransferPayload(assetName, amountRaw, message, expireTime, options)), Uint8Array.of(OP_DROP));
+		}
+		/**
+		 * True when `script` is exactly the 25-byte P2PKH form
+		 * `OP_DUP OP_HASH160 0x14 <20B> OP_EQUALVERIFY OP_CHECKSIG`. Consensus only
+		 * recognises the asset wrapper when OP_XNA_ASSET sits at byte 25 after this
+		 * exact prefix (node `HasAssetOpcodeInExpectedPosition`).
+		 */
+		function isP2pkhScript(script) {
+		    return (script.length === 25 &&
+		        script[0] === 0x76 &&
+		        script[1] === 0xa9 &&
+		        script[2] === 0x14 &&
+		        script[23] === 0x88 &&
+		        script[24] === 0xac);
+		}
+		/**
+		 * True when `script` is exactly the 34-byte AuthScript form
+		 * `OP_1 0x20 <32-byte commitment>`. Consensus only recognises the asset
+		 * wrapper when OP_XNA_ASSET sits at byte 34 after this exact prefix.
+		 */
+		function isAuthScriptScript(script) {
+		    return script.length === 34 && script[0] === 0x51 && script[1] === 0x20;
+		}
+		/**
+		 * Like `encodeAssetTransferScript` but takes a raw scriptPubKey instead of
+		 * deriving one from an address, for callers that already hold the
+		 * scriptPubKey bytes.
+		 *
+		 * The recipient script must be exactly P2PKH (25 bytes) or AuthScript
+		 * `OP_1 <32B>` (34 bytes): the node's OP_XNA_ASSET placement rules only
+		 * accept the asset wrapper right after one of those two prefixes, on every
+		 * network, so appending it to any other script (a bare covenant, P2SH, …)
+		 * produces a consensus-invalid output. To pay assets into an arbitrary
+		 * script, commit it into an AuthScript destination instead (derive the
+		 * address with neurai-key's `getNoAuthAddress`) and use the regular
+		 * address-based transfer helpers.
+		 *
+		 * The asset-transfer wrapper is appended exactly as in the address-based
+		 * variant: `<recipientScriptPubKey> OP_XNA_ASSET <pushdata(payload)> OP_DROP`.
+		 *
+		 * Note: this helper only builds the output. Spending an AuthScript output
+		 * takes a witness stack; `createUnsignedTransaction` serializes the legacy
+		 * pre-segwit format only, so serialize such spends with the transaction
+		 * codec's `serializeTransaction` (tx-codec.ts, 0.5.1+) instead.
+		 */
+		function encodeAssetTransferScriptToScript(recipientScriptPubKey, assetName, amountRaw, message, expireTime, options) {
+		    const spkBytes = typeof recipientScriptPubKey === 'string'
+		        ? hexToBytes(ensureHex(recipientScriptPubKey, 'recipientScriptPubKey'))
+		        : recipientScriptPubKey;
+		    if (!isP2pkhScript(spkBytes) && !isAuthScriptScript(spkBytes)) {
+		        throw new Error('asset transfers to arbitrary scripts are rejected by consensus ' +
+		            '(OP_XNA_ASSET placement rules): the recipient scriptPubKey must be ' +
+		            'exactly P2PKH (25 bytes) or AuthScript OP_1 <32B> (34 bytes); ' +
+		            'commit the script into an AuthScript destination instead');
+		    }
+		    return concatBytes(spkBytes, Uint8Array.of(OP_XNA_ASSET), pushData(encodeAssetTransferPayload(assetName, amountRaw, message, expireTime, options)), Uint8Array.of(OP_DROP));
+		}
+		function encodeNewAssetPayload(assetName, quantityRaw, units = 0, reissuable = true, ipfsHash, options) {
+		    const encodedIpfs = encodeAssetDataReference(ipfsHash);
+		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'new'), serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(units & 0xff, reissuable ? 1 : 0, encodedIpfs.length > 0 ? 1 : 0), encodedIpfs);
+		}
+		function encodeNewAssetScript(address, assetName, quantityRaw, units = 0, reissuable = true, ipfsHash, options) {
+		    return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeNewAssetPayload(assetName, quantityRaw, units, reissuable, ipfsHash, options)), Uint8Array.of(OP_DROP));
+		}
+		function encodeOwnerAssetPayload(ownerTokenName, options) {
+		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'owner'), serializeString(ownerTokenName));
+		}
+		function encodeOwnerAssetScript(address, ownerTokenName, options) {
+		    return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeOwnerAssetPayload(ownerTokenName, options)), Uint8Array.of(OP_DROP));
+		}
+		/** "Keep the asset's current units", encoded as the signed byte -1 (0xff). */
+		const REISSUE_UNITS_UNCHANGED = -1;
+		/**
+		 * Resolve the `units` byte of a reissue payload.
+		 *
+		 * Omitting `units` means "do not change them", which the protocol spells `-1`
+		 * (`0xff`) — the value the node's own `reissue` RPC defaults to. Its
+		 * validation is `nNewUnits == -1 || nNewUnits >= currentUnits`, so the
+		 * previous default of `0` said "set units to 0" and was rejected outright for
+		 * any asset with `units > 0` (`unit must be larger than current unit
+		 * selection`).
+		 *
+		 * An explicit `0` still encodes `0x00`: it is legitimate for an asset that
+		 * already has `units=0`, and folding it into -1 would lose the distinction in
+		 * the other direction.
+		 *
+		 * The range is validated rather than masked. `units & 0xff` used to turn `-2`
+		 * into `0xfe` and `255` into `0xff` — manufacturing a valid-looking
+		 * "unchanged" byte out of an invalid input.
+		 *
+		 * @param units - Requested units, or undefined to keep the current ones
+		 * @returns The byte to encode
+		 * @throws If units is not an integer in -1..8
+		 */
+		function reissueUnitsByte(units) {
+		    const resolved = units ?? REISSUE_UNITS_UNCHANGED;
+		    if (!Number.isInteger(resolved) || resolved < -1 || resolved > 8) {
+		        throw new Error(`Invalid reissue units: ${units}. Use an integer 0..8 to set the units, ` +
+		            `or -1 (or omit it) to keep the asset's current units.`);
+		    }
+		    return resolved & 0xff;
+		}
+		function encodeReissueAssetPayload(assetName, quantityRaw, units, reissuable = true, ipfsHash, options) {
+		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'reissue'), serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(reissueUnitsByte(units), reissuable ? 1 : 0), encodeAssetDataReference(ipfsHash));
+		}
+		function encodeReissueAssetScript(address, assetName, quantityRaw, units, reissuable = true, ipfsHash, options) {
+		    return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeReissueAssetPayload(assetName, quantityRaw, units, reissuable, ipfsHash, options)), Uint8Array.of(OP_DROP));
+		}
+		function encodeNullAssetDataPayload(assetName, flag) {
+		    const nameBytes = asciiBytes(assetName);
+		    return concatBytes(compactSize(nameBytes.length), nameBytes, Uint8Array.of(flag & 0xff));
+		}
+		function encodeNullAssetTagPayload(qualifierName, operation) {
+		    return encodeNullAssetDataPayload(qualifierName, operation === 'tag' ? 1 : 0);
+		}
+		function encodeNullAssetTagScript(address, qualifierName, operation, mode = 'strict') {
+		    return concatBytes(encodeNullAssetDestinationScript(address, mode), pushData(encodeNullAssetTagPayload(qualifierName, operation)));
+		}
+		function encodeNullAssetRestrictionScript(address, assetName, freezeFlag, mode = 'strict') {
+		    return concatBytes(encodeNullAssetDestinationScript(address, mode), pushData(encodeNullAssetDataPayload(assetName, freezeFlag)));
+		}
+		function encodeVerifierStringPayload(verifierString) {
+		    return serializeString(verifierString);
+		}
+		function encodeVerifierStringScript(verifierString) {
+		    return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_RESERVED), pushData(encodeVerifierStringPayload(verifierString)));
+		}
+		function encodeGlobalRestrictionScript(assetName, freezeFlag) {
+		    return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_RESERVED, OP_RESERVED), pushData(encodeNullAssetDataPayload(assetName, freezeFlag)));
+		}
+		function createXnaOutput(address, valueSats) {
+		    return {
+		        valueSats: typeof valueSats === 'bigint' ? valueSats : BigInt(valueSats),
+		        scriptPubKeyHex: bytesToHex(encodeDestinationScript(address))
+		    };
+		}
+		function createAssetTransferOutput(address, assetName, amountRaw, options) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeAssetTransferScript(address, assetName, amountRaw, undefined, undefined, options))
+		    };
+		}
+		function createTransferWithMessageOutput(params) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeAssetTransferScript(params.address, params.assetName, params.amountRaw, params.message, params.expireTime, { assetMarker: params.assetMarker }))
+		    };
+		}
+		function createOwnerAssetIssueOutput(address, ownerTokenName, options) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeOwnerAssetScript(address, ownerTokenName, options))
+		    };
+		}
+		function createOwnerAssetTransferOutput(address, ownerTokenName, options) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeAssetTransferScript(address, ownerTokenName, OWNER_ASSET_AMOUNT, undefined, undefined, options))
+		    };
+		}
+		function createIssueAssetOutput(params) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeNewAssetScript(params.address, params.assetName, params.quantityRaw, params.units ?? 0, params.reissuable ?? true, params.ipfsHash, { assetMarker: params.assetMarker }))
+		    };
+		}
+		function createReissueAssetOutput(params) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeReissueAssetScript(params.address, params.assetName, params.quantityRaw, 
+		        // Omitted means "keep the current units" (-1); do NOT collapse to 0.
+		        params.units, params.reissuable ?? true, params.ipfsHash, { assetMarker: params.assetMarker }))
+		    };
+		}
+		function createNullAssetTagOutput(address, qualifierName, operation, mode = 'strict') {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeNullAssetTagScript(address, qualifierName, operation, mode))
+		    };
+		}
+		function createNullAssetRestrictionOutput(address, assetName, freezeFlag, mode = 'strict') {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeNullAssetRestrictionScript(address, assetName, freezeFlag, mode))
+		    };
+		}
+		function createVerifierStringOutput(verifierString) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeVerifierStringScript(verifierString))
+		    };
+		}
+		function createGlobalRestrictionOutput(assetName, freezeFlag) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeGlobalRestrictionScript(assetName, freezeFlag))
+		    };
+		}
+		function createTransferOutput(params) {
+		    return createAssetTransferOutput(params.address, params.assetName, params.amountRaw, {
+		        assetMarker: params.assetMarker
+		    });
+		}
+		/**
+		 * Build a SerializedTxOutput that locks `amountRaw` of `assetName` under a
+		 * raw P2PKH or AuthScript scriptPubKey (the only shapes consensus accepts —
+		 * see `encodeAssetTransferScriptToScript`; covenants go through neurai-key's
+		 * `getNoAuthAddress` and the address-based helpers). `valueSats` is
+		 * hardcoded to 0n (asset-only outputs carry no XNA; matches
+		 * `createAssetTransferOutput` semantics).
+		 */
+		function createAssetTransferToScriptOutput(params) {
+		    return {
+		        valueSats: 0n,
+		        scriptPubKeyHex: bytesToHex(encodeAssetTransferScriptToScript(params.scriptPubKeyHex, params.assetName, params.amountRaw, params.message, params.expireTime, { assetMarker: params.assetMarker }))
+		    };
+		}
+
+		function serializeInput(input) {
+		    const txidBytes = reverseBytes(hexToBytes(input.txid));
+		    const scriptSig = input.scriptSigHex ? hexToBytes(input.scriptSigHex) : new Uint8Array();
+		    return concatBytes(txidBytes, u32LE(input.vout), compactSize(scriptSig.length), scriptSig, u32LE(input.sequence ?? 0xffffffff));
+		}
+		function serializeOutput(output) {
+		    const scriptPubKey = hexToBytes(ensureHex(output.scriptPubKeyHex, 'scriptPubKeyHex'));
+		    return concatBytes(u64LE(output.valueSats), compactSize(scriptPubKey.length), scriptPubKey);
+		}
+		function createUnsignedTransaction(tx) {
+		    const version = tx.version ?? 2;
+		    const locktime = tx.locktime ?? 0;
+		    const inputs = tx.inputs.map(serializeInput);
+		    const outputs = tx.outputs.map(serializeOutput);
+		    const bytes = concatBytes(u32LE(version), compactSize(inputs.length), ...inputs, compactSize(outputs.length), ...outputs, u32LE(locktime));
+		    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+		}
+
+		function buildTransaction(version, locktime, inputs, outputs) {
+		    return {
+		        rawTx: createUnsignedTransaction({
+		            version: version ?? 2,
+		            locktime: locktime ?? 0,
+		            inputs,
+		            outputs
+		        }),
+		        outputs
+		    };
+		}
+		function appendXnaEnvelope(outputs, burnAddress, burnAmountSats, changeAddress, changeSats) {
+		    if (burnAddress && burnAmountSats !== undefined && BigInt(burnAmountSats) > 0n) {
+		        outputs.push(createXnaOutput(burnAddress, burnAmountSats));
+		    }
+		    if (changeAddress && changeSats !== undefined && BigInt(changeSats) > 0n) {
+		        outputs.push(createXnaOutput(changeAddress, changeSats));
+		    }
+		}
+		function appendExtraOutputs(outputs, extraOutputs) {
+		    if (extraOutputs?.length) {
+		        outputs.push(...extraOutputs);
+		    }
+		}
+		/**
+		 * Null-asset data flag: 1 freezes, 0 unfreezes.
+		 *
+		 * Consensus accepts nothing else. The node's `VerifyNullAssetDataFlag`
+		 * (`src/assets/assets.cpp`) rejects any other value with
+		 * `bad-txns-null-data-flag-must-be-0-or-1`, and it takes neither the network
+		 * nor the height, so the mapping is identical on mainnet, testnet and regtest.
+		 *
+		 * These same two values serve the per-address restriction, the qualifier
+		 * tag/untag AND the global restriction: `VerifyRestrictedAddressChange`,
+		 * `VerifyQualifierChange` and `VerifyGlobalRestrictedChange` all delegate to
+		 * that one check. Captured from the node's own transactions:
+		 *
+		 *   freezerestrictedasset   $PROBE → c0505008062450524f424501   (flag 01)
+		 *   unfreezerestrictedasset $PROBE → c0505008062450524f424500   (flag 00)
+		 *
+		 * Until 0.7.1 the global restriction added 2 to this value, emitting 3 and 2,
+		 * which the node rejected outright.
+		 */
+		function freezeFlagFromOperation(operation) {
+		    return operation === 'freeze' ? 1 : 0;
+		}
+		// NIP-040: the transaction-level marker reaches every asset output a builder
+		// creates; an output-level marker wins. `extraOutputs` are never touched.
+		function marker(params) {
+		    return { assetMarker: params.assetMarker };
+		}
+		function withMarker(output, params) {
+		    return output.assetMarker === undefined && params.assetMarker !== undefined
+		        ? { ...output, assetMarker: params.assetMarker }
+		        : output;
+		}
+		// Compare by decoded destination script, not by address text: two encodings of
+		// the same destination (e.g. different Bech32 case) must count as equal.
+		function sameDestination(a, b) {
+		    return bytesToHex(encodeDestinationScript(a)) === bytesToHex(encodeDestinationScript(b));
+		}
+		function createPaymentTransaction(params) {
+		    const outputs = [
+		        ...params.payments.map((payment) => createXnaOutput(payment.address, payment.valueSats)),
+		        ...(params.extraOutputs ?? [])
+		    ];
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createStandardAssetTransferTransaction(params) {
+		    // Output order is fixed:
+		    //   payments → transfers → transferMessages → transfersToScript → extraOutputs.
+		    // Keep transfersToScript after transferMessages so indices of existing
+		    // callers (payments + transfers + transferMessages) remain stable.
+		    const outputs = [];
+		    for (const payment of params.payments ?? []) {
+		        outputs.push(createXnaOutput(payment.address, payment.valueSats));
+		    }
+		    for (const transfer of params.transfers ?? []) {
+		        outputs.push(createTransferOutput(withMarker(transfer, params)));
+		    }
+		    for (const transfer of params.transferMessages ?? []) {
+		        outputs.push(createTransferWithMessageOutput(withMarker(transfer, params)));
+		    }
+		    for (const transfer of params.transfersToScript ?? []) {
+		        outputs.push(createAssetTransferToScriptOutput(withMarker(transfer, params)));
+		    }
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createIssueAssetTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    // Consensus locates issuance outputs positionally (issue at vout[n-1], owner
+		    // at vout[n-2]), so extraOutputs must come before them, not after.
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    if (params.includeOwnerOutput ?? true) {
+		        outputs.push(createOwnerAssetIssueOutput(params.ownerTokenAddress ?? params.toAddress, params.ownerTokenName ?? getOwnerTokenName(params.assetName), marker(params)));
+		    }
+		    outputs.push(createIssueAssetOutput({
+		        address: params.toAddress,
+		        assetName: params.assetName,
+		        quantityRaw: params.quantityRaw,
+		        units: params.units ?? 0,
+		        reissuable: params.reissuable ?? true,
+		        ipfsHash: params.ipfsHash,
+		        assetMarker: params.assetMarker
+		    }));
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createIssueSubAssetTransaction(params) {
+		    const parentAssetName = getParentAssetName(params.assetName);
+		    if (!parentAssetName) {
+		        throw new Error(`Sub-asset name must contain '/': ${params.assetName}`);
+		    }
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    outputs.push(createOwnerAssetTransferOutput(params.parentOwnerAddress ?? params.xnaChangeAddress ?? params.toAddress, getOwnerTokenName(parentAssetName), marker(params)));
+		    outputs.push(createOwnerAssetIssueOutput(params.ownerTokenAddress ?? params.toAddress, getOwnerTokenName(params.assetName), marker(params)));
+		    outputs.push(createIssueAssetOutput({
+		        address: params.toAddress,
+		        assetName: params.assetName,
+		        quantityRaw: params.quantityRaw,
+		        units: params.units ?? 0,
+		        reissuable: params.reissuable ?? true,
+		        ipfsHash: params.ipfsHash,
+		        assetMarker: params.assetMarker
+		    }));
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createIssueDepinTransaction(params) {
+		    assertDepinAssetName(params.assetName);
+		    assertDepinNetwork(params.network);
+		    if (BigInt(params.quantityRaw) <= 0n) {
+		        throw new Error('DEPIN issue quantity must be positive');
+		    }
+		    if (params.reissuable !== undefined && typeof params.reissuable !== 'boolean') {
+		        throw new Error('DEPIN reissuable must be boolean when provided');
+		    }
+		    // A sub-DEPIN ("&X/Y") must transfer the immediate parent's owner token in
+		    // the issuing transaction, exactly like sub-assets. It stays AssetType DEPIN
+		    // (same burn as the root), so only the output layout follows the sub flow.
+		    if (getParentAssetName(params.assetName)) {
+		        return createIssueSubAssetTransaction({
+		            ...params,
+		            units: 0,
+		            reissuable: params.reissuable ?? true,
+		            parentOwnerAddress: params.parentOwnerAddress,
+		            ownerTokenAddress: params.ownerTokenAddress ?? params.toAddress
+		        });
+		    }
+		    return createIssueAssetTransaction({
+		        ...params,
+		        units: 0,
+		        includeOwnerOutput: true,
+		        ownerTokenAddress: params.ownerTokenAddress ?? params.toAddress,
+		        reissuable: params.reissuable ?? true
+		    });
+		}
+		function createDepinTransferTransaction(params) {
+		    assertDepinNetwork(params.network);
+		    if (!params.transfers?.length) {
+		        throw new Error('DEPIN transfer requires at least one transfer');
+		    }
+		    const assetName = params.transfers[0].assetName;
+		    assertDepinAssetName(assetName);
+		    for (const transfer of params.transfers) {
+		        if (transfer.assetName !== assetName) {
+		            throw new Error(`DEPIN transfers must all move the same asset (got ${transfer.assetName} and ${assetName}); build one transaction per DEPIN asset`);
+		        }
+		        if (BigInt(transfer.amountRaw) <= 0n) {
+		            throw new Error(`DEPIN transfer amount must be positive: ${assetName}`);
+		        }
+		    }
+		    const outputs = [];
+		    for (const transfer of params.transfers) {
+		        outputs.push(createTransferOutput(withMarker(transfer, params)));
+		    }
+		    // Soulbound escort: consensus also requires SPENDING an "&X!" UTXO, which
+		    // must be present in params.inputs (this package does not select UTXOs).
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress, getOwnerTokenName(assetName), marker(params)));
+		    appendXnaEnvelope(outputs, undefined, undefined, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createDepinSelfRevokeTransaction(params) {
+		    assertDepinAssetName(params.assetName);
+		    assertDepinNetwork(params.network);
+		    if (BigInt(params.amountRaw) <= 0n) {
+		        throw new Error('DEPIN self-revoke amount must be positive');
+		    }
+		    // Exact consensus pattern: one self-transfer of "&X" back to the holder plus
+		    // one null-data with flag 1 (the only valid flag without the owner token).
+		    // No owner token, no burn. The input-side rules live on the caller — see
+		    // DepinSelfRevokeTransactionParams.
+		    const outputs = [
+		        createAssetTransferOutput(params.holderAddress, params.assetName, params.amountRaw, marker(params)),
+		        createNullAssetRestrictionOutput(params.holderAddress, params.assetName, 1, params.nullAssetDestinationMode ?? 'strict')
+		    ];
+		    appendXnaEnvelope(outputs, undefined, undefined, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createIssueUniqueAssetTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerTokenAddress ?? params.toAddress, getOwnerTokenName(params.rootName), marker(params)));
+		    for (let index = 0; index < params.assetTags.length; index += 1) {
+		        outputs.push(createIssueAssetOutput({
+		            address: params.toAddress,
+		            assetName: getUniqueAssetName(params.rootName, params.assetTags[index]),
+		            quantityRaw: UNIQUE_ASSET_AMOUNT,
+		            units: UNIQUE_ASSET_UNITS,
+		            reissuable: UNIQUE_ASSETS_REISSUABLE,
+		            ipfsHash: params.ipfsHashes?.[index],
+		            assetMarker: params.assetMarker
+		        }));
+		    }
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createIssueQualifierTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    const parentQualifier = getParentAssetName(params.assetName);
+		    if (parentQualifier) {
+		        outputs.push(createAssetTransferOutput(params.rootChangeAddress ?? params.xnaChangeAddress ?? params.toAddress, parentQualifier, params.changeQuantityRaw ?? OWNER_ASSET_AMOUNT, marker(params)));
+		    }
+		    outputs.push(createIssueAssetOutput({
+		        address: params.toAddress,
+		        assetName: params.assetName,
+		        quantityRaw: params.quantityRaw,
+		        units: 0,
+		        reissuable: false,
+		        ipfsHash: params.ipfsHash,
+		        assetMarker: params.assetMarker
+		    }));
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createIssueRestrictedTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    outputs.push(createVerifierStringOutput(normalizeVerifierString(params.verifierString)));
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress ?? params.toAddress, getOwnerTokenName(params.assetName), marker(params)));
+		    outputs.push(createIssueAssetOutput({
+		        address: params.toAddress,
+		        assetName: params.assetName,
+		        quantityRaw: params.quantityRaw,
+		        units: params.units ?? 0,
+		        reissuable: params.reissuable ?? true,
+		        ipfsHash: params.ipfsHash,
+		        assetMarker: params.assetMarker
+		    }));
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createReissueTransaction(params) {
+		    if (isDepinAssetName(params.assetName)) {
+		        // DEPIN reissue: units must stay 0 (-1 means "keep"), and the owner-token
+		        // change must return to the destination address itself.
+		        if (params.units !== undefined && params.units !== 0 && params.units !== -1) {
+		            throw new Error('DEPIN reissue units must be 0 or -1 (keep)');
+		        }
+		        if (params.ownerChangeAddress !== undefined &&
+		            !sameDestination(params.ownerChangeAddress, params.toAddress)) {
+		            throw new Error('DEPIN reissue owner change address must match the destination address');
+		        }
+		    }
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    // Consensus locates the reissue output at vout[n-1]; extraOutputs go first.
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress ?? params.toAddress, getOwnerTokenName(params.assetName), marker(params)));
+		    outputs.push(createReissueAssetOutput({
+		        address: params.toAddress,
+		        assetName: params.assetName,
+		        quantityRaw: params.quantityRaw,
+		        // Omitted means "keep the current units" (-1); do NOT collapse to 0.
+		        units: params.units,
+		        reissuable: params.reissuable ?? true,
+		        ipfsHash: params.ipfsHash,
+		        assetMarker: params.assetMarker
+		    }));
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createReissueRestrictedTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    if (params.verifierString) {
+		        outputs.push(createVerifierStringOutput(normalizeVerifierString(params.verifierString)));
+		    }
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress ?? params.toAddress, getOwnerTokenName(params.assetName), marker(params)));
+		    outputs.push(createReissueAssetOutput({
+		        address: params.toAddress,
+		        assetName: params.assetName,
+		        quantityRaw: params.quantityRaw,
+		        // Omitted means "keep the current units" (-1); do NOT collapse to 0.
+		        units: params.units,
+		        reissuable: params.reissuable ?? true,
+		        ipfsHash: params.ipfsHash,
+		        assetMarker: params.assetMarker
+		    }));
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createQualifierTagTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, params.burnAddress, params.burnAmountSats, params.xnaChangeAddress, params.xnaChangeSats);
+		    outputs.push(createAssetTransferOutput(params.qualifierChangeAddress, params.qualifierName, params.qualifierChangeAmountRaw, marker(params)));
+		    for (const address of params.targetAddresses) {
+		        outputs.push(createNullAssetTagOutput(address, params.qualifierName, params.operation, params.nullAssetDestinationMode ?? 'strict'));
+		    }
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createFreezeAddressesTransaction(params) {
+		    if (isDepinAssetName(params.assetName)) {
+		        // The address holding (or receiving) the owner token cannot be frozen or
+		        // revoked. The node also rejects spending an "&X!" UTXO that sits on a
+		        // target address — that input-side rule cannot be checked here (inputs
+		        // carry no address) and stays the caller's responsibility.
+		        for (const target of params.targetAddresses) {
+		            if (sameDestination(target, params.ownerChangeAddress)) {
+		                throw new Error('DEPIN owner change address cannot be one of the target addresses (owner-holder address cannot be frozen or revoked)');
+		            }
+		        }
+		    }
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, undefined, undefined, params.xnaChangeAddress, params.xnaChangeSats);
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress, getOwnerTokenName(params.assetName), marker(params)));
+		    for (const address of params.targetAddresses) {
+		        outputs.push(createNullAssetRestrictionOutput(address, params.assetName, freezeFlagFromOperation(params.operation), params.nullAssetDestinationMode ?? 'strict'));
+		    }
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createFreezeAssetTransaction(params) {
+		    const outputs = [];
+		    appendXnaEnvelope(outputs, undefined, undefined, params.xnaChangeAddress, params.xnaChangeSats);
+		    outputs.push(createOwnerAssetTransferOutput(params.ownerChangeAddress, getOwnerTokenName(params.assetName), marker(params)));
+		    outputs.push(createGlobalRestrictionOutput(params.assetName, freezeFlagFromOperation(params.operation)));
+		    appendExtraOutputs(outputs, params.extraOutputs);
+		    return buildTransaction(params.version, params.locktime, params.inputs, outputs);
+		}
+		function createFromOperation(build) {
+		    switch (build.operationType) {
+		        case 'STANDARD_PAYMENT':
+		            return createPaymentTransaction(build.params);
+		        case 'STANDARD_TRANSFER':
+		            return createStandardAssetTransferTransaction(build.params);
+		        case 'ISSUE_ROOT':
+		        case 'ISSUE_MSGCHANNEL':
+		            return createIssueAssetTransaction(build.params);
+		        case 'ISSUE_SUB':
+		            return createIssueSubAssetTransaction(build.params);
+		        case 'ISSUE_UNIQUE':
+		            return createIssueUniqueAssetTransaction(build.params);
+		        case 'ISSUE_DEPIN':
+		            return createIssueDepinTransaction(build.params);
+		        case 'ISSUE_QUALIFIER':
+		        case 'ISSUE_SUB_QUALIFIER':
+		            return createIssueQualifierTransaction(build.params);
+		        case 'ISSUE_RESTRICTED':
+		            return createIssueRestrictedTransaction(build.params);
+		        case 'REISSUE':
+		            return createReissueTransaction(build.params);
+		        case 'REISSUE_RESTRICTED':
+		            return createReissueRestrictedTransaction(build.params);
+		        case 'TRANSFER_DEPIN':
+		            return createDepinTransferTransaction(build.params);
+		        case 'SELF_REVOKE_DEPIN':
+		            return createDepinSelfRevokeTransaction(build.params);
+		        case 'TAG_ADDRESSES':
+		            return createQualifierTagTransaction({
+		                ...build.params,
+		                operation: 'tag'
+		            });
+		        case 'UNTAG_ADDRESSES':
+		            return createQualifierTagTransaction({
+		                ...build.params,
+		                operation: 'untag'
+		            });
+		        case 'FREEZE_ADDRESSES':
+		            return createFreezeAddressesTransaction({
+		                ...build.params,
+		                operation: 'freeze'
+		            });
+		        case 'UNFREEZE_ADDRESSES':
+		            return createFreezeAddressesTransaction({
+		                ...build.params,
+		                operation: 'unfreeze'
+		            });
+		        case 'FREEZE_ASSET':
+		            return createFreezeAssetTransaction({
+		                ...build.params,
+		                operation: 'freeze'
+		            });
+		        case 'UNFREEZE_ASSET':
+		            return createFreezeAssetTransaction({
+		                ...build.params,
+		                operation: 'unfreeze'
+		            });
+		        default: {
+		            const unsupported = build;
+		            throw new Error(`Unsupported operation type: ${JSON.stringify(unsupported)}`);
+		        }
+		    }
+		}
+
+		/**
+		 * Checks if something is Uint8Array. Be careful: nodejs Buffer will return true.
+		 * @param a - value to test
+		 * @returns `true` when the value is a Uint8Array-compatible view.
+		 * @example
+		 * Check whether a value is a Uint8Array-compatible view.
+		 * ```ts
+		 * isBytes(new Uint8Array([1, 2, 3]));
+		 * ```
+		 */
+		function isBytes(a) {
+		    // Plain `instanceof Uint8Array` is too strict for some Buffer / proxy / cross-realm cases.
+		    // The fallback still requires a real ArrayBuffer view, so plain
+		    // JSON-deserialized `{ constructor: ... }` spoofing is rejected, and
+		    // `BYTES_PER_ELEMENT === 1` keeps the fallback on byte-oriented views.
+		    return (a instanceof Uint8Array ||
+		        (ArrayBuffer.isView(a) &&
+		            a.constructor.name === 'Uint8Array' &&
+		            'BYTES_PER_ELEMENT' in a &&
+		            a.BYTES_PER_ELEMENT === 1));
+		}
+		/**
+		 * Asserts something is Uint8Array.
+		 * @param value - value to validate
+		 * @param length - optional exact length constraint
+		 * @param title - label included in thrown errors
+		 * @returns The validated byte array.
+		 * @throws On wrong argument types. {@link TypeError}
+		 * @throws On wrong argument ranges or values. {@link RangeError}
+		 * @example
+		 * Validate that a value is a byte array.
+		 * ```ts
+		 * abytes(new Uint8Array([1, 2, 3]));
+		 * ```
+		 */
+		function abytes(value, length, title = '') {
+		    const bytes = isBytes(value);
+		    const len = value?.length;
+		    const needsLen = length !== undefined;
+		    if (!bytes || (needsLen)) {
+		        const prefix = title && `"${title}" `;
+		        const ofLen = '';
+		        const got = bytes ? `length=${len}` : `type=${typeof value}`;
+		        const message = prefix + 'expected Uint8Array' + ofLen + ', got ' + got;
+		        if (!bytes)
+		            throw new TypeError(message);
+		        throw new RangeError(message);
+		    }
+		    return value;
+		}
+		/**
+		 * Asserts a hash instance has not been destroyed or finished.
+		 * @param instance - hash instance to validate
+		 * @param checkFinished - whether to reject finalized instances
+		 * @throws If the hash instance has already been destroyed or finalized. {@link Error}
+		 * @example
+		 * Validate that a hash instance is still usable.
+		 * ```ts
+		 * import { aexists } from '@noble/hashes/utils.js';
+		 * import { sha256 } from '@noble/hashes/sha2.js';
+		 * const hash = sha256.create();
+		 * aexists(hash);
+		 * ```
+		 */
+		function aexists(instance, checkFinished = true) {
+		    if (instance.destroyed)
+		        throw new Error('Hash instance has been destroyed');
+		    if (checkFinished && instance.finished)
+		        throw new Error('Hash#digest() has already been called');
+		}
+		/**
+		 * Asserts output is a sufficiently-sized byte array.
+		 * @param out - destination buffer
+		 * @param instance - hash instance providing output length
+		 * Oversized buffers are allowed; downstream code only promises to fill the first `outputLen` bytes.
+		 * @throws On wrong argument types. {@link TypeError}
+		 * @throws On wrong argument ranges or values. {@link RangeError}
+		 * @example
+		 * Validate a caller-provided digest buffer.
+		 * ```ts
+		 * import { aoutput } from '@noble/hashes/utils.js';
+		 * import { sha256 } from '@noble/hashes/sha2.js';
+		 * const hash = sha256.create();
+		 * aoutput(new Uint8Array(hash.outputLen), hash);
+		 * ```
+		 */
+		function aoutput(out, instance) {
+		    abytes(out, undefined, 'digestInto() output');
+		    const min = instance.outputLen;
+		    if (out.length < min) {
+		        throw new RangeError('"digestInto() output" expected to be of length >=' + min);
+		    }
+		}
+		/**
+		 * Zeroizes typed arrays in place. Warning: JS provides no guarantees.
+		 * @param arrays - arrays to overwrite with zeros
+		 * @example
+		 * Zeroize sensitive buffers in place.
+		 * ```ts
+		 * clean(new Uint8Array([1, 2, 3]));
+		 * ```
+		 */
+		function clean(...arrays) {
+		    for (let i = 0; i < arrays.length; i++) {
+		        arrays[i].fill(0);
+		    }
+		}
+		/**
+		 * Creates a DataView for byte-level manipulation.
+		 * @param arr - source typed array
+		 * @returns DataView over the same buffer region.
+		 * @example
+		 * Create a DataView over an existing buffer.
+		 * ```ts
+		 * createView(new Uint8Array(4));
+		 * ```
+		 */
+		function createView(arr) {
+		    return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+		}
+		/**
+		 * Rotate-right operation for uint32 values.
+		 * @param word - source word
+		 * @param shift - shift amount in bits
+		 * @returns Rotated word.
+		 * @example
+		 * Rotate a 32-bit word to the right.
+		 * ```ts
+		 * rotr(0x12345678, 8);
+		 * ```
+		 */
+		function rotr(word, shift) {
+		    return (word << (32 - shift)) | (word >>> shift);
+		}
+		/**
+		 * Creates a callable hash function from a stateful class constructor.
+		 * @param hashCons - hash constructor or factory
+		 * @param info - optional metadata such as DER OID
+		 * @returns Frozen callable hash wrapper with `.create()`.
+		 *   Wrapper construction eagerly calls `hashCons(undefined)` once to read
+		 *   `outputLen` / `blockLen`, so constructor side effects happen at module
+		 *   init time.
+		 * @example
+		 * Wrap a stateful hash constructor into a callable helper.
+		 * ```ts
+		 * import { createHasher } from '@noble/hashes/utils.js';
+		 * import { sha256 } from '@noble/hashes/sha2.js';
+		 * const wrapped = createHasher(sha256.create, { oid: sha256.oid });
+		 * wrapped(new Uint8Array([1]));
+		 * ```
+		 */
+		function createHasher(hashCons, info = {}) {
+		    const hashC = (msg, opts) => hashCons(opts)
+		        .update(msg)
+		        .digest();
+		    const tmp = hashCons(undefined);
+		    hashC.outputLen = tmp.outputLen;
+		    hashC.blockLen = tmp.blockLen;
+		    hashC.canXOF = tmp.canXOF;
+		    hashC.create = (opts) => hashCons(opts);
+		    Object.assign(hashC, info);
+		    return Object.freeze(hashC);
+		}
+		/**
+		 * Creates OID metadata for NIST hashes with prefix `06 09 60 86 48 01 65 03 04 02`.
+		 * @param suffix - final OID byte for the selected hash.
+		 *   The helper accepts any byte even though only the documented NIST hash
+		 *   suffixes are meaningful downstream.
+		 * @returns Object containing the DER-encoded OID.
+		 * @example
+		 * Build OID metadata for a NIST hash.
+		 * ```ts
+		 * oidNist(0x01);
+		 * ```
+		 */
+		const oidNist = (suffix) => ({
+		    // Current NIST hashAlgs suffixes used here fit in one DER subidentifier octet.
+		    // Larger suffix values would need base-128 OID encoding and a different length byte.
+		    oid: Uint8Array.from([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, suffix]),
+		});
+
+		/**
+		 * Internal Merkle-Damgard hash utils.
+		 * @module
+		 */
+		/**
+		 * Shared 32-bit conditional boolean primitive reused by SHA-256, SHA-1, and MD5 `F`.
+		 * Returns bits from `b` when `a` is set, otherwise from `c`.
+		 * The XOR form is equivalent to MD5's `F(X,Y,Z) = XY v not(X)Z` because the masked terms never
+		 * set the same bit.
+		 * @param a - selector word
+		 * @param b - word chosen when selector bit is set
+		 * @param c - word chosen when selector bit is clear
+		 * @returns Mixed 32-bit word.
+		 * @example
+		 * Combine three words with the shared 32-bit choice primitive.
+		 * ```ts
+		 * Chi(0xffffffff, 0x12345678, 0x87654321);
+		 * ```
+		 */
+		function Chi(a, b, c) {
+		    return (a & b) ^ (~a & c);
+		}
+		/**
+		 * Shared 32-bit majority primitive reused by SHA-256 and SHA-1.
+		 * Returns bits shared by at least two inputs.
+		 * @param a - first input word
+		 * @param b - second input word
+		 * @param c - third input word
+		 * @returns Mixed 32-bit word.
+		 * @example
+		 * Combine three words with the shared 32-bit majority primitive.
+		 * ```ts
+		 * Maj(0xffffffff, 0x12345678, 0x87654321);
+		 * ```
+		 */
+		function Maj(a, b, c) {
+		    return (a & b) ^ (a & c) ^ (b & c);
+		}
+		/**
+		 * Merkle-Damgard hash construction base class.
+		 * Could be used to create MD5, RIPEMD, SHA1, SHA2.
+		 * Accepts only byte-aligned `Uint8Array` input, even when the underlying spec describes bit
+		 * strings with partial-byte tails.
+		 * @param blockLen - internal block size in bytes
+		 * @param outputLen - digest size in bytes
+		 * @param padOffset - trailing length field size in bytes
+		 * @param isLE - whether length and state words are encoded in little-endian
+		 * @example
+		 * Use a concrete subclass to get the shared Merkle-Damgard update/digest flow.
+		 * ```ts
+		 * import { _SHA1 } from '@noble/hashes/legacy.js';
+		 * const hash = new _SHA1();
+		 * hash.update(new Uint8Array([97, 98, 99]));
+		 * hash.digest();
+		 * ```
+		 */
+		class HashMD {
+		    blockLen;
+		    outputLen;
+		    canXOF = false;
+		    padOffset;
+		    isLE;
+		    // For partial updates less than block size
+		    buffer;
+		    view;
+		    finished = false;
+		    length = 0;
+		    pos = 0;
+		    destroyed = false;
+		    constructor(blockLen, outputLen, padOffset, isLE) {
+		        this.blockLen = blockLen;
+		        this.outputLen = outputLen;
+		        this.padOffset = padOffset;
+		        this.isLE = isLE;
+		        this.buffer = new Uint8Array(blockLen);
+		        this.view = createView(this.buffer);
+		    }
+		    update(data) {
+		        aexists(this);
+		        abytes(data);
+		        const { view, buffer, blockLen } = this;
+		        const len = data.length;
+		        for (let pos = 0; pos < len;) {
+		            const take = Math.min(blockLen - this.pos, len - pos);
+		            // Fast path only when there is no buffered partial block: `take === blockLen` implies
+		            // `this.pos === 0`, so we can process full blocks directly from the input view.
+		            if (take === blockLen) {
+		                const dataView = createView(data);
+		                for (; blockLen <= len - pos; pos += blockLen)
+		                    this.process(dataView, pos);
+		                continue;
+		            }
+		            buffer.set(data.subarray(pos, pos + take), this.pos);
+		            this.pos += take;
+		            pos += take;
+		            if (this.pos === blockLen) {
+		                this.process(view, 0);
+		                this.pos = 0;
+		            }
+		        }
+		        this.length += data.length;
+		        this.roundClean();
+		        return this;
+		    }
+		    digestInto(out) {
+		        aexists(this);
+		        aoutput(out, this);
+		        this.finished = true;
+		        // Padding
+		        // We can avoid allocation of buffer for padding completely if it
+		        // was previously not allocated here. But it won't change performance.
+		        const { buffer, view, blockLen, isLE } = this;
+		        let { pos } = this;
+		        // append the bit '1' to the message
+		        buffer[pos++] = 0b10000000;
+		        clean(this.buffer.subarray(pos));
+		        // we have less than padOffset left in buffer, so we cannot put length in
+		        // current block, need process it and pad again
+		        if (this.padOffset > blockLen - pos) {
+		            this.process(view, 0);
+		            pos = 0;
+		        }
+		        // Pad until full block byte with zeros
+		        for (let i = pos; i < blockLen; i++)
+		            buffer[i] = 0;
+		        // `padOffset` reserves the whole length field. For SHA-384/512 the high 64 bits stay zero from
+		        // the padding fill above, and JS will overflow before user input can make that half non-zero.
+		        // So we only need to write the low 64 bits here.
+		        view.setBigUint64(blockLen - 8, BigInt(this.length * 8), isLE);
+		        this.process(view, 0);
+		        const oview = createView(out);
+		        const len = this.outputLen;
+		        // NOTE: we do division by 4 later, which must be fused in single op with modulo by JIT
+		        if (len % 4)
+		            throw new Error('_sha2: outputLen must be aligned to 32bit');
+		        const outLen = len / 4;
+		        const state = this.get();
+		        if (outLen > state.length)
+		            throw new Error('_sha2: outputLen bigger than state');
+		        for (let i = 0; i < outLen; i++)
+		            oview.setUint32(4 * i, state[i], isLE);
+		    }
+		    digest() {
+		        const { buffer, outputLen } = this;
+		        this.digestInto(buffer);
+		        // Copy before destroy(): subclasses wipe `buffer` during cleanup, but `digest()` must return
+		        // fresh bytes to the caller.
+		        const res = buffer.slice(0, outputLen);
+		        this.destroy();
+		        return res;
+		    }
+		    _cloneInto(to) {
+		        to ||= new this.constructor();
+		        to.set(...this.get());
+		        const { blockLen, buffer, length, finished, destroyed, pos } = this;
+		        to.destroyed = destroyed;
+		        to.finished = finished;
+		        to.length = length;
+		        to.pos = pos;
+		        // Only partial-block bytes need copying: when `length % blockLen === 0`, `pos === 0` and
+		        // later `update()` / `digestInto()` overwrite `to.buffer` from the start before reading it.
+		        if (length % blockLen)
+		            to.buffer.set(buffer);
+		        return to;
+		    }
+		    clone() {
+		        return this._cloneInto();
+		    }
+		}
+		/**
+		 * Initial SHA-2 state: fractional parts of square roots of first 16 primes 2..53.
+		 * Check out `test/misc/sha2-gen-iv.js` for recomputation guide.
+		 */
+		/** Initial SHA256 state from RFC 6234 §6.1: the first 32 bits of the fractional parts of the
+		 * square roots of the first eight prime numbers. Exported as a shared table; callers must treat
+		 * it as read-only because constructors copy words from it by index. */
+		const SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+		    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+		]);
+
+		/**
+		 * SHA2 hash function. A.k.a. sha256, sha384, sha512, sha512_224, sha512_256.
+		 * SHA256 is the fastest hash implementable in JS, even faster than Blake3.
+		 * Check out {@link https://www.rfc-editor.org/rfc/rfc4634 | RFC 4634} and
+		 * {@link https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf | FIPS 180-4}.
+		 * @module
+		 */
+		/**
+		 * SHA-224 / SHA-256 round constants from RFC 6234 §5.1: the first 32 bits
+		 * of the cube roots of the first 64 primes (2..311).
+		 */
+		// prettier-ignore
+		const SHA256_K = /* @__PURE__ */ Uint32Array.from([
+		    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+		    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+		    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+		    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+		    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+		    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+		    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+		    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+		]);
+		/** Reusable SHA-224 / SHA-256 message schedule buffer `W_t` from RFC 6234 §6.2 step 1. */
+		const SHA256_W = /* @__PURE__ */ new Uint32Array(64);
+		/** Internal SHA-224 / SHA-256 compression engine from RFC 6234 §6.2. */
+		class SHA2_32B extends HashMD {
+		    constructor(outputLen) {
+		        super(64, outputLen, 8, false);
+		    }
+		    get() {
+		        const { A, B, C, D, E, F, G, H } = this;
+		        return [A, B, C, D, E, F, G, H];
+		    }
+		    // prettier-ignore
+		    set(A, B, C, D, E, F, G, H) {
+		        this.A = A | 0;
+		        this.B = B | 0;
+		        this.C = C | 0;
+		        this.D = D | 0;
+		        this.E = E | 0;
+		        this.F = F | 0;
+		        this.G = G | 0;
+		        this.H = H | 0;
+		    }
+		    process(view, offset) {
+		        // Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array
+		        for (let i = 0; i < 16; i++, offset += 4)
+		            SHA256_W[i] = view.getUint32(offset, false);
+		        for (let i = 16; i < 64; i++) {
+		            const W15 = SHA256_W[i - 15];
+		            const W2 = SHA256_W[i - 2];
+		            const s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ (W15 >>> 3);
+		            const s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >>> 10);
+		            SHA256_W[i] = (s1 + SHA256_W[i - 7] + s0 + SHA256_W[i - 16]) | 0;
+		        }
+		        // Compression function main loop, 64 rounds
+		        let { A, B, C, D, E, F, G, H } = this;
+		        for (let i = 0; i < 64; i++) {
+		            const sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25);
+		            const T1 = (H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i]) | 0;
+		            const sigma0 = rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22);
+		            const T2 = (sigma0 + Maj(A, B, C)) | 0;
+		            H = G;
+		            G = F;
+		            F = E;
+		            E = (D + T1) | 0;
+		            D = C;
+		            C = B;
+		            B = A;
+		            A = (T1 + T2) | 0;
+		        }
+		        // Add the compressed chunk to the current hash value
+		        A = (A + this.A) | 0;
+		        B = (B + this.B) | 0;
+		        C = (C + this.C) | 0;
+		        D = (D + this.D) | 0;
+		        E = (E + this.E) | 0;
+		        F = (F + this.F) | 0;
+		        G = (G + this.G) | 0;
+		        H = (H + this.H) | 0;
+		        this.set(A, B, C, D, E, F, G, H);
+		    }
+		    roundClean() {
+		        clean(SHA256_W);
+		    }
+		    destroy() {
+		        // HashMD callers route post-destroy usability through `destroyed`; zeroizing alone still leaves
+		        // update()/digest() callable on reused instances.
+		        this.destroyed = true;
+		        this.set(0, 0, 0, 0, 0, 0, 0, 0);
+		        clean(this.buffer);
+		    }
+		}
+		/** Internal SHA-256 hash class grounded in RFC 6234 §6.2. */
+		class _SHA256 extends SHA2_32B {
+		    // We cannot use array here since array allows indexing by variable
+		    // which means optimizer/compiler cannot use registers.
+		    A = SHA256_IV[0] | 0;
+		    B = SHA256_IV[1] | 0;
+		    C = SHA256_IV[2] | 0;
+		    D = SHA256_IV[3] | 0;
+		    E = SHA256_IV[4] | 0;
+		    F = SHA256_IV[5] | 0;
+		    G = SHA256_IV[6] | 0;
+		    H = SHA256_IV[7] | 0;
+		    constructor() {
+		        super(32);
+		    }
+		}
+		/**
+		 * SHA2-256 hash function from RFC 4634. In JS it's the fastest: even faster than Blake3. Some info:
+		 *
+		 * - Trying 2^128 hashes would get 50% chance of collision, using birthday attack.
+		 * - BTC network is doing 2^70 hashes/sec (2^95 hashes/year) as per 2025.
+		 * - Each sha256 hash is executing 2^18 bit operations.
+		 * - Good 2024 ASICs can do 200Th/sec with 3500 watts of power, corresponding to 2^36 hashes/joule.
+		 * @param msg - message bytes to hash
+		 * @returns Digest bytes.
+		 * @example
+		 * Hash a message with SHA2-256.
+		 * ```ts
+		 * sha256(new Uint8Array([97, 98, 99]));
+		 * ```
+		 */
+		const sha256 = /* @__PURE__ */ createHasher(() => new _SHA256(), 
+		/* @__PURE__ */ oidNist(0x01));
+
+		// Hard deserialization bound, mirroring the node (serialize.h MAX_SIZE):
+		// ReadCompactSize rejects anything above it, canonical or not.
+		const MAX_SIZE = 0x02000000;
+		function hash256(bytes) {
+		    return sha256(sha256(bytes));
+		}
+		class ByteReader {
+		    bytes;
+		    offset = 0;
+		    constructor(bytes) {
+		        this.bytes = bytes;
+		    }
+		    need(count) {
+		        if (count > this.bytes.length - this.offset) {
+		            throw new Error(`Transaction hex truncated: need ${count} more byte(s) at offset ${this.offset}, ` +
+		                `${this.bytes.length - this.offset} remaining`);
+		        }
+		    }
+		    readBytes(count) {
+		        this.need(count);
+		        const slice = this.bytes.subarray(this.offset, this.offset + count);
+		        this.offset += count;
+		        return slice;
+		    }
+		    readU8() {
+		        return this.readBytes(1)[0];
+		    }
+		    readU32() {
+		        const slice = this.readBytes(4);
+		        return (slice[0] | (slice[1] << 8) | (slice[2] << 16) | (slice[3] << 24)) >>> 0;
+		    }
+		    readU64() {
+		        const slice = this.readBytes(8);
+		        let value = 0n;
+		        for (let i = 7; i >= 0; i -= 1) {
+		            value = (value << 8n) | BigInt(slice[i]);
+		        }
+		        return value;
+		    }
+		    // Canonical CompactSize with the node's range bound: the shortest encoding
+		    // is mandatory and anything above MAX_SIZE throws, exactly like
+		    // ReadCompactSize. Lengths are validated against the remaining bytes by the
+		    // callers BEFORE any allocation or iteration.
+		    readCompactSize() {
+		        const first = this.readU8();
+		        let value;
+		        if (first < 0xfd) {
+		            value = first;
+		        }
+		        else if (first === 0xfd) {
+		            const slice = this.readBytes(2);
+		            value = slice[0] | (slice[1] << 8);
+		            if (value < 0xfd)
+		                throw new Error('Non-canonical CompactSize (0xfd form for value < 253)');
+		        }
+		        else if (first === 0xfe) {
+		            value = this.readU32();
+		            if (value < 0x10000)
+		                throw new Error('Non-canonical CompactSize (0xfe form for value < 0x10000)');
+		        }
+		        else {
+		            const big = this.readU64();
+		            if (big < 0x100000000n)
+		                throw new Error('Non-canonical CompactSize (0xff form for value < 2^32)');
+		            if (big > BigInt(MAX_SIZE))
+		                throw new Error(`CompactSize exceeds MAX_SIZE: ${big}`);
+		            value = Number(big);
+		        }
+		        if (value > MAX_SIZE) {
+		            throw new Error(`CompactSize exceeds MAX_SIZE: ${value}`);
+		        }
+		        return value;
+		    }
+		    /** Read a length prefix that must fit in the remaining bytes at `bytesPerItem`. */
+		    readCount(bytesPerItem, label) {
+		        const count = this.readCompactSize();
+		        if (count * bytesPerItem > this.bytes.length - this.offset) {
+		            throw new Error(`Declared ${label} count ${count} does not fit in the remaining ` +
+		                `${this.bytes.length - this.offset} byte(s)`);
+		        }
+		        return count;
+		    }
+		    get finished() {
+		        return this.offset === this.bytes.length;
+		    }
+		    get position() {
+		        return this.offset;
+		    }
+		}
+		function readOutpoint(reader) {
+		    const txid = bytesToHex(reverseBytes(reader.readBytes(32)));
+		    const vout = reader.readU32();
+		    return { txid, vout };
+		}
+		function readInput(reader) {
+		    const { txid, vout } = readOutpoint(reader);
+		    const scriptLength = reader.readCount(1, 'scriptSig');
+		    const scriptSigHex = bytesToHex(reader.readBytes(scriptLength));
+		    const sequence = reader.readU32();
+		    return { txid, vout, scriptSigHex, sequence };
+		}
+		function readOutput(reader) {
+		    const valueSats = reader.readU64();
+		    const scriptLength = reader.readCount(1, 'scriptPubKey');
+		    const scriptPubKeyHex = bytesToHex(reader.readBytes(scriptLength));
+		    return { valueSats, scriptPubKeyHex };
+		}
+		// Minimum serialized size per item, used only to bound counts before reading:
+		// input = outpoint(36) + compactSize(1) + sequence(4); output = value(8) +
+		// compactSize(1); witness element = compactSize(1).
+		const MIN_INPUT_SIZE = 41;
+		const MIN_OUTPUT_SIZE = 9;
+		function parseTransaction(hex) {
+		    const reader = new ByteReader(hexToBytes(ensureHex(hex, 'transaction hex')));
+		    // nVersion is a signed int32 (negative versions exist on-chain historically).
+		    const version = reader.readU32() | 0;
+		    const inputs = [];
+		    const outputs = [];
+		    let flags = 0;
+		    const vinCount = reader.readCount(MIN_INPUT_SIZE, 'input');
+		    if (vinCount === 0) {
+		        // Either a dummy marker for the extended (witness) format, or a genuinely
+		        // empty vin. Mirrors UnserializeTransaction: a flags byte follows; when it
+		        // is non-zero the real vin/vout follow, when zero the vout is NOT read.
+		        flags = reader.readU8();
+		        if (flags !== 0) {
+		            const realVinCount = reader.readCount(MIN_INPUT_SIZE, 'input');
+		            for (let i = 0; i < realVinCount; i += 1)
+		                inputs.push(readInput(reader));
+		            const voutCount = reader.readCount(MIN_OUTPUT_SIZE, 'output');
+		            for (let i = 0; i < voutCount; i += 1)
+		                outputs.push(readOutput(reader));
+		        }
+		    }
+		    else {
+		        for (let i = 0; i < vinCount; i += 1)
+		            inputs.push(readInput(reader));
+		        const voutCount = reader.readCount(MIN_OUTPUT_SIZE, 'output');
+		        for (let i = 0; i < voutCount; i += 1)
+		            outputs.push(readOutput(reader));
+		    }
+		    // NIP-014: vrefin sits between vout and witness, v3 only (even when empty).
+		    const vrefin = [];
+		    if (version === 3) {
+		        const refCount = reader.readCount(36, 'refinput');
+		        for (let i = 0; i < refCount; i += 1)
+		            vrefin.push(readOutpoint(reader));
+		    }
+		    if (flags & 1) {
+		        flags ^= 1;
+		        for (const input of inputs) {
+		            const stackSize = reader.readCount(1, 'witness element');
+		            const stack = [];
+		            for (let i = 0; i < stackSize; i += 1) {
+		                const elementLength = reader.readCount(1, 'witness bytes');
+		                stack.push(bytesToHex(reader.readBytes(elementLength)));
+		            }
+		            input.witness = stack;
+		        }
+		    }
+		    if (flags) {
+		        throw new Error(`Unknown transaction optional data (flags 0x${flags.toString(16)})`);
+		    }
+		    const locktime = reader.readU32();
+		    if (!reader.finished) {
+		        throw new Error(`Trailing bytes after transaction (offset ${reader.position})`);
+		    }
+		    return { version, inputs, outputs, vrefin, locktime };
+		}
+		function serializeOutpoint(ref) {
+		    const txid = hexToBytes(ensureHex(ref.txid, 'txid'));
+		    if (txid.length !== 32) {
+		        throw new Error(`Invalid txid: expected 32 bytes, got ${txid.length}`);
+		    }
+		    return concatBytes(reverseBytes(txid), u32LE(ref.vout));
+		}
+		function serializeCodecInput(input) {
+		    const scriptSig = hexToBytes(ensureHex(input.scriptSigHex ?? '', 'scriptSigHex'));
+		    return concatBytes(serializeOutpoint(input), compactSize(scriptSig.length), scriptSig, u32LE(input.sequence ?? 0xffffffff));
+		}
+		function serializeCodecOutput(output) {
+		    const script = hexToBytes(ensureHex(output.scriptPubKeyHex, 'scriptPubKeyHex'));
+		    return concatBytes(u64LE(output.valueSats), compactSize(script.length), script);
+		}
+		function inputHasWitness(input) {
+		    return (input.witness?.length ?? 0) > 0;
+		}
+		function serializeTransaction(tx, options = {}) {
+		    if (!Number.isInteger(tx.version) || tx.version < -2147483648 || tx.version > 0x7fffffff) {
+		        throw new Error(`Transaction version out of int32 range: ${tx.version}`);
+		    }
+		    const vrefin = tx.vrefin ?? [];
+		    if (tx.version !== 3 && vrefin.length > 0) {
+		        throw new Error(`vrefin requires transaction version 3 (got version ${tx.version})`);
+		    }
+		    const withWitness = (options.includeWitness ?? true) && tx.inputs.some(inputHasWitness);
+		    const parts = [u32LE(tx.version >>> 0)];
+		    if (withWitness) {
+		        // Extended format: dummy empty vin + flags byte.
+		        parts.push(Uint8Array.of(0x00, 0x01));
+		    }
+		    parts.push(compactSize(tx.inputs.length));
+		    for (const input of tx.inputs)
+		        parts.push(serializeCodecInput(input));
+		    parts.push(compactSize(tx.outputs.length));
+		    for (const output of tx.outputs)
+		        parts.push(serializeCodecOutput(output));
+		    if (tx.version === 3) {
+		        parts.push(compactSize(vrefin.length));
+		        for (const ref of vrefin)
+		            parts.push(serializeOutpoint(ref));
+		    }
+		    if (withWitness) {
+		        // One stack per input, empty (CompactSize 0) where the input has none.
+		        for (const input of tx.inputs) {
+		            const stack = input.witness ?? [];
+		            parts.push(compactSize(stack.length));
+		            for (const element of stack) {
+		                const bytes = hexToBytes(ensureHex(element, 'witness element'));
+		                parts.push(compactSize(bytes.length), bytes);
+		            }
+		        }
+		    }
+		    parts.push(u32LE(tx.locktime));
+		    return bytesToHex(concatBytes(...parts));
+		}
+		function toDecoded(txOrHex) {
+		    return typeof txOrHex === 'string' ? parseTransaction(txOrHex) : txOrHex;
+		}
+		function computeTxid(txOrHex) {
+		    const stripped = serializeTransaction(toDecoded(txOrHex), { includeWitness: false });
+		    return bytesToHex(reverseBytes(hash256(hexToBytes(stripped))));
+		}
+		function computeWtxid(txOrHex) {
+		    const full = serializeTransaction(toDecoded(txOrHex));
+		    return bytesToHex(reverseBytes(hash256(hexToBytes(full))));
+		}
+		function estimateTransactionSize(txOrHex) {
+		    const tx = toDecoded(txOrHex);
+		    const size = serializeTransaction(tx).length / 2;
+		    const strippedSize = serializeTransaction(tx, { includeWitness: false }).length / 2;
+		    // consensus/validation.h: weight = stripped * (WITNESS_SCALE_FACTOR - 1) + total.
+		    const weight = strippedSize * 3 + size;
+		    return { size, strippedSize, weight, vsize: Math.ceil(weight / 4) };
+		}
+
+		dist.DEFAULT_ASSET_MARKER = DEFAULT_ASSET_MARKER;
+		dist.DEPIN_MAX_NAME_LENGTH = DEPIN_MAX_NAME_LENGTH;
+		dist.OWNER_ASSET_AMOUNT = OWNER_ASSET_AMOUNT;
+		dist.REGTEST_GLOBAL_BURN_ADDRESS = REGTEST_GLOBAL_BURN_ADDRESS;
+		dist.UNIQUE_ASSETS_REISSUABLE = UNIQUE_ASSETS_REISSUABLE;
+		dist.UNIQUE_ASSET_AMOUNT = UNIQUE_ASSET_AMOUNT;
+		dist.UNIQUE_ASSET_UNITS = UNIQUE_ASSET_UNITS;
+		dist.assertDepinAssetName = assertDepinAssetName;
+		dist.assertDepinNetwork = assertDepinNetwork;
+		dist.assetPayloadPrefix = assetPayloadPrefix;
+		dist.assetUnitsToRaw = assetUnitsToRaw;
+		dist.computeTxid = computeTxid;
+		dist.computeWtxid = computeWtxid;
+		dist.createAssetTransferOutput = createAssetTransferOutput;
+		dist.createAssetTransferToScriptOutput = createAssetTransferToScriptOutput;
+		dist.createDepinSelfRevokeTransaction = createDepinSelfRevokeTransaction;
+		dist.createDepinTransferTransaction = createDepinTransferTransaction;
+		dist.createFreezeAddressesTransaction = createFreezeAddressesTransaction;
+		dist.createFreezeAssetTransaction = createFreezeAssetTransaction;
+		dist.createFromOperation = createFromOperation;
+		dist.createGlobalRestrictionOutput = createGlobalRestrictionOutput;
+		dist.createIssueAssetOutput = createIssueAssetOutput;
+		dist.createIssueAssetTransaction = createIssueAssetTransaction;
+		dist.createIssueDepinTransaction = createIssueDepinTransaction;
+		dist.createIssueQualifierTransaction = createIssueQualifierTransaction;
+		dist.createIssueRestrictedTransaction = createIssueRestrictedTransaction;
+		dist.createIssueSubAssetTransaction = createIssueSubAssetTransaction;
+		dist.createIssueUniqueAssetTransaction = createIssueUniqueAssetTransaction;
+		dist.createNullAssetRestrictionOutput = createNullAssetRestrictionOutput;
+		dist.createNullAssetTagOutput = createNullAssetTagOutput;
+		dist.createOwnerAssetIssueOutput = createOwnerAssetIssueOutput;
+		dist.createOwnerAssetTransferOutput = createOwnerAssetTransferOutput;
+		dist.createPaymentTransaction = createPaymentTransaction;
+		dist.createQualifierTagTransaction = createQualifierTagTransaction;
+		dist.createReissueAssetOutput = createReissueAssetOutput;
+		dist.createReissueRestrictedTransaction = createReissueRestrictedTransaction;
+		dist.createReissueTransaction = createReissueTransaction;
+		dist.createStandardAssetTransferTransaction = createStandardAssetTransferTransaction;
+		dist.createTransferOutput = createTransferOutput;
+		dist.createTransferWithMessageOutput = createTransferWithMessageOutput;
+		dist.createUnsignedTransaction = createUnsignedTransaction;
+		dist.createVerifierStringOutput = createVerifierStringOutput;
+		dist.createXnaOutput = createXnaOutput;
+		dist.decodeAddress = decodeAddress;
+		dist.decodeAssetDataReferenceHex = decodeAssetDataReferenceHex;
+		dist.encodeAssetDataReference = encodeAssetDataReference;
+		dist.encodeAssetTransferPayload = encodeAssetTransferPayload;
+		dist.encodeAssetTransferScript = encodeAssetTransferScript;
+		dist.encodeAssetTransferScriptToScript = encodeAssetTransferScriptToScript;
+		dist.encodeAuthScriptDestinationScript = encodeAuthScriptDestinationScript;
+		dist.encodeDestinationScript = encodeDestinationScript;
+		dist.encodeGlobalRestrictionScript = encodeGlobalRestrictionScript;
+		dist.encodeNewAssetPayload = encodeNewAssetPayload;
+		dist.encodeNewAssetScript = encodeNewAssetScript;
+		dist.encodeNullAssetDataPayload = encodeNullAssetDataPayload;
+		dist.encodeNullAssetDestinationScript = encodeNullAssetDestinationScript;
+		dist.encodeNullAssetRestrictionScript = encodeNullAssetRestrictionScript;
+		dist.encodeNullAssetTagPayload = encodeNullAssetTagPayload;
+		dist.encodeNullAssetTagScript = encodeNullAssetTagScript;
+		dist.encodeOwnerAssetPayload = encodeOwnerAssetPayload;
+		dist.encodeOwnerAssetScript = encodeOwnerAssetScript;
+		dist.encodeP2PKHScript = encodeP2PKHScript;
+		dist.encodePQWitnessScript = encodePQWitnessScript;
+		dist.encodeReissueAssetPayload = encodeReissueAssetPayload;
+		dist.encodeReissueAssetScript = encodeReissueAssetScript;
+		dist.encodeVerifierStringPayload = encodeVerifierStringPayload;
+		dist.encodeVerifierStringScript = encodeVerifierStringScript;
+		dist.estimateTransactionSize = estimateTransactionSize;
+		dist.formatAssetDataReferenceHex = formatAssetDataReferenceHex;
+		dist.getBurnAddressForOperation = getBurnAddressForOperation;
+		dist.getBurnAmountSats = getBurnAmountSats;
+		dist.getBurnAmountXna = getBurnAmountXna;
+		dist.getOwnerTokenName = getOwnerTokenName;
+		dist.getParentAssetName = getParentAssetName;
+		dist.getUniqueAssetName = getUniqueAssetName;
+		dist.inferNetworkFromAnyAddress = inferNetworkFromAnyAddress;
+		dist.isCidV0AssetReference = isCidV0AssetReference;
+		dist.isDepinAssetName = isDepinAssetName;
+		dist.isEncodedAssetDataReferenceHex = isEncodedAssetDataReferenceHex;
+		dist.isRawAssetDataReferenceHex = isRawAssetDataReferenceHex;
+		dist.isTxidAssetReference = isTxidAssetReference;
+		dist.normalizeVerifierString = normalizeVerifierString;
+		dist.parseTransaction = parseTransaction;
+		dist.resolveAddressInput = resolveAddressInput;
+		dist.resolveAssetMarker = resolveAssetMarker;
+		dist.serializeInput = serializeInput;
+		dist.serializeOutput = serializeOutput;
+		dist.serializeTransaction = serializeTransaction;
+		dist.xnaToSatoshis = xnaToSatoshis;
+		
+		return dist;
 	}
 
 	/**
@@ -991,9 +3722,33 @@ var NeuraiAssetsBundle = (function (exports) {
 		};
 
 		/**
+		 * Regtest chainparams define ONE burn address for every asset operation
+		 * (`strGlobalBurnAddress` in the node's chainparams.cpp), unlike mainnet and
+		 * testnet which have a distinct address per operation.
+		 *
+		 * Regtest shares testnet's address prefix, so it was previously resolved to
+		 * the testnet table. That works only for ISSUE_ROOT — whose testnet address
+		 * happens to BE the regtest global one — and every other operation is
+		 * rejected by consensus with `bad-txns-*-burn-not-found`, because the burn
+		 * output pays an address the chain does not recognise for that operation.
+		 */
+		const REGTEST_GLOBAL_BURN_ADDRESS = 'tBURNXXXXXXXXXXXXXXXXXXXXXXXVZLroy';
+
+		/**
+		 * Whether a network label means regtest specifically, rather than the wider
+		 * testnet family it shares an address prefix with.
+		 *
+		 * @param {string} network - Network label
+		 * @returns {boolean} True for regtest
+		 */
+		function isRegtest(network) {
+		  return network === 'regtest';
+		}
+
+		/**
 		 * Get burn address for an operation and network
 		 * @param {string} operationType - Operation type (e.g., 'ISSUE_ROOT')
-		 * @param {string} network - Network type ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		 * @param {string} network - Network type ('xna', 'xna-test', 'regtest', 'xna-pq', or 'xna-pq-test')
 		 * @returns {string} Burn address
 		 */
 		function getBurnAddress(operationType, network) {
@@ -1005,25 +3760,30 @@ var NeuraiAssetsBundle = (function (exports) {
 		    throw new Error(`Unknown operation type: ${operationType} for network: ${network}`);
 		  }
 
-		  return address;
+		  return isRegtest(network) ? REGTEST_GLOBAL_BURN_ADDRESS : address;
 		}
 
 		/**
 		 * Check if an address is a burn address
 		 * @param {string} address - Address to check
-		 * @param {string} network - Network type ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		 * @param {string} network - Network type ('xna', 'xna-test', 'regtest', 'xna-pq', or 'xna-pq-test')
 		 * @returns {boolean} True if it's a burn address
 		 */
 		function isBurnAddress(address, network) {
 		  const family = resolveNetworkFamily(network);
 		  const addresses = family === 'mainnet' ? MAINNET_BURN_ADDRESSES : TESTNET_BURN_ADDRESSES;
+		  if (isRegtest(network) && address === REGTEST_GLOBAL_BURN_ADDRESS) {
+		    return true;
+		  }
 		  return Object.values(addresses).includes(address);
 		}
 
 		burnAddresses = {
 		  MAINNET_BURN_ADDRESSES,
 		  TESTNET_BURN_ADDRESSES,
+		  REGTEST_GLOBAL_BURN_ADDRESS,
 		  resolveNetworkFamily,
+		  isRegtest,
 		  getBurnAddress,
 		  isBurnAddress
 		};
@@ -1050,7 +3810,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    addressPrefix: 'N',
 		    authScriptAddressPrefix: 'nq1',
 		    pqAddressPrefix: 'nq1',
-		    assetNameMaxLength: 32,
+		    assetNameMaxLength: 31,
 		    defaultRPCPort: 19001,
 		    coin: 'XNA',
 		    baseNetwork: 'xna'
@@ -1061,7 +3821,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    addressPrefix: 't',
 		    authScriptAddressPrefix: 'tnq1',
 		    pqAddressPrefix: 'tnq1',
-		    assetNameMaxLength: 32,  // Same as mainnet
+		    assetNameMaxLength: 121, // DePIN networks (testnet/regtest) extend the cap
 		    defaultRPCPort: 19101,
 		    coin: 'TXNA',
 		    baseNetwork: 'xna-test'
@@ -1072,7 +3832,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    addressPrefix: 'N',
 		    authScriptAddressPrefix: 'nq1',
 		    pqAddressPrefix: 'nq1',
-		    assetNameMaxLength: 32,
+		    assetNameMaxLength: 31,
 		    defaultRPCPort: 19001,
 		    coin: 'XNA',
 		    baseNetwork: 'xna'
@@ -1083,7 +3843,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    addressPrefix: 't',
 		    authScriptAddressPrefix: 'tnq1',
 		    pqAddressPrefix: 'tnq1',
-		    assetNameMaxLength: 32,
+		    assetNameMaxLength: 121,
 		    defaultRPCPort: 19101,
 		    coin: 'TXNA',
 		    baseNetwork: 'xna-test'
@@ -1253,7 +4013,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		const {
 		  MAINNET_BURN_ADDRESSES,
 		  TESTNET_BURN_ADDRESSES,
+		  REGTEST_GLOBAL_BURN_ADDRESS,
 		  resolveNetworkFamily,
+		  isRegtest,
 		  getBurnAddress,
 		  isBurnAddress
 		} = requireBurnAddresses();
@@ -1282,7 +4044,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		  // Burn Addresses
 		  MAINNET_BURN_ADDRESSES,
 		  TESTNET_BURN_ADDRESSES,
+		  REGTEST_GLOBAL_BURN_ADDRESS,
 		  resolveNetworkFamily,
+		  isRegtest,
 		  getBurnAddress,
 		  isBurnAddress,
 
@@ -1911,6 +4675,8 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireNetworkDetector () {
 		if (hasRequiredNetworkDetector) return networkDetector;
 		hasRequiredNetworkDetector = 1;
+		const { rpcErrorMessage } = requireRpcErrorMessage();
+
 		const {
 		  NETWORKS,
 		  areAddressNetworksCompatible,
@@ -1945,7 +4711,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      // Default to mainnet
 		      return 'xna';
 		    } catch (error) {
-		      throw new Error(`Failed to detect network from RPC: ${error.message}`);
+		      throw new Error(`Failed to detect network from RPC: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -2422,6 +5188,441 @@ var NeuraiAssetsBundle = (function (exports) {
 	}
 
 	/**
+	 * Exact amount conversion for the canonical createTransactionBuild contract.
+	 *
+	 * Everything the chain encodes in a transaction is an integer:
+	 *   - XNA values are 10^8 sats;
+	 *   - asset payload quantities are ALSO 10^8-scaled, independently of the
+	 *     asset's `units`. `units` limits divisibility and presentation, it is
+	 *     never a multiplier (see the node's CheckAmountWithUnits in assets.cpp).
+	 *
+	 * The display <-> raw conversion is therefore a fixed 10^8 scaling, done
+	 * **through text**: scaling the decimal string keeps every digit the caller
+	 * wrote, and refuses the ones it cannot keep.
+	 *
+	 * The alternative — `BigInt(Math.round(value * 1e8))`, which is what
+	 * `assetUnitsToRaw` in neurai-create-transaction does — is correct for
+	 * ordinary magnitudes. `4.35 * 1e8` is `434999999.99999994`, but `Math.round`
+	 * recovers `435000000`; that example shows binary representation, not a wrong
+	 * result. For a finite, non-negative number it has two silent failure modes:
+	 *
+	 *   - more than eight decimals are rounded away instead of rejected, so an
+	 *     amount can vanish (`1e-9` becomes `0n`) or shift (`1.123456789` becomes
+	 *     `112345679`);
+	 *   - past `Number.MAX_SAFE_INTEGER` a double can no longer represent every
+	 *     integer, so the product may or may not survive — and nothing says which.
+	 *     `184467440.73709551` comes back as `18446744073709552n`, one unit off,
+	 *     while `21000000000` scales to `2100000000000000000n` exactly. The risk
+	 *     is that the two cases are indistinguishable from the outside.
+	 *
+	 * Outside that range its `Number(amount || 0)` also turns `NaN`, `null` and
+	 * `''` into `0n`, accepts negatives, and coerces other types — `true` yields a
+	 * whole unit. Every one of these is reachable with values a wallet can hold,
+	 * and none announces itself. Hence: convert by text, validate, and fail closed
+	 * rather than delegate.
+	 */
+
+	var assetAmount;
+	var hasRequiredAssetAmount;
+
+	function requireAssetAmount () {
+		if (hasRequiredAssetAmount) return assetAmount;
+		hasRequiredAssetAmount = 1;
+		const { InvalidAmountError, InvalidUnitsError } = requireErrors();
+
+		/** Asset payload and XNA values are both encoded with 8 decimals. */
+		const PROTOCOL_DECIMALS = 8;
+
+		/** 10^8, as a bigint, for callers that need the scale itself. */
+		const PROTOCOL_SCALE = 100000000n;
+
+		/**
+		 * Consensus ceiling for any CAmount, asset payloads included:
+		 * `MAX_MONEY = 21000000000 * COIN` in the node's `src/amount.h`, with
+		 * `MoneyRange(v)` requiring `0 <= v <= MAX_MONEY`.
+		 *
+		 * Enforced here rather than left to the callers because it is a property of
+		 * the value, not of the operation: a string is not exempt just because it
+		 * carried its digits faithfully.
+		 */
+		const MAX_MONEY_RAW = 2100000000000000000n;
+
+		const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
+		const SCIENTIFIC_DECIMAL = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/;
+
+		/**
+		 * Expand a scientific-notation decimal ("1e-7", "2.1e+19") into plain decimal
+		 * text. Returns the input unchanged when it carries no exponent.
+		 *
+		 * @param {string} text - Decimal text, possibly with an exponent
+		 * @returns {string} Plain decimal text
+		 */
+		function expandScientificNotation(text) {
+		  const match = SCIENTIFIC_DECIMAL.exec(text);
+		  if (!match) {
+		    return text;
+		  }
+
+		  const [, sign, intPart, fracPart = '', exponentText] = match;
+		  const digits = intPart + fracPart;
+		  const pointPosition = intPart.length + Number.parseInt(exponentText, 10);
+
+		  let expanded;
+		  if (pointPosition <= 0) {
+		    expanded = `0.${'0'.repeat(-pointPosition)}${digits}`;
+		  } else if (pointPosition >= digits.length) {
+		    expanded = digits + '0'.repeat(pointPosition - digits.length);
+		  } else {
+		    expanded = `${digits.slice(0, pointPosition)}.${digits.slice(pointPosition)}`;
+		  }
+
+		  return sign + expanded;
+		}
+
+		/**
+		 * Normalize a public amount into canonical plain decimal text.
+		 *
+		 * Strings must already be plain decimals: a caller that writes "1e3" is more
+		 * likely to have a bug than to mean 1000, and there is no reason to guess.
+		 * Numbers are accepted through their shortest round-trip representation
+		 * (`String(0.1)` is `"0.1"`, not the exact binary expansion), then expanded,
+		 * which is the only reading under which a literal like `1e-7` is meaningful.
+		 *
+		 * @param {string|number} value - Public amount
+		 * @param {string} label - What is being converted, for the error message
+		 * @returns {string} Plain decimal text
+		 * @throws {InvalidAmountError} If the value cannot be read exactly
+		 */
+		function normalizeDecimalText(value, label) {
+		  if (typeof value === 'bigint') {
+		    throw new InvalidAmountError(
+		      `${label}: a bigint is ambiguous as a display amount (is 5n five tokens ` +
+		      `or five raw units?). Pass a decimal string such as "5", or set the ` +
+		      `*Raw / *Sats field directly when you already hold protocol integers.`,
+		      value
+		    );
+		  }
+
+		  if (typeof value === 'number') {
+		    if (!Number.isFinite(value)) {
+		      throw new InvalidAmountError(`${label}: ${value} is not a finite number`, value);
+		    }
+		    return expandScientificNotation(String(value));
+		  }
+
+		  if (typeof value === 'string') {
+		    const text = value.trim();
+		    if (text === '') {
+		      throw new InvalidAmountError(`${label}: empty string is not an amount`, value);
+		    }
+		    if (SCIENTIFIC_DECIMAL.test(text)) {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" uses exponent notation. Pass a plain decimal ` +
+		        `string (for example "${expandScientificNotation(text)}") so the ` +
+		        `intended value is unambiguous.`,
+		        value
+		      );
+		    }
+		    if (!PLAIN_DECIMAL.test(text)) {
+		      throw new InvalidAmountError(`${label}: "${text}" is not a decimal number`, value);
+		    }
+		    return text;
+		  }
+
+		  throw new InvalidAmountError(
+		    `${label}: expected a decimal string or a number, received ${value === null ? 'null' : typeof value}`,
+		    value
+		  );
+		}
+
+		/**
+		 * Scale plain decimal text by 10^decimals, exactly, using text only.
+		 *
+		 * `rounding: 'ceil'` exists for one purpose: a *threshold* — a fee or a
+		 * funding requirement — computed by float arithmetic upstream, which can
+		 * carry noise digits below the satoshi (`0.031275000000000004`). Rounding it
+		 * up asks for slightly more than needed, which is safe; rounding a value that
+		 * will be *encoded* would silently create money, so the default is to reject.
+		 *
+		 * @param {string} text - Plain decimal text
+		 * @param {number} decimals - Number of decimals of the target scale
+		 * @param {string} label - What is being converted, for the error message
+		 * @param {'exact'|'ceil'} [rounding] - How to treat excess precision
+		 * @returns {bigint} Scaled integer
+		 * @throws {InvalidAmountError} If the value carries more decimals than the scale
+		 */
+		function scaleDecimalText(text, decimals, label, rounding = 'exact') {
+		  const negative = text.startsWith('-');
+		  const unsigned = negative ? text.slice(1) : text;
+		  const [intPart, fracPart = ''] = unsigned.split('.');
+
+		  if (fracPart.length > decimals) {
+		    if (rounding !== 'ceil') {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" has ${fracPart.length} decimals; the protocol ` +
+		        `encodes at most ${decimals}. The extra digits would be silently ` +
+		        `dropped, so this is rejected instead of rounded.`,
+		        text
+		      );
+		    }
+		    if (negative) {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" is negative; rounding up a negative threshold is not meaningful`,
+		        text
+		      );
+		    }
+		    const kept = BigInt(intPart + fracPart.slice(0, decimals));
+		    const dropped = fracPart.slice(decimals);
+		    return /[1-9]/.test(dropped) ? kept + 1n : kept;
+		  }
+
+		  const scaled = BigInt(intPart + fracPart.padEnd(decimals, '0'));
+		  return negative ? -scaled : scaled;
+		}
+
+		/**
+		 * Refuse a `number` whose scaled value no longer fits a safe integer.
+		 *
+		 * Above `MAX_SAFE_INTEGER / 1e8` (~90071992.55) a double can no longer name
+		 * every 8-decimal value, so the shortest round-trip form this module reads is
+		 * not necessarily the decimal the caller meant. The two paths then disagree:
+		 *
+		 *   assetAmountToRaw(184467440.73709551)   → 18446744073709550n
+		 *   assetAmountToRaw('184467440.73709551') → 18446744073709551n
+		 *
+		 * because `String(184467440.73709551)` is `'184467440.7370955'` — one digit
+		 * shorter. Neither answer is wrong for the double that arrived; the problem is
+		 * that the intended decimal was already lost at the call site. Asking for a
+		 * string is the only way to get it back, so this fails closed instead of
+		 * picking one. Strings are never restricted.
+		 *
+		 * A number that is itself a safe integer is still accepted, however large it
+		 * scales: it names its value exactly and has no fractional digits to lose, so
+		 * `21000000000` — the documented maximum supply — keeps working. What is
+		 * refused is a number that is neither a safe integer nor small enough for its
+		 * eight decimals to be unambiguous.
+		 *
+		 * @param {string|number} value - The original input
+		 * @param {bigint} raw - Scaled result
+		 * @param {string} text - Normalized decimal text
+		 * @param {string} label - Prefix for error messages
+		 * @throws {InvalidAmountError} If a number cannot carry the value exactly
+		 */
+		function assertNumberCarriedItExactly(value, raw, text, label) {
+		  if (typeof value !== 'number') {
+		    return;
+		  }
+		  if (raw <= BigInt(Number.MAX_SAFE_INTEGER) || Number.isSafeInteger(value)) {
+		    return;
+		  }
+		  throw new InvalidAmountError(
+		    `${label}: ${text} scales to ${raw}, past Number.MAX_SAFE_INTEGER, and the ` +
+		    `number that arrived can no longer name every 8-decimal value at that ` +
+		    `magnitude — it may already differ from the amount intended. Pass it as a ` +
+		    `decimal string ("${text}") instead.`,
+		    value
+		  );
+		}
+
+		/**
+		 * Convert a user-facing asset amount into the raw 10^8-scaled integer that
+		 * goes into the asset payload.
+		 *
+		 * @param {string|number} value - Display amount (e.g. "1.25")
+		 * @param {number} [units] - Asset decimal places; when given, divisibility is enforced
+		 * @param {object} [options]
+		 * @param {string} [options.label] - Prefix for error messages
+		 * @returns {bigint} Raw amount, 10^8-scaled
+		 * @throws {InvalidAmountError|InvalidUnitsError} If the amount cannot be encoded
+		 */
+		function assetAmountToRaw(value, units, options = {}) {
+		  const label = options.label || 'asset amount';
+		  const text = normalizeDecimalText(value, label);
+		  const raw = scaleDecimalText(text, PROTOCOL_DECIMALS, label);
+
+		  if (raw < 0n) {
+		    throw new InvalidAmountError(`${label}: "${text}" is negative`, value);
+		  }
+
+		  assertNumberCarriedItExactly(value, raw, text, label);
+
+		  if (raw > MAX_MONEY_RAW) {
+		    throw new InvalidAmountError(
+		      `${label}: "${text}" scales to ${raw}, above the consensus ceiling ` +
+		      `MAX_MONEY (${MAX_MONEY_RAW}, i.e. 21000000000 units). The node rejects ` +
+		      `it with MoneyRange, so it is refused here rather than serialized.`,
+		      value
+		    );
+		  }
+
+		  if (units !== undefined && units !== null) {
+		    if (!Number.isInteger(units) || units < 0 || units > PROTOCOL_DECIMALS) {
+		      throw new InvalidUnitsError(
+		        `${label}: units must be an integer between 0 and ${PROTOCOL_DECIMALS}, received ${units}`,
+		        units
+		      );
+		    }
+		    const step = 10n ** BigInt(PROTOCOL_DECIMALS - units);
+		    if (raw % step !== 0n) {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" is not a multiple of the asset's precision ` +
+		        `(units=${units} allows steps of ${formatRawAsDecimal(step)}). The ` +
+		        `node rejects it with CheckAmountWithUnits.`,
+		        value
+		      );
+		    }
+		  }
+
+		  return raw;
+		}
+
+		/**
+		 * Convert a user-facing XNA amount into satoshis, exactly.
+		 *
+		 * @param {string|number} value - Display XNA amount
+		 * @param {object} [options]
+		 * @param {string} [options.label] - Prefix for error messages
+		 * @param {boolean} [options.allowNegative] - Permit negative results
+		 * @param {'exact'|'ceil'} [options.rounding] - Only for thresholds; see scaleDecimalText
+		 * @returns {bigint} Satoshis
+		 * @throws {InvalidAmountError} If the amount cannot be encoded
+		 */
+		function xnaAmountToSats(value, options = {}) {
+		  const label = options.label || 'XNA amount';
+		  const text = normalizeDecimalText(value, label);
+		  const sats = scaleDecimalText(text, PROTOCOL_DECIMALS, label, options.rounding);
+
+		  if (sats < 0n && !options.allowNegative) {
+		    throw new InvalidAmountError(`${label}: "${text}" is negative`, value);
+		  }
+
+		  return sats;
+		}
+
+		/**
+		 * Render a protocol integer back as plain decimal text, exactly.
+		 *
+		 * Used for the RPC/legacy envelopes, which speak display amounts. Text keeps
+		 * values above `Number.MAX_SAFE_INTEGER` intact; `toNumber` is the explicit,
+		 * lossy step for the places that still need a JS number.
+		 *
+		 * @param {bigint} raw - Protocol integer (10^8-scaled)
+		 * @returns {string} Plain decimal text without trailing zeros
+		 */
+		function formatRawAsDecimal(raw) {
+		  const negative = raw < 0n;
+		  const digits = (negative ? -raw : raw).toString().padStart(PROTOCOL_DECIMALS + 1, '0');
+		  const intPart = digits.slice(0, digits.length - PROTOCOL_DECIMALS);
+		  const fracPart = digits.slice(digits.length - PROTOCOL_DECIMALS).replace(/0+$/, '');
+		  const text = fracPart === '' ? intPart : `${intPart}.${fracPart}`;
+		  return negative ? `-${text}` : text;
+		}
+
+		/**
+		 * Render a protocol integer as a JS number for the legacy display envelopes.
+		 *
+		 * Fails closed rather than returning a value the caller cannot trust: a
+		 * quantity whose display form is not exactly representable would otherwise
+		 * travel on as a plausible-looking wrong number.
+		 *
+		 * @param {bigint} raw - Protocol integer (10^8-scaled)
+		 * @param {string} [label] - Prefix for error messages
+		 * @returns {number} Display amount
+		 * @throws {InvalidAmountError} If the display value is not exactly representable
+		 */
+		function rawToDisplayNumber(raw, label = 'amount') {
+		  const text = formatRawAsDecimal(raw);
+		  const asNumber = Number(text);
+		  if (!Number.isFinite(asNumber) || expandScientificNotation(String(asNumber)) !== text) {
+		    throw new InvalidAmountError(
+		      `${label}: ${text} cannot be represented exactly as a JavaScript number. ` +
+		      `Read the raw bigint instead of the display field.`,
+		      text
+		    );
+		  }
+		  return asNumber;
+		}
+
+		/**
+		 * Normalize a chain-reported integer (UTXO `satoshis`, asset balance) to bigint.
+		 *
+		 * A `number` is only accepted when it is a safe integer. An unsafe one is
+		 * rejected rather than converted: `JSON.parse` already destroyed the low bits,
+		 * and `BigInt(9007199254740993)` cannot bring them back — it would just make
+		 * the corruption look deliberate.
+		 *
+		 * @param {bigint|string|number} value - Chain integer
+		 * @param {string} [label] - Prefix for error messages
+		 * @returns {bigint} The same integer, exactly
+		 * @throws {InvalidAmountError} If the value is not an exact integer
+		 */
+		function toProtocolInteger(value, label = 'value') {
+		  if (typeof value === 'bigint') {
+		    return value;
+		  }
+
+		  if (typeof value === 'number') {
+		    if (!Number.isInteger(value)) {
+		      throw new InvalidAmountError(`${label}: ${value} is not an integer`, value);
+		    }
+		    if (!Number.isSafeInteger(value)) {
+		      throw new InvalidAmountError(
+		        `${label}: ${value} exceeds Number.MAX_SAFE_INTEGER, so JSON parsing ` +
+		        `already lost digits. Have the RPC transport deliver this field as a ` +
+		        `string or bigint; converting it here would preserve the corruption.`,
+		        value
+		      );
+		    }
+		    return BigInt(value);
+		  }
+
+		  if (typeof value === 'string') {
+		    const text = value.trim();
+		    if (!/^-?\d+$/.test(text)) {
+		      throw new InvalidAmountError(`${label}: "${value}" is not an integer`, value);
+		    }
+		    return BigInt(text);
+		  }
+
+		  throw new InvalidAmountError(
+		    `${label}: expected an integer as bigint, string or number, received ${value === null ? 'null' : typeof value}`,
+		    value
+		  );
+		}
+
+		/**
+		 * Sum chain-reported integers exactly.
+		 *
+		 * @param {Array<object>} items - Objects carrying the field
+		 * @param {string} [field] - Field name (default: 'satoshis')
+		 * @param {string} [label] - Prefix for error messages
+		 * @returns {bigint} Exact total
+		 */
+		function sumProtocolIntegers(items, field = 'satoshis', label = 'utxo.satoshis') {
+		  return (items || []).reduce(
+		    (total, item) => total + toProtocolInteger(item ? item[field] : undefined, label),
+		    0n
+		  );
+		}
+
+		assetAmount = {
+		  PROTOCOL_DECIMALS,
+		  PROTOCOL_SCALE,
+		  MAX_MONEY_RAW,
+		  assetAmountToRaw,
+		  xnaAmountToSats,
+		  formatRawAsDecimal,
+		  rawToDisplayNumber,
+		  toProtocolInteger,
+		  sumProtocolIntegers,
+		  expandScientificNotation,
+		  normalizeDecimalText,
+		  scaleDecimalText
+		};
+		return assetAmount;
+	}
+
+	/**
 	 * Utils Module
 	 * Exports all utility classes
 	 */
@@ -2436,12 +5637,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		const AmountConverter = requireAmountConverter();
 		const NetworkDetector = requireNetworkDetector();
 		const OutputFormatter = requireOutputFormatter();
+		const AssetAmount = requireAssetAmount();
 
 		utils$1 = {
 		  AssetNameParser,
 		  AmountConverter,
 		  NetworkDetector,
-		  OutputFormatter
+		  OutputFormatter,
+		  AssetAmount
 		};
 		return utils$1;
 	}
@@ -2465,6 +5668,7 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireOwnerTokenManager () {
 		if (hasRequiredOwnerTokenManager) return OwnerTokenManager_1;
 		hasRequiredOwnerTokenManager = 1;
+		const { rpcErrorMessage } = requireRpcErrorMessage();
 		const { AssetNameParser } = requireUtils();
 		const {
 		  OwnerTokenNotFoundError,
@@ -2523,7 +5727,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      }
 
 		      throw new AssetError(
-		        `Failed to find owner token ${ownerTokenName}: ${error.message}`
+		        `Failed to find owner token ${ownerTokenName}: ${rpcErrorMessage(error)}`
 		      );
 		    }
 		  }
@@ -2661,7 +5865,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      return ownerTokenUTXOs;
 		    } catch (error) {
 		      throw new AssetError(
-		        `Failed to get owner tokens: ${error.message}`
+		        `Failed to get owner tokens: ${rpcErrorMessage(error)}`
 		      );
 		    }
 		  }
@@ -2794,11 +5998,79 @@ var NeuraiAssetsBundle = (function (exports) {
 		  return VBYTES.legacyInputVbytes;
 		}
 
-		/** Estimate the bytes contributed by an output (address string or `{address}`). */
+		/**
+		 * Bytes an asset payload adds on top of a plain destination output.
+		 *
+		 * An asset output is `<destination script> OP_XNA_ASSET <pushdata payload>
+		 * OP_DROP`, so it costs the destination plus the wrapper (OP_XNA_ASSET,
+		 * the pushdata prefix and OP_DROP) plus the payload itself:
+		 *
+		 *   marker(3) + type(1) + nameLength(1) + name + kind-specific tail
+		 *
+		 * Sizing these as bare P2PKH outputs under-counts a transaction by tens to
+		 * hundreds of bytes. That is invisible while the node's fee rate sits well
+		 * above its minimum relay fee, and becomes `min relay fee not met` as soon as
+		 * it does not — which is exactly the failure this file's header warns about.
+		 *
+		 * @param {object} descriptor - Output descriptor with `assetName` and `kind`
+		 * @returns {number} Extra bytes, or 0 when the output carries no asset payload
+		 */
+		function assetPayloadBytes(descriptor) {
+		  if (!descriptor || typeof descriptor !== 'object' || !descriptor.assetName) {
+		    return 0;
+		  }
+
+		  const nameLength = Buffer.byteLength(String(descriptor.assetName), 'ascii');
+		  const kind = descriptor.kind || 'transfer';
+
+		  // marker(3) + type(1) + CompactSize name length(1) + name
+		  let payload = 5 + nameLength;
+
+		  switch (kind) {
+		    case 'owner':
+		      // The owner payload carries no amount: it is always exactly one unit.
+		      break;
+		    case 'issue':
+		      // amount(8) + units(1) + reissuable(1) + has_ipfs(1)
+		      payload += 11;
+		      break;
+		    case 'reissue':
+		      // amount(8) + units(1) + reissuable(1)
+		      payload += 10;
+		      break;
+		    default:
+		      // transfer: amount(8)
+		      payload += 8;
+		      break;
+		  }
+
+		  if (descriptor.hasIpfs) {
+		    payload += 34;
+		  }
+
+		  // OP_XNA_ASSET(1) + pushdata prefix + OP_DROP(1). Payloads over 75 bytes
+		  // need OP_PUSHDATA1, which is one byte wider — reachable with the 121-char
+		  // asset names testnet and regtest allow for DePIN.
+		  const pushPrefix = payload > 75 ? 2 : 1;
+
+		  return 1 + pushPrefix + payload + 1;
+		}
+
+		/**
+		 * Estimate the bytes contributed by an output.
+		 *
+		 * Accepts an address string, `{ address }`, or an asset-aware descriptor
+		 * `{ address, assetName, kind, hasIpfs }` where `kind` is one of `transfer`
+		 * (default), `owner`, `issue` or `reissue`.
+		 *
+		 * @param {string|object} target - Output descriptor
+		 * @returns {number} Estimated bytes
+		 */
 		function estimateOutputBytes(target) {
 		  const address =
 		    typeof target === 'string' ? target : (target && target.address) || '';
-		  return isPQAddress(address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
+		  const base = isPQAddress(address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
+		  return base + assetPayloadBytes(typeof target === 'string' ? null : target);
 		}
 
 		/**
@@ -2832,6 +6104,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		  isPQScript,
 		  estimateInputVbytes,
 		  estimateOutputBytes,
+		  assetPayloadBytes,
 		  estimateTransactionVbytes,
 		};
 		return feeSizing;
@@ -2853,8 +6126,61 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireUTXOSelector () {
 		if (hasRequiredUTXOSelector) return UTXOSelector_1;
 		hasRequiredUTXOSelector = 1;
+		const { rpcErrorMessage } = requireRpcErrorMessage();
 		const { InsufficientFundsError } = requireErrors();
 		const { estimateTransactionVbytes } = requireFeeSizing();
+		const {
+		  assetAmountToRaw,
+		  xnaAmountToSats,
+		  formatRawAsDecimal,
+		  toProtocolInteger,
+		  sumProtocolIntegers
+		} = requireAssetAmount();
+
+		/**
+		 * Identity of an unspent output. `getaddressutxos` reports `outputIndex`;
+		 * builder-side inputs carry `vout`. Both name the same thing.
+		 *
+		 * @param {object} utxo - UTXO or input
+		 * @returns {string} Stable outpoint key
+		 */
+		function outpointKey(utxo) {
+		  const index = utxo.outputIndex !== undefined ? utxo.outputIndex : utxo.vout;
+		  return `${utxo.txid}:${index}`;
+		}
+
+		/**
+		 * Accept an exclusion list as a Set, an array of keys, or an array of
+		 * UTXO-like objects, and return a Set of keys.
+		 *
+		 * @param {Set<string>|Array<string|object>|undefined} exclude - Outpoints to skip
+		 * @returns {Set<string>} Excluded outpoint keys
+		 */
+		function toOutpointSet(exclude) {
+		  if (!exclude) {
+		    return new Set();
+		  }
+		  if (exclude instanceof Set) {
+		    return exclude;
+		  }
+		  return new Set(
+		    Array.from(exclude, entry => (typeof entry === 'string' ? entry : outpointKey(entry)))
+		  );
+		}
+
+		/**
+		 * Integer division rounding away from zero, for fee thresholds.
+		 *
+		 * @param {bigint} numerator - Dividend
+		 * @param {bigint} denominator - Positive divisor
+		 * @returns {bigint} Ceiling of the quotient
+		 */
+		function ceilDiv(numerator, denominator) {
+		  if (numerator <= 0n) {
+		    return numerator / denominator;
+		  }
+		  return (numerator + denominator - 1n) / denominator;
+		}
 
 		class UTXOSelector {
 		  /**
@@ -2891,7 +6217,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		        return utxos.filter(utxo => !utxo.assetName || utxo.assetName === 'XNA');
 		      }
 		    } catch (error) {
-		      throw new Error(`Failed to get UTXOs: ${error.message}`);
+		      throw new Error(`Failed to get UTXOs: ${rpcErrorMessage(error)}`);
 		    }
 		  }
 
@@ -2937,57 +6263,101 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 
 		  /**
+		   * Sort UTXOs by value, largest first, without mutating the input.
+		   *
+		   * A bigint comparison is required: `b.satoshis - a.satoshis` throws once
+		   * satoshis arrive as bigint and compares lexicographically once they arrive
+		   * as strings, which is how a large-value UTXO ends up sorted as if it were
+		   * small.
+		   *
+		   * @param {Array} utxos - UTXOs to sort
+		   * @param {string} label - Field description for error messages
+		   * @returns {Array} New array, sorted by descending value
+		   */
+		  sortByValueDesc(utxos, label = 'utxo.satoshis') {
+		    return [...utxos].sort((a, b) => {
+		      const left = toProtocolInteger(a.satoshis, label);
+		      const right = toProtocolInteger(b.satoshis, label);
+		      if (right > left) return 1;
+		      if (right < left) return -1;
+		      return 0;
+		    });
+		  }
+
+		  /**
 		   * Select UTXOs for base currency (XNA)
 		   * Uses greedy algorithm: selects UTXOs until sum >= required amount
 		   *
+		   * `options.exclude` is what keeps a second, incremental call from handing
+		   * back an outpoint the caller already holds: without it this method
+		   * re-queries the node, re-sorts from the largest value — which is normally
+		   * the one the first call took — and returns it again, producing a
+		   * transaction that spends the same outpoint twice.
+		   *
 		   * @param {string[]} addresses - Wallet addresses
-		   * @param {number} requiredAmount - Required amount in XNA
+		   * @param {number|string} requiredAmount - Required amount in XNA (ignored when options.requiredSats is given)
 		   * @param {number} buffer - Safety buffer percentage (default: 0.1 = 10%)
-		   * @returns {Promise<object>} { utxos, totalAmount }
+		   * @param {object} [options]
+		   * @param {bigint} [options.requiredSats] - Exact requirement in satoshis; preferred over requiredAmount
+		   * @param {Set<string>|Array} [options.exclude] - Outpoints that must not be selected
+		   * @returns {Promise<object>} { utxos, totalAmount, totalSats }
 		   * @throws {InsufficientFundsError} If not enough funds
 		   */
-		  async selectBaseCurrencyUTXOs(addresses, requiredAmount, buffer = 0.1) {
+		  async selectBaseCurrencyUTXOs(addresses, requiredAmount, buffer = 0.1, options = {}) {
 		    // Get all XNA UTXOs
 		    const allUTXOs = await this.getUTXOs(addresses, null);
 
 		    // Get mempool and filter
 		    const mempool = await this.getMempoolEntries(addresses);
-		    const availableUTXOs = this.filterMempoolSpentUTXOs(allUTXOs, mempool);
+		    const unspentUTXOs = this.filterMempoolSpentUTXOs(allUTXOs, mempool);
+
+		    // Drop outpoints the caller already spends elsewhere in this transaction
+		    const excluded = toOutpointSet(options.exclude);
+		    const availableUTXOs = excluded.size === 0
+		      ? unspentUTXOs
+		      : unspentUTXOs.filter(utxo => !excluded.has(outpointKey(utxo)));
 
 		    // Sort by value (largest first) for efficiency
-		    const sortedUTXOs = availableUTXOs.sort((a, b) => b.satoshis - a.satoshis);
+		    const sortedUTXOs = this.sortByValueDesc(availableUTXOs);
 
-		    // Add buffer to required amount
-		    const requiredWithBuffer = requiredAmount * (1 + buffer);
+		    // Requirement and buffer in integer satoshis. The buffer is applied to the
+		    // integer, not to a float amount that is then re-scaled.
+		    const requiredSats = options.requiredSats !== undefined
+		      ? toProtocolInteger(options.requiredSats, 'requiredSats')
+		      : xnaAmountToSats(requiredAmount, { label: 'required XNA', rounding: 'ceil' });
+		    const bufferScale = 10000n;
+		    const bufferFactor = BigInt(Math.round((1 + buffer) * Number(bufferScale)));
+		    const requiredWithBufferSats = ceilDiv(requiredSats * bufferFactor, bufferScale);
 
 		    // Select UTXOs greedily
 		    const selected = [];
-		    let totalSatoshis = 0;
-		    const requiredSatoshis = Math.ceil(requiredWithBuffer * 100000000); // Convert XNA to satoshis
+		    let totalSatoshis = 0n;
 
 		    for (const utxo of sortedUTXOs) {
 		      selected.push(utxo);
-		      totalSatoshis += utxo.satoshis;
+		      totalSatoshis += toProtocolInteger(utxo.satoshis, 'utxo.satoshis');
 
-		      if (totalSatoshis >= requiredSatoshis) {
+		      if (totalSatoshis >= requiredWithBufferSats) {
 		        break;
 		      }
 		    }
 
 		    // Check if we have enough
-		    if (totalSatoshis < requiredSatoshis) {
-		      const available = totalSatoshis / 100000000;
+		    if (totalSatoshis < requiredWithBufferSats) {
+		      const available = formatRawAsDecimal(totalSatoshis);
+		      const required = formatRawAsDecimal(requiredSats);
 		      throw new InsufficientFundsError(
-		        `Insufficient XNA balance. Required: ${requiredAmount.toFixed(8)} XNA (+ ${(buffer * 100).toFixed(0)}% buffer), ` +
-		        `Available: ${available.toFixed(8)} XNA`,
-		        requiredAmount,
-		        available
+		        `Insufficient XNA balance. Required: ${required} XNA (+ ${(buffer * 100).toFixed(0)}% buffer), ` +
+		        `Available: ${available} XNA`,
+		        Number(required),
+		        Number(available)
 		      );
 		    }
 
 		    return {
 		      utxos: selected,
-		      totalAmount: totalSatoshis / 100000000
+		      totalAmount: Number(formatRawAsDecimal(totalSatoshis)),
+		      totalSats: totalSatoshis
 		    };
 		  }
 
@@ -2999,7 +6369,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {Promise<object>} { utxos, totalAmount }
 		   * @throws {InsufficientFundsError} If not enough asset balance
 		   */
-		  async selectAssetUTXOs(addresses, assetName, requiredAmount) {
+		  async selectAssetUTXOs(addresses, assetName, requiredAmount, options = {}) {
 		    if (!assetName) {
 		      throw new Error('Asset name is required');
 		    }
@@ -3009,38 +6379,51 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		    // Get mempool and filter
 		    const mempool = await this.getMempoolEntries(addresses);
-		    const availableUTXOs = this.filterMempoolSpentUTXOs(allUTXOs, mempool);
+		    const unspentUTXOs = this.filterMempoolSpentUTXOs(allUTXOs, mempool);
+
+		    const excluded = toOutpointSet(options.exclude);
+		    const availableUTXOs = excluded.size === 0
+		      ? unspentUTXOs
+		      : unspentUTXOs.filter(utxo => !excluded.has(outpointKey(utxo)));
 
 		    // Sort by value (largest first)
-		    const sortedUTXOs = availableUTXOs.sort((a, b) => b.satoshis - a.satoshis);
+		    const sortedUTXOs = this.sortByValueDesc(availableUTXOs);
+
+		    // Requirement as an exact protocol integer. `requiredRaw` is the path the
+		    // canonical builders use: they have already summed the recipients in raw
+		    // and must not round-trip that total through a display float.
+		    const requiredRaw = options.requiredRaw !== undefined
+		      ? toProtocolInteger(options.requiredRaw, 'requiredRaw')
+		      : assetAmountToRaw(requiredAmount, undefined, { label: `${assetName} amount` });
 
 		    // Select UTXOs greedily
 		    const selected = [];
-		    let totalSatoshis = 0;
-		    const requiredSatoshis = Math.ceil(requiredAmount * 100000000); // Assuming 8 decimals
+		    let totalSatoshis = 0n;
 
 		    for (const utxo of sortedUTXOs) {
 		      selected.push(utxo);
-		      totalSatoshis += utxo.satoshis;
+		      totalSatoshis += toProtocolInteger(utxo.satoshis, `${assetName} utxo.satoshis`);
 
-		      if (totalSatoshis >= requiredSatoshis) {
+		      if (totalSatoshis >= requiredRaw) {
 		        break;
 		      }
 		    }
 
 		    // Check if we have enough
-		    if (totalSatoshis < requiredSatoshis) {
-		      const available = totalSatoshis / 100000000;
+		    if (totalSatoshis < requiredRaw) {
+		      const available = formatRawAsDecimal(totalSatoshis);
+		      const required = formatRawAsDecimal(requiredRaw);
 		      throw new InsufficientFundsError(
-		        `Insufficient ${assetName} balance. Required: ${requiredAmount}, Available: ${available}`,
-		        requiredAmount,
-		        available
+		        `Insufficient ${assetName} balance. Required: ${required}, Available: ${available}`,
+		        Number(required),
+		        Number(available)
 		      );
 		    }
 
 		    return {
 		      utxos: selected,
-		      totalAmount: totalSatoshis / 100000000
+		      totalAmount: Number(formatRawAsDecimal(totalSatoshis)),
+		      totalRaw: totalSatoshis
 		    };
 		  }
 
@@ -3052,26 +6435,48 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @param {number} assetAmount - Required asset amount
 		   * @returns {Promise<object>} { xnaUTXOs, assetUTXOs, totalXNA, totalAsset }
 		   */
-		  async selectMixedUTXOs(addresses, xnaAmount, assetName = null, assetAmount = 0) {
+		  async selectMixedUTXOs(addresses, xnaAmount, assetName = null, assetAmount = 0, options = {}) {
 		    const result = {
 		      xnaUTXOs: [],
 		      assetUTXOs: [],
 		      totalXNA: 0,
-		      totalAsset: 0
+		      totalAsset: 0,
+		      totalXNASats: 0n,
+		      totalAssetRaw: 0n
 		    };
 
+		    const wantsXna = options.requiredSats !== undefined
+		      ? toProtocolInteger(options.requiredSats, 'requiredSats') > 0n
+		      : xnaAmount > 0;
+
 		    // Select XNA UTXOs if needed
-		    if (xnaAmount > 0) {
-		      const xnaSelection = await this.selectBaseCurrencyUTXOs(addresses, xnaAmount);
+		    if (wantsXna) {
+		      const xnaSelection = await this.selectBaseCurrencyUTXOs(
+		        addresses,
+		        xnaAmount,
+		        options.buffer !== undefined ? options.buffer : 0.1,
+		        { exclude: options.exclude, requiredSats: options.requiredSats }
+		      );
 		      result.xnaUTXOs = xnaSelection.utxos;
 		      result.totalXNA = xnaSelection.totalAmount;
+		      result.totalXNASats = xnaSelection.totalSats;
 		    }
 
+		    const wantsAsset = options.requiredRaw !== undefined
+		      ? toProtocolInteger(options.requiredRaw, 'requiredRaw') > 0n
+		      : assetAmount > 0;
+
 		    // Select asset UTXOs if needed
-		    if (assetName && assetAmount > 0) {
-		      const assetSelection = await this.selectAssetUTXOs(addresses, assetName, assetAmount);
+		    if (assetName && wantsAsset) {
+		      const assetSelection = await this.selectAssetUTXOs(
+		        addresses,
+		        assetName,
+		        assetAmount,
+		        { exclude: options.exclude, requiredRaw: options.requiredRaw }
+		      );
 		      result.assetUTXOs = assetSelection.utxos;
 		      result.totalAsset = assetSelection.totalAmount;
+		      result.totalAssetRaw = assetSelection.totalRaw;
 		    }
 
 		    return result;
@@ -3084,12 +6489,22 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {Promise<number>} Total balance
 		   */
 		  async getBalance(addresses, assetName = null) {
+		    return Number(formatRawAsDecimal(await this.getBalanceRaw(addresses, assetName)));
+		  }
+
+		  /**
+		   * Get total balance for an asset as an exact protocol integer.
+		   *
+		   * @param {string[]} addresses - Wallet addresses
+		   * @param {string|null} assetName - Asset name (null for XNA)
+		   * @returns {Promise<bigint>} Total balance in 10^8-scaled units
+		   */
+		  async getBalanceRaw(addresses, assetName = null) {
 		    const utxos = await this.getUTXOs(addresses, assetName);
 		    const mempool = await this.getMempoolEntries(addresses);
 		    const availableUTXOs = this.filterMempoolSpentUTXOs(utxos, mempool);
 
-		    const totalSatoshis = availableUTXOs.reduce((sum, utxo) => sum + utxo.satoshis, 0);
-		    return totalSatoshis / 100000000;
+		    return sumProtocolIntegers(availableUTXOs, 'satoshis', `${assetName || 'XNA'} utxo.satoshis`);
 		  }
 
 		  /**
@@ -3129,12 +6544,27 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} Estimated fee in XNA
 		   */
 		  estimateFee(inputs, outputs, feeRate = 0.015) {
-		    const sizeVbytes = this.estimateTransactionSize(inputs, outputs);
-		    const sizeKB = sizeVbytes / 1000;
-		    const fee = sizeKB * feeRate;
+		    return Number(formatRawAsDecimal(this.estimateFeeSats(inputs, outputs, feeRate)));
+		  }
 
-		    // Round up to 8 decimals
-		    return Math.ceil(fee * 100000000) / 100000000;
+		  /**
+		   * Estimate fee for a transaction, in exact satoshis.
+		   *
+		   * This is the form the builders account in: the fee has to be added to a
+		   * burn and subtracted from an input total, and doing that in XNA floats is
+		   * what produces one-satoshi drifts in the change output.
+		   *
+		   * @param {number|Array} inputs - Input count or array of UTXO-like descriptors
+		   * @param {number|Array} outputs - Output count or array of address-like descriptors
+		   * @param {number} feeRate - Fee rate in XNA per KB (default: 0.015)
+		   * @returns {bigint} Estimated fee in satoshis, rounded up
+		   */
+		  estimateFeeSats(inputs, outputs, feeRate = 0.015) {
+		    const sizeVbytes = BigInt(this.estimateTransactionSize(inputs, outputs));
+		    const feeRateSats = xnaAmountToSats(feeRate, { label: 'feeRate', rounding: 'ceil' });
+
+		    // fee = vbytes / 1000 * feeRate, rounded up to the satoshi
+		    return ceilDiv(sizeVbytes * feeRateSats, 1000n);
 		  }
 
 		  /**
@@ -3159,22 +6589,48 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 		}
 
+		// Shared with the builders so a transaction's outpoint bookkeeping uses one
+		// definition of identity.
+		UTXOSelector.outpointKey = outpointKey;
+		UTXOSelector.toOutpointSet = toOutpointSet;
+		UTXOSelector.ceilDiv = ceilDiv;
+
 		UTXOSelector_1 = UTXOSelector;
 		return UTXOSelector_1;
 	}
 
 	/**
 	 * Output Orderer
-	 * Orders transaction outputs according to Neurai protocol requirements
+	 * Orders the JSON outputs sent to the node's `createrawtransaction`.
 	 *
-	 * CRITICAL: Output ordering is mandatory for asset transactions
-	 *
-	 * Correct order:
+	 * Order produced:
 	 * 1. All XNA outputs (burn addresses + change) FIRST
 	 * 2. Owner token change outputs SECOND
 	 * 3. Asset operations (issue, reissue, transfer, etc.) LAST
 	 *
-	 * Incorrect ordering will cause transaction rejection by the network.
+	 * WHAT CONSENSUS ACTUALLY REQUIRES — this order is not it.
+	 *
+	 * The node locates only *some* outputs by position (src/assets/assets.cpp):
+	 *
+	 *   - new asset issuance: the issue payload must be the LAST output, and for
+	 *     ISSUE_ROOT / ISSUE_SUB / ISSUE_DEPIN the new owner payload the one
+	 *     before it (`IsNewAsset` / `AssetFromTransaction`). `OwnerFromTransaction`
+	 *     begins with `if (!tx.IsNewAsset()) return false;`, so it does NOT govern
+	 *     the owner token of the other families;
+	 *   - reissue, qualifier issuance, restricted issuance and unique issuance:
+	 *     only their own payload must be the LAST output. Their burns and owner
+	 *     transfers are found by scanning every vout.
+	 *
+	 * Transfers are NOT positional at all: each output is recognised by its own
+	 * payload. That is why the canonical create-transaction path lays a DePIN
+	 * transfer out as `transfers → owner escort → XNA change` and the node accepts
+	 * it, even though this class would produce the opposite order.
+	 *
+	 * So what is mandatory is the FINAL output of an issuance/reissue, plus the
+	 * owner immediately before it for new assets. Everything else here is a
+	 * convention for the RPC path, not a consensus rule. Do not use this class to
+	 * reorder what `createFromOperation` produced: it emits a valid order of its
+	 * own, and re-sorting it would break the positional rules that do apply.
 	 */
 
 	var OutputOrderer_1;
@@ -3493,7 +6949,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		const { InvalidAssetNameError } = requireErrors();
 
 		const MIN_ASSET_LENGTH = 3;
-		const MAINNET_MAX_NAME_LENGTH = 32;
+		// Full-name caps, mirror of the node (assets_fromscript.cpp:31-47): the limit
+		// applies to the COMPLETE name, owner '!' and tags included, so a mainnet
+		// root is effectively capped at 30 (its owner token "ROOT!" must fit in 31).
+		const MAINNET_MAX_NAME_LENGTH = 31;
 		const TESTNET_MAX_NAME_LENGTH = 121;
 
 		const ROOT_NAME_CHARACTERS = /^[A-Z0-9._]{3,}$/;
@@ -3906,33 +7365,55 @@ var NeuraiAssetsBundle = (function (exports) {
 		hasRequiredAmountValidator = 1;
 		const { ASSET_LIMITS } = requireConstants();
 		const { InvalidAmountError, InvalidUnitsError } = requireErrors();
+		const { normalizeDecimalText } = requireAssetAmount();
 
 		class AmountValidator {
 		  /**
-		   * Validate asset quantity
-		   * @param {number} quantity - Asset quantity
+		   * Validate asset quantity.
+		   *
+		   * Accepts a decimal **string** as well as a number. That is not a
+		   * convenience: above `MAX_SAFE_INTEGER / 1e8` (~90071992.55) a fractional
+		   * `number` can no longer name every 8-decimal value, so `assetAmountToRaw`
+		   * refuses it and asks for a string. Rejecting strings here would leave
+		   * legitimate supplies — `100000000.5`, far below MAX_QUANTITY —
+		   * unexpressible in either form.
+		   *
+		   * @param {number|string} quantity - Asset quantity
 		   * @param {number} units - Decimal places (0-8)
 		   */
 		  static validate(quantity, units = 0) {
-		    // Validate quantity is a number
-		    if (typeof quantity !== 'number' || isNaN(quantity)) {
-		      throw new InvalidAmountError('Quantity must be a valid number', quantity);
+		    // Validate quantity is a number or a plain decimal string
+		    if (typeof quantity === 'string') {
+		      // Throws with an actionable message for anything that is not a plain
+		      // decimal (exponent notation, empty, non-numeric).
+		      normalizeDecimalText(quantity, 'Quantity');
+		    } else if (typeof quantity !== 'number' || isNaN(quantity)) {
+		      throw new InvalidAmountError(
+		        'Quantity must be a valid number or a decimal string',
+		        quantity
+		      );
 		    }
 
+		    // Small magnitudes convert exactly, so `Number` is fine for the lower
+		    // bounds. The UPPER bound is not: `Number('21000000000.00000001')` is
+		    // `21000000000`, which would slip past a numeric comparison — so that one
+		    // is done on the digits themselves (see exceedsMaxQuantity).
+		    const numeric = Number(quantity);
+
 		    // Validate quantity is positive
-		    if (quantity <= 0) {
+		    if (numeric <= 0) {
 		      throw new InvalidAmountError('Quantity must be greater than 0', quantity);
 		    }
 
 		    // Validate quantity is within limits
-		    if (quantity < ASSET_LIMITS.MIN_QUANTITY) {
+		    if (numeric < ASSET_LIMITS.MIN_QUANTITY) {
 		      throw new InvalidAmountError(
 		        `Quantity must be at least ${ASSET_LIMITS.MIN_QUANTITY}`,
 		        quantity
 		      );
 		    }
 
-		    if (quantity > ASSET_LIMITS.MAX_QUANTITY) {
+		    if (this.exceedsMaxQuantity(quantity)) {
 		      throw new InvalidAmountError(
 		        `Quantity cannot exceed ${ASSET_LIMITS.MAX_QUANTITY}`,
 		        quantity
@@ -3952,6 +7433,33 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    return true;
+		  }
+
+		  /**
+		   * Whether a quantity is above MAX_QUANTITY, compared on the digits.
+		   *
+		   * A numeric comparison is not enough at this magnitude: `MAX_QUANTITY` is
+		   * `21000000000`, and `Number('21000000000.00000001')` collapses to exactly
+		   * `21000000000`, so the excess disappears before the comparison happens.
+		   * `assetAmountToRaw` catches it afterwards against the consensus ceiling —
+		   * the flow does fail closed — but this validator would have reported the
+		   * value as valid, and the two must state the same contract.
+		   *
+		   * @param {number|string} quantity - Quantity as given by the caller
+		   * @returns {boolean} True when the value exceeds MAX_QUANTITY
+		   */
+		  static exceedsMaxQuantity(quantity) {
+		    const text = normalizeDecimalText(quantity, 'Quantity');
+		    const [intPart, fracPart = ''] = (text.startsWith('-') ? text.slice(1) : text).split('.');
+
+		    const maxWhole = BigInt(ASSET_LIMITS.MAX_QUANTITY);
+		    const whole = BigInt(intPart);
+
+		    if (whole > maxWhole) {
+		      return true;
+		    }
+		    // Exactly at the ceiling: any non-zero fraction puts it over.
+		    return whole === maxWhole && /[1-9]/.test(fracPart);
 		  }
 
 		  /**
@@ -4363,8 +7871,30 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireBaseAssetTransactionBuilder () {
 		if (hasRequiredBaseAssetTransactionBuilder) return BaseAssetTransactionBuilder_1;
 		hasRequiredBaseAssetTransactionBuilder = 1;
+		const { rpcErrorMessage } = requireRpcErrorMessage();
+		const { createFromOperation } = requireDist_1();
 		const { BurnManager, OwnerTokenManager, UTXOSelector, OutputOrderer } = requireManagers();
 		const { AssetNameValidator, AmountValidator } = requireValidators();
+		const { getNetworkConfig } = requireNetworks();
+		const {
+		  assetAmountToRaw,
+		  xnaAmountToSats,
+		  formatRawAsDecimal,
+		  rawToDisplayNumber,
+		  toProtocolInteger,
+		  sumProtocolIntegers
+		} = requireAssetAmount();
+
+		/** Outputs below this are dust and are dropped instead of created. */
+		const DUST_SATS = 1n;
+
+		/**
+		 * Backstop for the funding loop. Each round consumes at least one new outpoint,
+		 * so a wallet needs more than this many UTXOs in a single transaction before
+		 * the limit is even reachable; it exists so a pathological fee curve fails
+		 * with a clear message instead of looping.
+		 */
+		const MAX_FUNDING_ROUNDS = 32;
 
 		class BaseAssetTransactionBuilder {
 		  /**
@@ -4423,6 +7953,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // post-selection recompute). The fee rate is stable for the duration of
 		    // a single build, so cache the first lookup and reuse it.
 		    this._feeRatePromise = null;
+
+		    // NIP-040 marker for the localRawBuild metadata; resolved once per build.
+		    this._assetMarkerPromise = null;
 		  }
 
 		  /**
@@ -4483,14 +8016,140 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @param {number} assetAmount - Asset amount if needed
 		   * @returns {Promise<object>} Selected UTXOs
 		   */
-		  async selectUTXOs(xnaAmount, assetName = null, assetAmount = 0) {
+		  async selectUTXOs(xnaAmount, assetName = null, assetAmount = 0, options = {}) {
 		    const addresses = await this._getAddresses();
 		    return this.utxoSelector.selectMixedUTXOs(
 		      addresses,
 		      xnaAmount,
 		      assetName,
-		      assetAmount
+		      assetAmount,
+		      options
 		    );
+		  }
+
+		  /**
+		   * Estimate the transaction fee in exact satoshis.
+		   *
+		   * @param {number|Array} inputs - Input count or array of UTXO-like descriptors
+		   * @param {number|Array} outputs - Output count or array of address-like descriptors
+		   * @returns {Promise<bigint>} Estimated fee in satoshis
+		   */
+		  async estimateFeeSats(inputs, outputs) {
+		    if (!this._feeRatePromise) {
+		      this._feeRatePromise = this.utxoSelector.getFeeRate();
+		    }
+		    const feeRate = await this._feeRatePromise;
+		    return this.utxoSelector.estimateFeeSats(inputs, outputs, feeRate);
+		  }
+
+		  /**
+		   * Fund the XNA side of a transaction, exactly.
+		   *
+		   * Replaces the "estimate once, select once, top up with a `+0.001` cushion"
+		   * pattern that every builder carried. That pattern had three defects, all of
+		   * which only surface when the top-up branch actually runs — which depends on
+		   * the *value* of the selected UTXOs, not on the size of the transaction:
+		   *
+		   *   1. the second selection re-queried the node without excluding what the
+		   *      first one took, and the greedy order is deterministic, so it handed
+		   *      back the same largest outpoint and the transaction spent it twice;
+		   *   2. the fee was never recomputed, so the inputs added by the top-up were
+		   *      not paid for;
+		   *   3. the `+0.001 XNA` cushion did not pay for them either — it only
+		   *      enlarged the selection target and came back as change.
+		   *
+		   * Here each round excludes every outpoint already held, recomputes the fee
+		   * from the real (PQ-aware) descriptors of the full input set, and loops
+		   * until the funds cover burn + fee. Running out of funds throws
+		   * InsufficientFundsError from the selector; it never returns underfunded.
+		   *
+		   * @param {object} options
+		   * @param {Array} options.outputs - Output descriptors for the size estimate
+		   * @param {bigint} [options.burnSats] - Burn amount that the inputs must also cover
+		   * @param {Array} [options.extraInputs] - Non-XNA inputs already committed (asset, owner token)
+		   * @param {Array} [options.exclude] - Outpoints that must not be selected
+		   * @param {number} [options.initialInputHint] - Assumed XNA input count for the first estimate
+		   * @returns {Promise<{utxos: Array, totalSats: bigint, feeSats: bigint, changeSats: bigint, rounds: number}>}
+		   */
+		  async fundXnaInputs(options) {
+		    const {
+		      outputs,
+		      burnSats = 0n,
+		      extraInputs = [],
+		      exclude = [],
+		      initialInputHint = 1
+		    } = options;
+
+		    const addresses = await this._getAddresses();
+		    const excluded = UTXOSelector.toOutpointSet(exclude);
+		    // toOutpointSet returns the caller's Set untouched when it already is one;
+		    // copy so this method never mutates what it was handed.
+		    const held = new Set(excluded);
+
+		    const selected = [];
+		    let totalSats = 0n;
+		    // First estimate assumes `initialInputHint` legacy XNA inputs; the loop
+		    // corrects it as soon as the real descriptors are known.
+		    let feeSats = await this.estimateFeeSats(
+		      [...extraInputs, ...new Array(initialInputHint).fill({})],
+		      outputs
+		    );
+		    let rounds = 0;
+
+		    for (;;) {
+		      const requiredSats = burnSats + feeSats;
+		      if (totalSats >= requiredSats) {
+		        break;
+		      }
+
+		      if (rounds >= MAX_FUNDING_ROUNDS) {
+		        throw new Error(
+		          `XNA funding did not converge after ${MAX_FUNDING_ROUNDS} rounds ` +
+		          `(need ${formatRawAsDecimal(requiredSats)} XNA, hold ` +
+		          `${formatRawAsDecimal(totalSats)} XNA)`
+		        );
+		      }
+		      rounds += 1;
+
+		      const selection = await this.utxoSelector.selectBaseCurrencyUTXOs(
+		        addresses,
+		        null,
+		        0.1,
+		        { requiredSats: requiredSats - totalSats, exclude: held }
+		      );
+
+		      selection.utxos.forEach(utxo => {
+		        held.add(UTXOSelector.outpointKey(utxo));
+		        selected.push(utxo);
+		      });
+		      totalSats += selection.totalSats;
+
+		      // The fee must reflect every input it is paying for.
+		      feeSats = await this.estimateFeeSats([...extraInputs, ...selected], outputs);
+		    }
+
+		    return {
+		      utxos: selected,
+		      totalSats,
+		      feeSats,
+		      changeSats: totalSats - burnSats - feeSats,
+		      rounds
+		    };
+		  }
+
+		  /**
+		   * The network label understood by neurai-create-transaction.
+		   *
+		   * `this.network` accepts aliases (`mainnet`, `testnet`, `regtest`,
+		   * `mainnet-pq`, ...) that the serializer does not know. Its
+		   * `resolveNetworkFamily` treats every unrecognised value as testnet, so
+		   * passing the alias `'mainnet'` straight through would make a mainnet build
+		   * slip past the DePIN guard that correctly rejects `'xna'`.
+		   *
+		   * @returns {'xna'|'xna-test'} Canonical network label
+		   */
+		  canonicalNetwork() {
+		    return getNetworkConfig(this.network).baseNetwork;
 		  }
 
 		  /**
@@ -4515,7 +8174,31 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		      return rawTx;
 		    } catch (error) {
-		      throw new Error(`Failed to create raw transaction: ${error.message}`);
+		      throw new Error(`Failed to create raw transaction: ${rpcErrorMessage(error)}`);
+		    }
+		  }
+
+		  /**
+		   * Build the raw transaction locally from a canonical build, without the
+		   * node's `createrawtransaction`.
+		   *
+		   * The reissue builders use this instead of buildRawTransaction: the RPC's
+		   * `reissue` object has no field for units and the node fills in 0, so that
+		   * path rejects any asset whose units are above zero (`unit must be larger
+		   * than current unit selection`). The local codec encodes "keep the current
+		   * units" (0xff) — the same default the node's own `reissue` RPC uses — and
+		   * emits the same outputs the node would: owner-token return auto-generated,
+		   * operation output last.
+		   *
+		   * @param {{operationType: string, params: object}} createTransactionBuild -
+		   *   Canonical payload, as produced by buildCreateTransactionBuild
+		   * @returns {string} Raw transaction hex, ready for signing
+		   */
+		  buildRawTransactionLocally(createTransactionBuild) {
+		    try {
+		      return createFromOperation(createTransactionBuild).rawTx;
+		    } catch (error) {
+		      throw new Error(`Failed to create raw transaction locally: ${error.message}`);
 		    }
 		  }
 
@@ -4678,8 +8361,103 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 
 		  /**
+		   * NIP-040 marker for every asset output of the localRawBuild metadata.
+		   *
+		   * The chain decides which marker ("rvn" or "xna") new asset outputs must
+		   * carry, per network and height, and the node reports the one required for
+		   * the next block as `getblockchaininfo.asset_marker` (node commit 347362b).
+		   * Resolution order:
+		   *   1. `params.assetMarker` (explicit caller override — offline builds,
+		   *      tests, or a node this library should not ask);
+		   *   2. `getblockchaininfo.asset_marker` from the connected node;
+		   *   3. `'rvn'` when the node predates the field (a node without it enforces
+		   *      the legacy marker, so that is the right answer, not a guess).
+		   *
+		   * An RPC *failure* is a different case, and `params.assetMarkerPolicy`
+		   * decides it:
+		   *   - `'legacy-fallback'` (default in 1.x) resolves `'rvn'`, preserving the
+		   *     1.4.x behaviour;
+		   *   - `'strict'` propagates the failure. On a post-NIP-040 chain a build
+		   *     that guessed `'rvn'` produces a transaction the node rejects with
+		   *     `bad-txns-legacy-asset-marker-after-nip040`, so an online wallet
+		   *     should not treat "the node did not answer" as "the node said rvn".
+		   *
+		   * A value present but outside `rvn`/`xna` is an error under both policies.
+		   * The RPC-built transaction path never needs any of this: the node stamps
+		   * the marker itself in `createrawtransaction`.
+		   *
+		   * @returns {Promise<'rvn'|'xna'>} Marker for locally built asset outputs
+		   */
+		  resolveAssetMarker() {
+		    if (!this._assetMarkerPromise) {
+		      // Memoized including rejection, so a strict failure is one RPC call and
+		      // one error, not one per asset output.
+		      this._assetMarkerPromise = this._fetchAssetMarker();
+		    }
+		    return this._assetMarkerPromise;
+		  }
+
+		  /**
+		   * Resolve the configured marker failure policy.
+		   *
+		   * @returns {'strict'|'legacy-fallback'} Policy in force for this build
+		   */
+		  assetMarkerPolicy() {
+		    const policy = this.params.assetMarkerPolicy;
+		    if (policy === undefined || policy === null) {
+		      return 'legacy-fallback';
+		    }
+		    if (policy !== 'strict' && policy !== 'legacy-fallback') {
+		      throw new Error(
+		        `Invalid assetMarkerPolicy: ${policy} (expected 'strict' or 'legacy-fallback')`
+		      );
+		    }
+		    return policy;
+		  }
+
+		  async _fetchAssetMarker() {
+		    const policy = this.assetMarkerPolicy();
+		    const override = this.params.assetMarker;
+		    if (override !== undefined && override !== null) {
+		      if (override !== 'rvn' && override !== 'xna') {
+		        throw new Error(
+		          `Invalid assetMarker: ${override} (expected 'rvn' or 'xna', the value of getblockchaininfo.asset_marker)`
+		        );
+		      }
+		      return override;
+		    }
+
+		    let info = null;
+		    try {
+		      info = await this.rpc('getblockchaininfo', []);
+		    } catch (error) {
+		      if (policy === 'strict') {
+		        throw new Error(
+		          `Cannot resolve the NIP-040 asset marker: getblockchaininfo failed ` +
+		          `(${rpcErrorMessage(error)}). Under assetMarkerPolicy 'strict' this ` +
+		          `is not downgraded to 'rvn', which a post-NIP-040 chain would reject. ` +
+		          `Pass params.assetMarker to build offline.`
+		        );
+		      }
+		      return 'rvn';
+		    }
+		    const marker = info ? info.asset_marker : undefined;
+		    if (marker === undefined || marker === null) {
+		      // A valid answer from a node that predates the field: legacy is correct.
+		      return 'rvn';
+		    }
+		    if (marker !== 'rvn' && marker !== 'xna') {
+		      throw new Error(`Node reported an unknown asset_marker: ${marker}`);
+		    }
+		    return marker;
+		  }
+
+		  /**
 		   * Build a typed local raw build payload compatible with
 		   * @neuraiproject/neurai-create-transaction createFromOperation(...)
+		   *
+		   * Stamps the NIP-040 `assetMarker` (see resolveAssetMarker) so
+		   * createFromOperation >= 0.7.0 emits the marker the chain requires.
 		   *
 		   * @param {string} operationType - Operation type
 		   * @param {Array} inputs - Builder inputs
@@ -4687,9 +8465,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @param {string|null} changeAddress - XNA change address
 		   * @param {number|null} changeAmount - XNA change amount in XNA
 		   * @param {object} operationParams - Operation-specific params
-		   * @returns {{ operationType: string, params: object }} Local raw build
+		   * @returns {Promise<{ operationType: string, params: object }>} Local raw build
 		   */
-		  buildLocalRawBuild(
+		  async buildLocalRawBuild(
 		    operationType,
 		    inputs,
 		    burnInfo = null,
@@ -4699,6 +8477,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		  ) {
 		    const params = {
 		      inputs: this.toRawTxInputs(inputs),
+		      assetMarker: await this.resolveAssetMarker(),
 		      ...operationParams
 		    };
 
@@ -4716,6 +8495,106 @@ var NeuraiAssetsBundle = (function (exports) {
 		      operationType,
 		      params
 		    };
+		  }
+
+		  /**
+		   * Build the canonical `createTransactionBuild` payload: the exact shape
+		   * `createFromOperation(...)` accepts, with no adaptation, renaming or
+		   * rescaling left for the consumer.
+		   *
+		   * Differences from the deprecated `buildLocalRawBuild`:
+		   *   - every amount is a protocol integer (`bigint`), never a display value
+		   *     under a `*Raw` name;
+		   *   - a transfer carries a discriminant the serializer knows
+		   *     (`STANDARD_TRANSFER` / `TRANSFER_DEPIN`), not the internal `TRANSFER`;
+		   *   - the network, when included, is the canonical label, so the DePIN
+		   *     mainnet guard actually runs.
+		   *
+		   * @param {string} operationType - Canonical create-transaction discriminant
+		   * @param {Array} inputs - Builder inputs
+		   * @param {object} [envelope] - XNA envelope
+		   * @param {string} [envelope.burnAddress] - Burn address
+		   * @param {bigint} [envelope.burnSats] - Burn amount in satoshis
+		   * @param {string} [envelope.changeAddress] - XNA change address
+		   * @param {bigint} [envelope.changeSats] - XNA change in satoshis
+		   * @param {object} [operationParams] - Operation-specific canonical params
+		   * @returns {Promise<{operationType: string, params: object}>} Canonical build
+		   */
+		  async buildCreateTransactionBuild(
+		    operationType,
+		    inputs,
+		    envelope = {},
+		    operationParams = {}
+		  ) {
+		    const params = {
+		      inputs: this.toRawTxInputs(inputs),
+		      assetMarker: await this.resolveAssetMarker(),
+		      ...operationParams
+		    };
+
+		    if (envelope.burnAddress && envelope.burnSats !== undefined && envelope.burnSats !== null) {
+		      params.burnAddress = envelope.burnAddress;
+		      params.burnAmountSats = toProtocolInteger(envelope.burnSats, 'burnSats');
+		    }
+
+		    if (
+		      envelope.changeAddress &&
+		      envelope.changeSats !== undefined &&
+		      envelope.changeSats !== null &&
+		      toProtocolInteger(envelope.changeSats, 'changeSats') >= DUST_SATS
+		    ) {
+		      params.xnaChangeAddress = envelope.changeAddress;
+		      params.xnaChangeSats = toProtocolInteger(envelope.changeSats, 'changeSats');
+		    }
+
+		    return {
+		      operationType,
+		      params
+		    };
+		  }
+
+		  /**
+		   * Convert a user-facing asset amount to the raw protocol integer.
+		   *
+		   * @param {string|number} amount - Display amount
+		   * @param {number} [units] - Asset decimal places, for the divisibility check
+		   * @param {string} [label] - Prefix for error messages
+		   * @returns {bigint} Raw amount, 10^8-scaled
+		   */
+		  assetAmountToRaw(amount, units, label) {
+		    return assetAmountToRaw(amount, units, { label: label || 'asset amount' });
+		  }
+
+		  /**
+		   * Convert a user-facing XNA amount to satoshis.
+		   *
+		   * @param {string|number} amount - Display XNA amount
+		   * @param {object} [options] - Passed through to xnaAmountToSats
+		   * @returns {bigint} Satoshis
+		   */
+		  xnaAmountToSats(amount, options) {
+		    return xnaAmountToSats(amount, options);
+		  }
+
+		  /**
+		   * Render a protocol integer as the display value the RPC envelope expects.
+		   *
+		   * @param {bigint} sats - Protocol integer
+		   * @returns {number} Display amount
+		   */
+		  satsToDisplay(sats) {
+		    return rawToDisplayNumber(sats, 'display amount');
+		  }
+
+		  /**
+		   * Sum the `satoshis` field of UTXOs exactly.
+		   *
+		   * @param {Array} utxos - UTXOs
+		   * @param {string} [label] - Prefix for error messages
+		   * @returns {bigint} Exact total
+		   */
+		  sumSatoshis(utxos, label) {
+		    return sumProtocolIntegers(utxos, 'satoshis', label || 'utxo.satoshis');
 		  }
 
 		  /**
@@ -4835,7 +8714,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      return assetData !== null && assetData !== undefined;
 		    } catch (error) {
 		      // If asset doesn't exist, RPC will throw error
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        return false;
 		      }
 		      // Re-throw other errors
@@ -4852,7 +8731,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    try {
 		      return await this.rpc('getassetdata', [assetName]);
 		    } catch (error) {
-		      if (error.message && error.message.includes('not found')) {
+		      if (rpcErrorMessage(error).includes('not found')) {
 		        return null;
 		      }
 		      throw error;
@@ -4957,36 +8836,23 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 
-		    // 5. Estimate fee (rough estimate for initial UTXO selection)
-		    const outputAddresses = [burnInfo.address, changeAddress, toAddress];
-		    const estimatedFee = await this.estimateFee(1, outputAddresses);
+		    // 5-10. Fund the XNA side. fundXnaInputs recomputes the fee with the real
+		    //       (PQ-aware) descriptors after every top-up and never selects an
+		    //       outpoint it already holds.
+		    const outputAddresses = [
+		      burnInfo.address,
+		      changeAddress,
+		      // Asset outputs carry a payload; sizing them as bare P2PKH under-counts
+		      // the transaction and trips the node's minimum relay fee.
+		      { address: toAddress, assetName, kind: 'issue', hasIpfs },
+		      { address: changeAddress, assetName: `${assetName}!`, kind: 'owner' },
+		    ];
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({ outputs: outputAddresses, burnSats });
 
-		    // 6. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 7. Select UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 8. Recalculate fee with actual inputs (PQ-aware)
-		    const actualFee = await this.estimateFee(baseCurrencyUTXOs, outputAddresses);
-
-		    // 9. Verify we still have enough after fee recalculation
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      // Need to select more UTXOs
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001; // Add small buffer
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 10. Calculate final totals
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 11. Build inputs
 		    const inputs = baseCurrencyUTXOs.map(utxo => ({
@@ -5003,9 +8869,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
+		    if (xnaChangeSats > 0n) {
 		      // Only add change if meaningful amount
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Issue operation
@@ -5038,12 +8904,26 @@ var NeuraiAssetsBundle = (function (exports) {
 		        assetName,
 		        ownerTokenName: assetName + '!',
 		        operationType: 'ISSUE_ROOT',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          'ISSUE_ROOT',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            toAddress,
+		            assetName,
+		            quantityRaw: this.assetAmountToRaw(quantity, units, 'quantity'),
+		            units,
+		            reissuable,
+		            ipfsHash: hasIpfs ? ipfsHash : undefined,
+		            ownerTokenAddress: changeAddress
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'ISSUE_ROOT',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -5197,37 +9077,24 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      changeAddress, // owner token return goes to change address
-		      toAddress,
+		      { address: changeAddress, assetName: ownerTokenName, kind: 'owner' },
+		      { address: toAddress, assetName, kind: 'issue', hasIpfs },
+		      { address: changeAddress, assetName: `${assetName}!`, kind: 'owner' },
 		    ];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // 9-13. Fund the XNA side. The parent owner-token input counts towards the
+		    //       size estimate from the first round and is excluded from selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: [ownerTokenUTXO],
+		      exclude: [ownerTokenUTXO],
+		      initialInputHint: 1
+		    });
 
-		    // 9. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 10. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 11. Recalculate fee with actual inputs (PQ-aware), including owner token UTXO
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ownerTokenUTXO];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 12. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 13. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 14. Build inputs (XNA + owner token)
 		    const inputs = [];
@@ -5258,8 +9125,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Third: Owner token return (CRITICAL - must return or lost forever!)
@@ -5306,12 +9173,26 @@ var NeuraiAssetsBundle = (function (exports) {
 		        ownerTokenName: assetName + '!',
 		        parentOwnerTokenUsed: ownerTokenName,
 		        operationType: 'ISSUE_SUB',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          'ISSUE_SUB',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            toAddress,
+		            assetName,
+		            quantityRaw: this.assetAmountToRaw(quantity, units, 'quantity'),
+		            units,
+		            reissuable,
+		            ipfsHash: hasIpfs ? ipfsHash : undefined,
+		            parentOwnerAddress: changeAddress
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'ISSUE_SUB',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -5414,28 +9295,18 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 
-		    const outputAddresses = [burnInfo.address, changeAddress, toAddress];
-		    const estimatedFee = await this.estimateFee(1, outputAddresses);
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
+		    const outputAddresses = [
+		      burnInfo.address,
+		      changeAddress,
+		      { address: toAddress, assetName, kind: 'issue', hasIpfs },
+		      { address: changeAddress, assetName: `${assetName}!`, kind: 'owner' },
+		    ];
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({ outputs: outputAddresses, burnSats });
 
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    const actualFee = await this.estimateFee(baseCurrencyUTXOs, outputAddresses);
-		    const totalRequired = burnInfo.amount + actualFee;
-
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    const inputs = baseCurrencyUTXOs.map(utxo => ({
 		      txid: utxo.txid,
@@ -5447,8 +9318,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputs = [];
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    const issueOutput = OutputFormatter.formatIssueOutput({
@@ -5476,12 +9347,29 @@ var NeuraiAssetsBundle = (function (exports) {
 		        assetName,
 		        ownerTokenName: `${assetName}!`,
 		        operationType: 'ISSUE_DEPIN',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          'ISSUE_DEPIN',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            toAddress,
+		            assetName,
+		            quantityRaw: this.assetAmountToRaw(quantity, 0, 'quantity'),
+		            ipfsHash: hasIpfs ? ipfsHash : undefined,
+		            ownerTokenAddress: changeAddress,
+		            reissuable,
+		            // Canonical label, so create-transaction's mainnet DePIN guard
+		            // actually runs: it treats any unknown value (including the alias
+		            // 'mainnet') as testnet and would let a mainnet build through.
+		            network: this.canonicalNetwork()
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'ISSUE_DEPIN',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -5641,37 +9529,23 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      changeAddress, // owner token return goes to change address
-		      toAddress,
+		      { address: changeAddress, assetName: ownerTokenName, kind: 'owner' },
+		      { address: toAddress, assetName, kind: 'reissue', hasIpfs: Boolean(newIpfs) },
 		    ];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // Fund the XNA side. The owner-token input counts towards the size
+		    // estimate from the first round and is excluded from XNA selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: [ownerTokenUTXO],
+		      exclude: [ownerTokenUTXO],
+		      initialInputHint: 1
+		    });
 
-		    // 9. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 10. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 11. Recalculate fee with actual inputs (PQ-aware), including owner token UTXO
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ownerTokenUTXO];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 12. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 13. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 14. Build inputs (XNA + owner token)
 		    const inputs = [];
@@ -5702,8 +9576,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Reissue operation
@@ -5723,8 +9597,36 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // 16. Order outputs (protocol requirement)
 		    const orderedOutputs = this.outputOrderer.order(outputs);
 
-		    // 17. Create raw transaction
-		    const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
+		    // 17. Canonical build — also the source of the raw transaction. The
+		    // node's `createrawtransaction` has no units field for a reissue and
+		    // assumes 0, so it rejects any asset with units > 0; the local codec
+		    // encodes "keep the current units" (0xff) and emits the same outputs the
+		    // node would (owner-token return included), so the RPC is not needed for
+		    // this step.
+		    const createTransactionBuild = await this.buildCreateTransactionBuild(
+		      'REISSUE',
+		      inputs,
+		      { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		      {
+		        toAddress,
+		        assetName,
+		        quantityRaw: this.assetAmountToRaw(quantity, units, 'quantity'),
+		        // `units` is deliberately omitted: this library has no API to
+		        // change an asset's units, so the honest statement is "keep the
+		        // current ones", which create-transaction >= 0.8.0 encodes as
+		        // 0xff. Echoing the value read from getassetdata would say "set
+		        // units to N" instead, and a stale read — the asset reissued to a
+		        // higher precision between the read and the broadcast — would ask
+		        // the node to lower them, which it rejects with
+		        // `unit must be larger than current unit selection`.
+		        // The value is still used above, to validate that `quantity` fits
+		        // the asset's precision.
+		        reissuable: reissuable !== undefined ? reissuable : undefined,
+		        ipfsHash: newIpfs || undefined,
+		        ownerChangeAddress: isDepinAsset ? toAddress : changeAddress
+		      }
+		    );
+		    const rawTx = this.buildRawTransactionLocally(createTransactionBuild);
 
 		    // 18. Format and return result
 		    const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
@@ -5744,12 +9646,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		        previousSupply: currentSupply,
 		        reissuableLocked: reissuable === false,
 		        operationType: 'REISSUE',
-		        localRawBuild: this.buildLocalRawBuild(
+		        buildStrategy: 'local-builder',
+		        createTransactionBuild,
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'REISSUE',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -5838,13 +9742,22 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // 1. Validate parameters
 		    this.validateParams(this.params);
 
-		    const { assetName, recipients } = this.params;
+		    const { assetName, recipients, units } = this.params;
 
-		    // Total amount to send, in user-facing asset units (NOT raw 10^8 sats).
-		    // selectAssetUTXOs / the createrawtransaction transfer output both expect
-		    // display units and scale by 10^8 themselves — pre-multiplying would
-		    // double-scale (see UTXOSelector.selectAssetUTXOs / BaseBuilder.toSatoshis).
-		    const totalAssetUnits = recipients.reduce((sum, r) => sum + r.amount, 0);
+		    // Every recipient is converted to its protocol integer FIRST and the
+		    // totals are summed in raw. Summing display amounts and scaling the total
+		    // afterwards (`Math.round(totalAssetUnits * 1e8)`) accumulates the float
+		    // error of every recipient into the asset change.
+		    const recipientsRaw = recipients.map((recipient, index) => ({
+		      address: recipient.address,
+		      assetName,
+		      amountRaw: this.assetAmountToRaw(
+		        recipient.amount,
+		        units,
+		        `recipients[${index}].amount`
+		      )
+		    }));
+		    const totalRecipientRaw = recipientsRaw.reduce((sum, r) => sum + r.amountRaw, 0n);
 
 		    // 2. Addresses
 		    const addresses = await this._getAddresses();
@@ -5878,46 +9791,43 @@ var NeuraiAssetsBundle = (function (exports) {
 		    //    potential output so the fee is never under-estimated.
 		    const outputAddresses = [
 		      changeAddress, // XNA change
-		      ...recipients.map(r => r.address), // one transfer per recipient
-		      changeAddress, // asset change (harmless over-count if absent)
-		      ...(isDepin ? [changeAddress] : []), // owner token return
+		      // One transfer per recipient. These carry an asset payload, so they must
+		      // be declared as such: sized as bare P2PKH the fee falls below the node's
+		      // minimum relay fee as soon as its fee rate approaches that floor.
+		      ...recipients.map(r => ({ address: r.address, assetName })),
+		      { address: changeAddress, assetName }, // asset change (harmless over-count if absent)
+		      ...(isDepin
+		        ? [{ address: changeAddress, assetName: ownerTokenName, kind: 'owner' }]
+		        : []),
 		    ];
 
-		    // 5. First (rough) fee estimate, then select asset + XNA UTXOs.
-		    const estimatedFee = await this.estimateFee(isDepin ? 3 : 2, outputAddresses);
-		    const utxoSelection = await this.selectUTXOs(estimatedFee, assetName, totalAssetUnits);
-		    const assetUTXOs = utxoSelection.assetUTXOs;
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    let totalXNAInput = utxoSelection.totalXNA;
-
-		    // Asset change computed in raw 10^8-sats to avoid float drift, then back to units.
-		    const assetInputRawSats = assetUTXOs.reduce((sum, u) => sum + u.satoshis, 0);
-		    const totalAssetRawSats = Math.round(totalAssetUnits * 100000000);
-		    const assetChangeRawSats = assetInputRawSats - totalAssetRawSats;
-		    const assetChangeUnits = assetChangeRawSats / 100000000;
-
-		    // 6. Recompute the fee with the real inputs (PQ-aware), including the owner
-		    //    token when DePIN, then top up XNA if the rough estimate fell short.
-		    const actualFeeInputs = [
-		      ...baseCurrencyUTXOs,
-		      ...assetUTXOs,
-		      ...(isDepin ? [ownerTokenUTXO] : []),
-		    ];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    if (totalXNAInput < actualFee) {
-		      const additionalNeeded = actualFee - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		      totalXNAInput += additionalSelection.totalXNA;
-		    }
-
-		    // 7. XNA change (no burn for a transfer)
-		    const finalXNAInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
+		    // 5. Select the asset UTXOs from the raw total, so the requirement is not
+		    //    a display float that was scaled back up.
+		    const assetSelection = await this.utxoSelector.selectAssetUTXOs(
+		      addresses,
+		      assetName,
+		      undefined,
+		      { requiredRaw: totalRecipientRaw }
 		    );
-		    const xnaChange = finalXNAInput - actualFee;
+		    const assetUTXOs = assetSelection.utxos;
+		    const assetChangeRaw = assetSelection.totalRaw - totalRecipientRaw;
+
+		    // 6. Fund the XNA side. The asset and owner-token inputs count towards the
+		    //    size estimate from the first round (they are what makes a PQ transfer
+		    //    expensive) and are excluded from XNA selection. fundXnaInputs
+		    //    recomputes the fee after every top-up and never reuses an outpoint.
+		    const committedInputs = [...assetUTXOs, ...(isDepin ? [ownerTokenUTXO] : [])];
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      extraInputs: committedInputs,
+		      exclude: committedInputs,
+		      initialInputHint: 1
+		    });
+
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const feeSats = funding.feeSats;
+		    const xnaChangeSats = funding.changeSats;
+		    const actualFee = this.satsToDisplay(feeSats);
 
 		    // 8. Build inputs: asset UTXOs + [owner token] + XNA UTXOs
 		    const inputs = [];
@@ -5951,12 +9861,16 @@ var NeuraiAssetsBundle = (function (exports) {
 		      });
 		    });
 
-		    // 9. Build outputs (unordered — outputOrderer enforces protocol order)
+		    // 9. Build outputs (unordered — outputOrderer enforces protocol order).
+		    //    These carry DISPLAY amounts: createrawtransaction runs them through
+		    //    AmountFromValue and does the 10^8 scaling itself.
 		    const outputs = [];
+		    const hasXnaChange = xnaChangeSats > 0n;
+		    const assetChangeUnits = assetChangeRaw > 0n ? this.satsToDisplay(assetChangeRaw) : 0;
 
 		    // XNA change
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (hasXnaChange) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // One transfer per recipient (display units; the daemon scales by 10^8)
@@ -5965,7 +9879,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    });
 
 		    // Asset change back to the sender
-		    if (assetChangeRawSats > 0) {
+		    if (assetChangeRaw > 0n) {
 		      outputs.push({
 		        [changeAddress]: OutputFormatter.formatTransferOutput(assetName, assetChangeUnits),
 		      });
@@ -5991,7 +9905,40 @@ var NeuraiAssetsBundle = (function (exports) {
 		      ...(isDepin ? [ownerTokenUTXO] : []),
 		      ...baseCurrencyUTXOs,
 		    ];
-		    const xnaChangeOut = xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null;
+		    const xnaChangeOut = hasXnaChange ? this.satsToDisplay(xnaChangeSats) : null;
+
+		    // Canonical transfers: recipients plus, at most, one asset change. The
+		    // DePIN owner escort is NOT listed here — createDepinTransferTransaction
+		    // emits it itself, and adding it would produce two "&NAME!" outputs.
+		    const canonicalTransfers = [
+		      ...recipientsRaw,
+		      ...(assetChangeRaw > 0n
+		        ? [{ address: changeAddress, assetName, amountRaw: assetChangeRaw }]
+		        : [])
+		    ];
+
+		    const createTransactionBuild = isDepin
+		      ? await this.buildCreateTransactionBuild(
+		          'TRANSFER_DEPIN',
+		          inputs,
+		          { changeAddress, changeSats: xnaChangeSats },
+		          {
+		            transfers: canonicalTransfers,
+		            ownerChangeAddress: changeAddress,
+		            network: this.canonicalNetwork()
+		          }
+		        )
+		      : await this.buildCreateTransactionBuild(
+		          'STANDARD_TRANSFER',
+		          inputs,
+		          {}, // STANDARD_TRANSFER has no XNA envelope; change travels as a payment
+		          {
+		            payments: hasXnaChange
+		              ? [{ address: changeAddress, valueSats: xnaChangeSats }]
+		              : [],
+		            transfers: canonicalTransfers
+		          }
+		        );
 
 		    return this.formatResult(
 		      rawTx,
@@ -6003,11 +9950,12 @@ var NeuraiAssetsBundle = (function (exports) {
 		      {
 		        assetName,
 		        recipients: recipients.map(r => ({ address: r.address, amount: r.amount })),
-		        assetChange: assetChangeRawSats > 0 ? assetChangeUnits : 0,
+		        assetChange: assetChangeUnits,
 		        isDepin,
 		        ownerTokenUsed: isDepin ? ownerTokenName : null,
 		        operationType: 'TRANSFER',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild,
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'TRANSFER',
 		          inputs,
 		          null, // no burn
@@ -6020,7 +9968,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		              assetName,
 		              amount: r.amount,
 		            })),
-		            assetChange: assetChangeRawSats > 0
+		            assetChange: assetChangeRaw > 0n
 		              ? { address: changeAddress, assetName, amount: assetChangeUnits }
 		              : null,
 		            ownerReturn: isDepin
@@ -6188,37 +10136,27 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      changeAddress, // owner token return goes to change address
-		      toAddress,
+		      { address: changeAddress, assetName: ownerTokenName, kind: 'owner' },
+		      ...assetTags.map(tag => ({
+		        address: toAddress,
+		        assetName: `${rootName}#${tag}`,
+		        kind: 'issue',
+		      })),
 		    ];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // 8-12. Fund the XNA side. The root owner-token input counts towards the
+		    //       size estimate from the first round and is excluded from selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: [ownerTokenUTXO],
+		      exclude: [ownerTokenUTXO],
+		      initialInputHint: 1
+		    });
 
-		    // 8. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 9. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 10. Recalculate fee with actual inputs (PQ-aware), including owner token UTXO
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ownerTokenUTXO];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 11. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 12. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 13. Build inputs (XNA + owner token)
 		    const inputs = [];
@@ -6249,8 +10187,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Issue unique operation
@@ -6291,12 +10229,24 @@ var NeuraiAssetsBundle = (function (exports) {
 		        nftCount,
 		        ownerTokenUsed: ownerTokenName,
 		        operationType: 'ISSUE_UNIQUE',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          'ISSUE_UNIQUE',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            toAddress,
+		            rootName,
+		            assetTags,
+		            ipfsHashes: ipfsHashes.length > 0 ? ipfsHashes : undefined,
+		            ownerTokenAddress: changeAddress
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'ISSUE_UNIQUE',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            rootName,
@@ -6451,35 +10401,26 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const changeAddress = await this.getChangeAddress();
 
 		    // 7. Estimate fee
-		    const outputAddresses = [burnInfo.address, changeAddress, toAddress];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    const outputAddresses = [
+		      burnInfo.address,
+		      changeAddress,
+		      { address: toAddress, assetName, kind: 'issue', hasIpfs },
+		      ...(isSub ? [{ address: changeAddress, assetName: parentQualifierName }] : []),
+		    ];
+		    // 8-12. Fund the XNA side. The parent qualifier inputs count towards the
+		    //       size estimate from the first round and are excluded from selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: parentQualifierUTXOs,
+		      exclude: parentQualifierUTXOs,
+		      initialInputHint: 1
+		    });
 
-		    // 8. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 9. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 10. Recalculate fee with actual inputs (PQ-aware), including parent qualifier UTXOs
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ...parentQualifierUTXOs];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 11. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 12. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 13. Build inputs
 		    const inputs = [];
@@ -6512,8 +10453,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Issue qualifier operation
@@ -6552,12 +10493,27 @@ var NeuraiAssetsBundle = (function (exports) {
 		        parentQualifier: isSub ? parsed.parent : null,
 		        parentQualifierUsed: parentQualifierName,
 		        operationType: isSub ? 'ISSUE_SUB_QUALIFIER' : 'ISSUE_QUALIFIER',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          isSub ? 'ISSUE_SUB_QUALIFIER' : 'ISSUE_QUALIFIER',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            toAddress,
+		            assetName,
+		            quantityRaw: this.assetAmountToRaw(quantity, 0, 'quantity'),
+		            ipfsHash: hasIpfs ? ipfsHash : undefined,
+		            rootChangeAddress: isSub ? changeAddress : undefined,
+		            changeQuantityRaw: isSub && parentQualifierQuantity !== null
+		              ? this.assetAmountToRaw(parentQualifierQuantity, 0, 'parent qualifier change')
+		              : undefined
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          isSub ? 'ISSUE_SUB_QUALIFIER' : 'ISSUE_QUALIFIER',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -6709,34 +10665,20 @@ var NeuraiAssetsBundle = (function (exports) {
 		      changeAddress, // owner token return goes to change address
 		      toAddress,
 		    ];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // Fund the XNA side. The owner-token input counts towards the size
+		    // estimate from the first round and is excluded from XNA selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: [ownerTokenUTXO],
+		      exclude: [ownerTokenUTXO],
+		      initialInputHint: 1
+		    });
 
-		    // 8. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 9. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 10. Recalculate fee with actual inputs (PQ-aware), including owner token UTXO
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ownerTokenUTXO];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 11. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 12. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 13. Build inputs (XNA + owner token)
 		    const inputs = [];
@@ -6766,8 +10708,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Issue restricted operation
@@ -6806,12 +10748,27 @@ var NeuraiAssetsBundle = (function (exports) {
 		        verifierString,
 		        requiredQualifiers,
 		        operationType: 'ISSUE_RESTRICTED',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          'ISSUE_RESTRICTED',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            toAddress,
+		            assetName,
+		            quantityRaw: this.assetAmountToRaw(quantity, units, 'quantity'),
+		            verifierString,
+		            units,
+		            reissuable,
+		            ipfsHash: hasIpfs ? ipfsHash : undefined,
+		            ownerChangeAddress: changeAddress
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'ISSUE_RESTRICTED',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -6984,34 +10941,20 @@ var NeuraiAssetsBundle = (function (exports) {
 		      changeAddress, // owner token return goes to change address
 		      toAddress,
 		    ];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // Fund the XNA side. The owner-token input counts towards the size
+		    // estimate from the first round and is excluded from XNA selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: [ownerTokenUTXO],
+		      exclude: [ownerTokenUTXO],
+		      initialInputHint: 1
+		    });
 
-		    // 9. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 10. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 11. Recalculate fee with actual inputs (PQ-aware), including owner token UTXO
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ownerTokenUTXO];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 12. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 13. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 14. Build inputs (XNA + owner token)
 		    const inputs = [];
@@ -7042,8 +10985,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Reissue restricted operation
@@ -7063,8 +11006,30 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // 16. Order outputs (protocol requirement)
 		    const orderedOutputs = this.outputOrderer.order(outputs);
 
-		    // 17. Create raw transaction
-		    const rawTx = await this.buildRawTransaction(inputs, orderedOutputs);
+		    // 17. Canonical build — also the source of the raw transaction. Same
+		    // reasoning as in ReissueBuilder: the node's `createrawtransaction` has no
+		    // units field for a reissue (the `reissue_restricted` object included), so
+		    // that path rejects any asset with units > 0; the local codec encodes
+		    // "keep the current units" (0xff).
+		    const createTransactionBuild = await this.buildCreateTransactionBuild(
+		      'REISSUE_RESTRICTED',
+		      inputs,
+		      { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		      {
+		        toAddress,
+		        assetName,
+		        quantityRaw: this.assetAmountToRaw(quantity, assetData.units || 0, 'quantity'),
+		        // Omitted on purpose — see the note in ReissueBuilder: this
+		        // library never changes an asset's units, so it says "keep them"
+		        // (0xff) rather than echoing a value that could be stale.
+
+		        reissuable: reissuable !== undefined ? reissuable : undefined,
+		        ipfsHash: newIpfs || undefined,
+		        ownerChangeAddress: this.params.ownerChangeAddress || changeAddress,
+		        verifierString: changeVerifier ? newVerifier : undefined
+		      }
+		    );
+		    const rawTx = this.buildRawTransactionLocally(createTransactionBuild);
 
 		    // 18. Format and return result
 		    const allUTXOs = [...baseCurrencyUTXOs, ownerTokenUTXO];
@@ -7092,12 +11057,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		        requiredQualifiers,
 		        reissuableLocked: reissuable === false,
 		        operationType: 'REISSUE_RESTRICTED',
-		        localRawBuild: this.buildLocalRawBuild(
+		        buildStrategy: 'local-builder',
+		        createTransactionBuild,
+		        localRawBuild: await this.buildLocalRawBuild(
 		          'REISSUE_RESTRICTED',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            toAddress,
 		            assetName,
@@ -7233,34 +11200,20 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // 6. Estimate fee
 		    // Outputs: burn + XNA change + tag/untag operation (sent to changeAddress)
 		    const outputAddresses = [burnInfo.address, changeAddress, changeAddress];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // 7-11. Fund the XNA side. The qualifier inputs count towards the size
+		    //       estimate from the first round and are excluded from XNA selection.
+		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      burnSats,
+		      extraInputs: qualifierUTXOs,
+		      exclude: qualifierUTXOs,
+		      initialInputHint: 1
+		    });
 
-		    // 7. Calculate total XNA needed
-		    const totalXNANeeded = burnInfo.amount + estimatedFee;
-
-		    // 8. Select XNA UTXOs
-		    const utxoSelection = await this.selectUTXOs(totalXNANeeded, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 9. Recalculate fee with actual inputs (PQ-aware), including qualifier UTXOs
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ...qualifierUTXOs];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 10. Verify we have enough XNA
-		    const totalRequired = burnInfo.amount + actualFee;
-		    if (totalXNAInput < totalRequired) {
-		      const additionalNeeded = totalRequired - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 11. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - burnInfo.amount - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 12. Build inputs (XNA + qualifier asset)
 		    const inputs = [];
@@ -7292,8 +11245,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    outputs.push({ [burnInfo.address]: burnInfo.amount });
 
 		    // Second: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Tag/Untag operation. The node creates the qualifier change output
@@ -7334,12 +11287,27 @@ var NeuraiAssetsBundle = (function (exports) {
 		        targetAddresses,
 		        addressCount,
 		        operationType: isUntag ? 'UNTAG_ADDRESSES' : 'TAG_ADDRESSES',
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          isUntag ? 'UNTAG_ADDRESSES' : 'TAG_ADDRESSES',
+		          inputs,
+		          { burnAddress: burnInfo.address, burnSats, changeAddress, changeSats: xnaChangeSats },
+		          {
+		            qualifierName,
+		            targetAddresses,
+		            qualifierChangeAddress: changeAddress,
+		            qualifierChangeAmountRaw: this.assetAmountToRaw(
+		              qualifierQuantity,
+		              0,
+		              'qualifier change'
+		            )
+		          }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          isUntag ? 'UNTAG_ADDRESSES' : 'TAG_ADDRESSES',
 		          inputs,
 		          burnInfo,
 		          changeAddress,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          {
 		            qualifierName,
 		            targetAddresses,
@@ -7482,30 +11450,19 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // 6. Estimate fee
 		    // Outputs: XNA change + freeze/unfreeze operation (sent to changeAddress)
 		    const outputAddresses = [changeAddress, changeAddress];
-		    const estimatedFee = await this.estimateFee(2, outputAddresses);
+		    // 7-10. Fund the XNA side (fee only, this operation does not burn). The
+		    //       owner-token input counts towards the size estimate from the first
+		    //       round and is excluded from XNA selection.
+		    const funding = await this.fundXnaInputs({
+		      outputs: outputAddresses,
+		      extraInputs: [ownerTokenUTXO],
+		      exclude: [ownerTokenUTXO],
+		      initialInputHint: 1
+		    });
 
-		    // 7. Select XNA UTXOs (only for fee, no burn)
-		    const utxoSelection = await this.selectUTXOs(estimatedFee, null, 0);
-		    const baseCurrencyUTXOs = utxoSelection.xnaUTXOs;
-		    const totalXNAInput = utxoSelection.totalXNA;
-
-		    // 8. Recalculate fee with actual inputs (PQ-aware), including owner token UTXO
-		    const actualFeeInputs = [...baseCurrencyUTXOs, ownerTokenUTXO];
-		    const actualFee = await this.estimateFee(actualFeeInputs, outputAddresses);
-
-		    // 9. Verify we have enough XNA for fee
-		    if (totalXNAInput < actualFee) {
-		      const additionalNeeded = actualFee - totalXNAInput + 0.001;
-		      const additionalSelection = await this.selectUTXOs(additionalNeeded, null, 0);
-		      baseCurrencyUTXOs.push(...additionalSelection.xnaUTXOs);
-		    }
-
-		    // 10. Calculate XNA change
-		    const finalTotalInput = baseCurrencyUTXOs.reduce(
-		      (sum, utxo) => sum + utxo.satoshis / 100000000,
-		      0
-		    );
-		    const xnaChange = finalTotalInput - actualFee;
+		    const baseCurrencyUTXOs = funding.utxos;
+		    const actualFee = this.satsToDisplay(funding.feeSats);
+		    const xnaChangeSats = funding.changeSats;
 
 		    // 11. Build inputs (XNA + owner token)
 		    const inputs = [];
@@ -7533,8 +11490,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputs = [];
 
 		    // First: XNA change (if any)
-		    if (xnaChange > 0.00000001) {
-		      outputs.push({ [changeAddress]: parseFloat(xnaChange.toFixed(8)) });
+		    if (xnaChangeSats > 0n) {
+		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 
 		    // Last: Freeze/Unfreeze operation
@@ -7596,12 +11553,27 @@ var NeuraiAssetsBundle = (function (exports) {
 		        targetAddresses: targetAddresses.length > 0 ? targetAddresses : null,
 		        addressCount: targetAddresses.length,
 		        operationType,
-		        localRawBuild: this.buildLocalRawBuild(
+		        createTransactionBuild: await this.buildCreateTransactionBuild(
+		          operationType,
+		          inputs,
+		          { changeAddress, changeSats: xnaChangeSats },
+		          operationType === 'FREEZE_ADDRESSES' || operationType === 'UNFREEZE_ADDRESSES'
+		            ? {
+		                assetName,
+		                targetAddresses,
+		                ownerChangeAddress: changeAddress
+		              }
+		            : {
+		                assetName,
+		                ownerChangeAddress: changeAddress
+		              }
+		        ),
+		        localRawBuild: await this.buildLocalRawBuild(
 		          operationType,
 		          inputs,
 		          null,
-		          xnaChange > 0.00000001 ? changeAddress : null,
-		          xnaChange > 0.00000001 ? parseFloat(xnaChange.toFixed(8)) : null,
+		          xnaChangeSats > 0n ? changeAddress : null,
+		          xnaChangeSats > 0n ? this.satsToDisplay(xnaChangeSats) : null,
 		          operationType === 'FREEZE_ADDRESSES' || operationType === 'UNFREEZE_ADDRESSES'
 		            ? {
 		                assetName,
@@ -7757,6 +11729,16 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @param {Array<string>} config.addresses - Wallet addresses
 		   * @param {string} config.changeAddress - Default change address
 		   * @param {string} config.toAddress - Default receiving address
+		   * @param {('rvn'|'xna')} [config.assetMarker] - NIP-040 marker for locally
+		   *   built raw transactions. Omit to use the node's
+		   *   getblockchaininfo.asset_marker (falls back to 'rvn' on nodes that do
+		   *   not report it). Per-operation params.assetMarker overrides this.
+		   * @param {('strict'|'legacy-fallback')} [config.assetMarkerPolicy] - What to
+		   *   do when getblockchaininfo FAILS. 'legacy-fallback' (default in 1.x)
+		   *   resolves 'rvn'; 'strict' propagates the error instead, because on a
+		   *   post-NIP-040 chain a guessed 'rvn' builds a transaction the node
+		   *   rejects. A node that simply predates the field still resolves 'rvn'
+		   *   under both policies — that is an answer, not a failure.
 		   */
 		  constructor(rpc, config = {}) {
 		    if (!rpc || typeof rpc !== 'function') {
@@ -7768,7 +11750,12 @@ var NeuraiAssetsBundle = (function (exports) {
 		      network: config.network || 'xna',
 		      addresses: config.addresses || [],
 		      changeAddress: config.changeAddress || null,
-		      toAddress: config.toAddress || null
+		      toAddress: config.toAddress || null,
+		      // NIP-040: documented since 1.4.0 but dropped here until 1.4.1, which
+		      // made the config-level override silently inoperative (per-operation
+		      // params.assetMarker was unaffected).
+		      assetMarker: config.assetMarker,
+		      assetMarkerPolicy: config.assetMarkerPolicy
 		    };
 
 		    // Initialize query interface
@@ -7794,7 +11781,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		      network: this.config.network,
 		      walletAddresses: this.config.addresses,
 		      changeAddress: params.changeAddress || this.config.changeAddress,
-		      toAddress: params.toAddress || this.config.toAddress
+		      toAddress: params.toAddress || this.config.toAddress,
+		      // NIP-040: marker for the localRawBuild metadata. Undefined lets the
+		      // builder ask the node (getblockchaininfo.asset_marker).
+		      assetMarker: params.assetMarker !== undefined ? params.assetMarker : this.config.assetMarker,
+		      assetMarkerPolicy: params.assetMarkerPolicy !== undefined
+		        ? params.assetMarkerPolicy
+		        : this.config.assetMarkerPolicy
 		    };
 		  }
 

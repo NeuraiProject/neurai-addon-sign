@@ -5,6 +5,22 @@ declare global {
   type NeuraiCreateTransactionFreezeOperation = 'freeze' | 'unfreeze';
   type NeuraiCreateTransactionNullAssetDestinationMode = 'strict' | 'hash20';
 
+  /**
+   * NIP-040 asset payload marker. The chain decides which one new asset
+   * outputs must carry and the node reports it as
+   * `getblockchaininfo.asset_marker`; it is never inferred here. Omitting it
+   * falls back to the legacy `rvn`, which a chain past activation rejects.
+   */
+  type NeuraiCreateTransactionAssetMarker = 'rvn' | 'xna';
+
+  /**
+   * Transaction-level marker: reaches every asset output the builder creates.
+   * A per-output `assetMarker` takes precedence over it.
+   */
+  interface NeuraiCreateTransactionMarkerOptions {
+    assetMarker?: NeuraiCreateTransactionAssetMarker;
+  }
+
   interface NeuraiCreateTransactionTxInput {
     txid: string;
     vout: number;
@@ -36,6 +52,7 @@ declare global {
     address: string;
     assetName: string;
     amountRaw: bigint | number;
+    assetMarker?: NeuraiCreateTransactionAssetMarker;
   }
 
   interface NeuraiCreateTransactionStatic {
@@ -61,7 +78,7 @@ declare global {
       inputs: NeuraiCreateTransactionTxInput[];
       payments?: NeuraiCreateTransactionTxPaymentOutput[];
       transfers?: NeuraiCreateTransactionTransferOutput[];
-    }): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueAssetTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -74,7 +91,7 @@ declare global {
       includeOwnerOutput?: boolean;
       ownerTokenAddress?: string;
       ownerTokenName?: string;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueSubAssetTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -85,7 +102,7 @@ declare global {
       reissuable?: boolean;
       ipfsHash?: string;
       parentOwnerAddress?: string;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueDepinTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -95,7 +112,7 @@ declare global {
       ipfsHash?: string;
       ownerTokenAddress?: string;
       reissuable?: boolean;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueUniqueAssetTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -104,7 +121,7 @@ declare global {
       assetTags: string[];
       ipfsHashes?: Array<string | undefined>;
       ownerTokenAddress?: string;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueQualifierTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -114,7 +131,7 @@ declare global {
       ipfsHash?: string;
       rootChangeAddress?: string;
       changeQuantityRaw?: bigint | number;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createIssueRestrictedTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -126,7 +143,7 @@ declare global {
       reissuable?: boolean;
       ipfsHash?: string;
       ownerChangeAddress?: string;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createReissueTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -137,7 +154,7 @@ declare global {
       reissuable?: boolean;
       ipfsHash?: string;
       ownerChangeAddress?: string;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createReissueRestrictedTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -149,7 +166,7 @@ declare global {
       reissuable?: boolean;
       ipfsHash?: string;
       ownerChangeAddress?: string;
-    } & NeuraiCreateTransactionXnaEnvelope): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionXnaEnvelope & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createQualifierTagTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -163,7 +180,7 @@ declare global {
       qualifierChangeAddress: string;
       qualifierChangeAmountRaw: bigint | number;
       nullAssetDestinationMode?: NeuraiCreateTransactionNullAssetDestinationMode;
-    }): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createFreezeAddressesTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -174,7 +191,7 @@ declare global {
       xnaChangeAddress?: string;
       xnaChangeSats?: bigint | number;
       nullAssetDestinationMode?: NeuraiCreateTransactionNullAssetDestinationMode;
-    }): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
 
     createFreezeAssetTransaction(params: {
       inputs: NeuraiCreateTransactionTxInput[];
@@ -183,7 +200,7 @@ declare global {
       ownerChangeAddress: string;
       xnaChangeAddress?: string;
       xnaChangeSats?: bigint | number;
-    }): NeuraiCreateTransactionBuiltTransaction;
+    } & NeuraiCreateTransactionMarkerOptions): NeuraiCreateTransactionBuiltTransaction;
   }
 
   var NeuraiCreateTransaction: NeuraiCreateTransactionStatic;

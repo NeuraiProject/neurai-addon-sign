@@ -1,19 +1,41 @@
 #!/usr/bin/env node
 
-// Copies/builds browser-ready library bundles from node_modules to src/lib/
-// Run automatically via "postinstall" or manually with "npm run sync-libs"
+// Copies browser-ready library bundles from node_modules to src/lib/, which is
+// what the extension actually ships. Run via "postinstall" or "npm run sync-libs".
 //
-// - NeuraiKey.js: copied from official browser global bundle
-// - NeuraiMessage.js: copied from official browser global bundle
-// - NeuraiSignESP32.js: copied from official browser global bundle
-// - NeuraiAssets.js: copied from official browser global bundle
-// - NeuraiReader.js: maintained locally (pure fetch-based, no npm bundle needed)
+// Every bundle here is MANDATORY and a failure is fatal.
+//
+// It did not used to be: each copy was wrapped in a try/catch that warned and
+// kept the previous file, then the script exited 0. A build could therefore
+// claim one version and package another, and that is exactly what happened —
+// src/lib/ drifted to create-transaction 0.3.1 (pre-NIP-040, no assetMarker)
+// while package.json declared a newer range. In a signed extension the
+// packaged bytes are the product, so a stale bundle must stop the build, not
+// produce a warning nobody reads.
+//
+// NeuraiReader.js is the one exception: it is maintained locally, not copied.
 
 const fs = require('fs');
 const path = require('path');
 
 const DEST = path.join(__dirname, 'src', 'lib');
 fs.mkdirSync(DEST, { recursive: true });
+
+/** Bundles copied verbatim from each package's browser global build. */
+const BUNDLES = [
+  ['NeuraiKey.js', 'neurai-key', 'NeuraiKey.global.js'],
+  ['NeuraiMessage.js', 'neurai-message', 'NeuraiMessage.global.js'],
+  ['NeuraiSignESP32.js', 'neurai-sign-esp32', 'NeuraiSignESP32.global.js'],
+  ['NeuraiAssets.js', 'neurai-assets', 'NeuraiAssets.global.js'],
+  ['NeuraiSignTransaction.js', 'neurai-sign-transaction', 'NeuraiSignTransaction.global.js'],
+  ['NeuraiCreateTransaction.js', 'neurai-create-transaction', 'NeuraiCreateTransaction.global.js'],
+  ['NeuraiScripts.js', 'neurai-scripts', 'NeuraiScripts.global.js']
+];
+
+function packageVersion(pkgName) {
+  const manifest = path.join(__dirname, 'node_modules', '@neuraiproject', pkgName, 'package.json');
+  return JSON.parse(fs.readFileSync(manifest, 'utf8')).version;
+}
 
 function copyFile(source, destination) {
   fs.copyFileSync(source, destination);
@@ -22,105 +44,29 @@ function copyFile(source, destination) {
 async function main() {
   console.log('Syncing Neurai libraries from npm to src/lib/...\n');
 
-// 1. NeuraiKey - copy official browser global bundle from npm
-const keyDest = path.join(DEST, 'NeuraiKey.js');
-try {
-  const keySource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-key', 'dist', 'NeuraiKey.global.js');
-  copyFile(keySource, keyDest);
-  const size = (fs.statSync(keyDest).size / 1024).toFixed(1);
-  console.log(`  NeuraiKey.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiKey.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiKey.js will be kept.');
-}
+  for (const [fileName, pkgName, globalFile] of BUNDLES) {
+    const source = path.join(__dirname, 'node_modules', '@neuraiproject', pkgName, 'dist', globalFile);
+    const destination = path.join(DEST, fileName);
 
-// 2. NeuraiMessage - copy official browser global bundle from npm
-const messageDest = path.join(DEST, 'NeuraiMessage.js');
-try {
-  const messageSource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-message', 'dist', 'NeuraiMessage.global.js');
-  copyFile(messageSource, messageDest);
-  const size = (fs.statSync(messageDest).size / 1024).toFixed(1);
-  console.log(`  NeuraiMessage.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiMessage.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiMessage.js will be kept.');
-}
+    if (!fs.existsSync(source)) {
+      throw new Error(
+        `${fileName}: missing ${path.relative(__dirname, source)}. ` +
+        `Run "npm install" so @neuraiproject/${pkgName} is present, and check that ` +
+        `the installed version still ships a browser global bundle.`
+      );
+    }
 
-// 3. NeuraiSignESP32 - copy official browser global bundle from npm
-const signEsp32Dest = path.join(DEST, 'NeuraiSignESP32.js');
-try {
-  const signEsp32Source = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-sign-esp32', 'dist', 'NeuraiSignESP32.global.js');
-  copyFile(signEsp32Source, signEsp32Dest);
-  const size = (fs.statSync(signEsp32Dest).size / 1024).toFixed(1);
-  console.log(`  NeuraiSignESP32.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiSignESP32.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiSignESP32.js will be kept (if any).');
-}
+    copyFile(source, destination);
+    const size = (fs.statSync(destination).size / 1024).toFixed(1);
+    console.log(`  ${fileName} (${size} KB) <- @neuraiproject/${pkgName}@${packageVersion(pkgName)}`);
+  }
 
-// 4. NeuraiAssets - copy official browser global bundle from npm
-const neuraiAssetsDest = path.join(DEST, 'NeuraiAssets.js');
-try {
-  const assetsSource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-assets', 'dist', 'NeuraiAssets.global.js');
-  copyFile(assetsSource, neuraiAssetsDest);
-  const size = (fs.statSync(neuraiAssetsDest).size / 1024).toFixed(1);
-  console.log(`  NeuraiAssets.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiAssets.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiAssets.js will be kept (if any).');
-}
-
-// 5. NeuraiSignTransaction - copy official browser global bundle from npm
-const signTxDest = path.join(DEST, 'NeuraiSignTransaction.js');
-try {
-  const signTxSource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-sign-transaction', 'dist', 'NeuraiSignTransaction.global.js');
-  copyFile(signTxSource, signTxDest);
-  const size = (fs.statSync(signTxDest).size / 1024).toFixed(1);
-  console.log(`  NeuraiSignTransaction.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiSignTransaction.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiSignTransaction.js will be kept (if any).');
-}
-
-// 6. NeuraiCreateTransaction - copy official browser global bundle from npm
-const createTxDest = path.join(DEST, 'NeuraiCreateTransaction.js');
-try {
-  const createTxSource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-create-transaction', 'dist', 'NeuraiCreateTransaction.global.js');
-  copyFile(createTxSource, createTxDest);
-  const size = (fs.statSync(createTxDest).size / 1024).toFixed(1);
-  console.log(`  NeuraiCreateTransaction.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiCreateTransaction.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiCreateTransaction.js will be kept (if any).');
-}
-
-// 7. NeuraiReader - local file, just verify it exists
-const readerPath = path.join(DEST, 'NeuraiReader.js');
-if (fs.existsSync(readerPath)) {
-  const size = (fs.statSync(readerPath).size / 1024).toFixed(1);
-  console.log(`  NeuraiReader.js (${size} KB) - local (pure fetch, no npm needed)`);
-} else {
-  console.warn('  WARNING: NeuraiReader.js not found in src/lib/');
-}
-
-// 8. NeuraiScripts - copy official browser global bundle from npm
-const neuraiScriptsDest = path.join(DEST, 'NeuraiScripts.js');
-try {
-  const scriptsSource = path.join(__dirname, 'node_modules', '@neuraiproject', 'neurai-scripts', 'dist', 'NeuraiScripts.global.js');
-  copyFile(scriptsSource, neuraiScriptsDest);
-  const size = (fs.statSync(neuraiScriptsDest).size / 1024).toFixed(1);
-  console.log(`  NeuraiScripts.js (${size} KB) - copied from npm global bundle`);
-} catch (err) {
-  console.warn('  WARNING: Failed to copy NeuraiScripts.js browser bundle');
-  console.warn('  Error:', err.message);
-  console.warn('  The existing src/lib/NeuraiScripts.js will be kept (if any).');
-}
+  // Maintained locally (pure fetch, no npm bundle), but still mandatory.
+  const readerPath = path.join(DEST, 'NeuraiReader.js');
+  if (!fs.existsSync(readerPath)) {
+    throw new Error('NeuraiReader.js is missing from src/lib/ and is not generated from npm');
+  }
+  console.log(`  NeuraiReader.js (${(fs.statSync(readerPath).size / 1024).toFixed(1)} KB) - local`);
 
   console.log('\nDone.');
 }

@@ -2,5 +2,5 @@ node_modules/
 dist/
 test-app/lib/
 test-page
-package-lock.json
 docs/
+tmp/

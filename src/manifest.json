@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Neurai Sign",
-  "version": "0.12.11",
+  "version": "0.13.0",
   "description": "Use Neurai's blockchain (XNA) to authenticate yourself using coins or tokens through digital signatures.",
   "short_name": "Neurai Sign",
   "permissions": [
@@ -33,15 +33,27 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
-      "js": ["content/content.js"],
+      "matches": [
+        "https://*/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
       "run_at": "document_end"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content/inject.js"],
-      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"]
+      "resources": [
+        "content/inject.js"
+      ],
+      "matches": [
+        "https://*/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ]
     }
   ],
   "icons": {
