@@ -762,7 +762,10 @@
     <div class="unlock-panel ca-confirm-panel">
       <p class="eyebrow">Review before sending</p>
       <h2 id="caTxConfirmTitle">Confirm Asset Transaction</h2>
-      <p class="ca-confirm-subtitle">Check the outputs below. Once broadcast, this cannot be reversed.</p>
+      <p class="ca-confirm-subtitle" id="caTxConfirmSubtitle">Check the outputs below. Once broadcast, this cannot be reversed.</p>
+
+      <div class="ca-confirm-progress hidden" id="caTxConfirmProgress" role="presentation"></div>
+      <p class="ca-confirm-status hidden" id="caTxConfirmStatus" role="status" aria-live="polite"></p>
 
       <div class="ca-confirm-outputs" id="caTxOutputsList"></div>
 

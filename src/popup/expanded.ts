@@ -51,6 +51,7 @@ import {
   explainSimpleVerifierFailure,
 } from './expanded/asset-utils.js';
 import { resolveAssetMarker, createAssetMarkerCache } from './expanded/asset-marker.js';
+import { createConfirmPreparing } from './expanded/confirm-preparing.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
@@ -1237,8 +1238,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (!elements.sendSubmitBtn) return;
     clearSendError();
 
+    // Igual que en create asset: el botón sólo se bloquea y la ventana de
+    // confirmación se abre ya, contando en qué punto va.
     elements.sendSubmitBtn.disabled = true;
-    elements.sendSubmitBtn.textContent = 'Preparing…';
+    const prep = openTxConfirmPreparing('Confirm Transaction', 3);
 
     try {
       const wallet = state.wallet as Record<string, unknown> | null;
@@ -1268,6 +1271,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         if (!assetName) throw new Error('Select an asset to transfer.');
       }
 
+      setConfirmProgress(prep, 'Selecting inputs and estimating the fee…');
       const built = await buildSendTransaction({
         network,
         walletAddress,
@@ -1280,8 +1284,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
 
-      elements.sendSubmitBtn.textContent = 'Signing…';
+      setConfirmProgress(prep, 'Signing…');
       const signedHex = await signRawTx(built.rawTx, rpcUrl);
+
+      elements.sendSubmitBtn.disabled = false;
+      // Cancelada mientras se preparaba: firmada, no difundida, no se ofrece.
+      if (!isPreparationCurrent(prep)) return;
 
       state.pendingSignedTx = {
         hex: signedHex,
@@ -1290,12 +1298,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         kind: isAssetMode ? 'send-asset' : 'send-xna',
       };
       showTxConfirmModal(built as unknown as NeuraiAssetsBuildResult, signedHex);
-      elements.sendSubmitBtn.disabled = false;
-      elements.sendSubmitBtn.textContent = 'Send';
     } catch (err) {
-      showSendError((err as Error).message || 'Unable to prepare transaction.');
+      const cancelled = !isPreparationCurrent(prep);
+      confirmPreparing.closeIfPreparing();
       elements.sendSubmitBtn.disabled = false;
       elements.sendSubmitBtn.textContent = 'Send';
+      if (cancelled) return;
+      showSendError((err as Error).message || 'Unable to prepare transaction.');
     }
   }
 
@@ -1505,6 +1514,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function resetAccountSpecificUi() {
     // Clear any in-flight signed TX and the confirm modal.
     state.pendingSignedTx = null;
+    confirmPreparing.abandon();
     elements.caTxConfirmModal?.classList.add('hidden');
     if (elements.caTxConfirmError) {
       elements.caTxConfirmError.textContent = '';
@@ -3702,8 +3712,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function handleCreateAsset() {
     elements.caError!.textContent = '';
     elements.caError!.classList.add('hidden');
+    // El botón sólo se bloquea; quien cuenta lo que pasa es la ventana.
     elements.caCreateBtn!.disabled = true;
-    elements.caCreateBtn!.textContent = 'Creating…';
+    const isReissue = state.createAssetType === 'REISSUE';
+    const prep = openTxConfirmPreparing(
+      isReissue ? 'Confirm Reissue' : 'Confirm Asset Transaction',
+      isReissue ? 4 : 4
+    );
     startTiming('create asset');
 
     try {
@@ -3721,6 +3736,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         toAddress: address,
       });
       markPhase('resolver marcador NIP-040');
+      setConfirmProgress(prep, 'Selecting inputs and estimating the fee…');
 
       const type = state.createAssetType;
       let result: NeuraiAssetsBuildResult;
@@ -3839,6 +3855,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       }
 
       markPhase('construir (selección de UTXOs + fee)');
+      setConfirmProgress(prep, 'Signing…');
 
       // Sign the raw transaction
       const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
@@ -3851,7 +3868,17 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'create-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
+        setConfirmProgress(prep, 'Checking the relay fee…');
         markPhase('comprobar relay fee AuthScript');
+      }
+
+      // El usuario pudo cancelar mientras se construía: la transacción está
+      // firmada pero no difundida, así que basta con no ofrecerla.
+      if (!isPreparationCurrent(prep)) {
+        markPhase('cancelado por el usuario');
+        endTiming();
+        elements.caCreateBtn!.disabled = false;
+        return;
       }
 
       // Store signed TX and show confirm modal instead of broadcasting immediately
@@ -3863,13 +3890,92 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     } catch (err) {
       markPhase('fallo');
       endTiming();
+      const cancelled = !isPreparationCurrent(prep);
+      confirmPreparing.closeIfPreparing();
+      elements.caCreateBtn!.disabled = false;
+      elements.caCreateBtn!.textContent = isReissue ? 'Reissue Asset' : 'Create Asset';
+      if (cancelled) return;
       const msg = (err as Error).message || 'Unknown error';
       elements.caError!.textContent = msg;
       elements.caError!.classList.remove('hidden');
-      elements.caCreateBtn!.disabled = false;
-      elements.caCreateBtn!.textContent = 'Create Asset';
     }
   }
+
+  /**
+   * La ventana de confirmación, abierta ANTES de tener la transacción.
+   *
+   * Antes el único indicio de que algo estaba pasando era el botón pulsado
+   * diciendo «Creating…», que no dice en qué punto está ni cuánto queda. Ahora
+   * se abre la propia ventana en la que va a aterrizar el resultado, con su
+   * misma forma —filas fantasma del alto de una salida real— y una onda que la
+   * recorre. Cuando llega la transacción sólo se sustituye el contenido, así
+   * que la ventana no aparece de golpe ni cambia de tamaño.
+   *
+   * La máquina de estados vive en ./expanded/confirm-preparing para poder
+   * probarla; aquí queda sólo cómo se traduce cada paso al DOM.
+   */
+  const confirmPreparing = createConfirmPreparing({
+    showGhosts(rows: number) {
+      const list = elements.caTxOutputsList!;
+      list.innerHTML = '';
+      for (let i = 0; i < rows; i += 1) {
+        const row = document.createElement('div');
+        row.className = 'ca-output-row ca-output-row--ghost';
+        row.setAttribute('aria-hidden', 'true');
+        const badge = document.createElement('div');
+        badge.className = 'ca-ghost-bar ca-ghost-bar--tall';
+        const body = document.createElement('div');
+        const line = document.createElement('div');
+        line.className = 'ca-ghost-bar';
+        const sub = document.createElement('div');
+        sub.className = 'ca-ghost-bar ca-ghost-bar--short';
+        body.appendChild(line);
+        body.appendChild(sub);
+        const amount = document.createElement('div');
+        amount.className = 'ca-ghost-bar ca-ghost-bar--tall';
+        row.appendChild(badge);
+        row.appendChild(body);
+        row.appendChild(amount);
+        list.appendChild(row);
+      }
+      // Nada que enseñar todavía de la transacción.
+      elements.caTxRawHex!.classList.add('hidden');
+      elements.caTxDebugJson!.classList.add('hidden');
+      elements.caTxConfirmError!.textContent = '';
+      elements.caTxConfirmError!.classList.add('hidden');
+    },
+    setTitle(text: string) {
+      const el = document.getElementById('caTxConfirmTitle');
+      if (el) el.textContent = text;
+    },
+    setSubtitle(text: string) {
+      if (elements.caTxConfirmSubtitle) elements.caTxConfirmSubtitle.textContent = text;
+    },
+    setStatus(text: string) {
+      if (elements.caTxConfirmStatus) elements.caTxConfirmStatus.textContent = text;
+    },
+    toggleProgress(visible: boolean) {
+      elements.caTxConfirmProgress?.classList.toggle('hidden', !visible);
+      elements.caTxConfirmStatus?.classList.toggle('hidden', !visible);
+    },
+    togglePreparing(on: boolean) {
+      elements.caTxConfirmModal!.querySelector('.ca-confirm-panel')
+        ?.classList.toggle('is-preparing', on);
+    },
+    setBroadcastEnabled(on: boolean) {
+      elements.caTxBroadcastBtn!.disabled = !on;
+      if (on) elements.caTxBroadcastBtn!.textContent = 'Broadcast';
+    },
+    setModalVisible(visible: boolean) {
+      elements.caTxConfirmModal!.classList.toggle('hidden', !visible);
+    }
+  });
+
+  const openTxConfirmPreparing = (title: string, ghostRows = 4) =>
+    confirmPreparing.open(title, ghostRows);
+  const setConfirmProgress = (token: number, text: string) =>
+    confirmPreparing.setProgress(token, text);
+  const isPreparationCurrent = (token: number) => confirmPreparing.isCurrent(token);
 
   function showTxConfirmModal(buildResult: NeuraiAssetsBuildResult, signedHex: string) {
     // Build outputs display
@@ -3985,6 +4091,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.caTxBroadcastBtn!.disabled = false;
     elements.caTxBroadcastBtn!.textContent = 'Broadcast';
 
+    confirmPreparing.settle();
     elements.caTxConfirmModal!.classList.remove('hidden');
   }
 
@@ -4434,9 +4541,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function handleConfigureAsset() {
     elements.cfError!.textContent = '';
     elements.cfError!.classList.add('hidden');
+    // Mismo trato que create y send: el botón se bloquea y la ventana de
+    // confirmación se abre ya, en vez de dejar el botón en «Processing…».
     elements.cfApplyBtn!.disabled = true;
     const origText = elements.cfApplyBtn!.textContent || 'Apply';
-    elements.cfApplyBtn!.textContent = 'Processing…';
+    const prep = openTxConfirmPreparing('Confirm Asset Operation', 3);
 
     try {
       const wallet = state.wallet as Record<string, unknown> | null;
@@ -4561,16 +4670,23 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
         : (state.settings.rpcMainnet || C.RPC_URL);
 
+      setConfirmProgress(prep, 'Signing…');
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
       if (network === 'xna-pq' || network === 'xna-pq-test') {
+        setConfirmProgress(prep, 'Checking the relay fee…');
         const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'configure-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
       }
+      // Cancelada mientras se preparaba: firmada, no difundida, no se ofrece.
+      if (!isPreparationCurrent(prep)) return;
       state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result };
       showTxConfirmModal(result, signedHex);
 
     } catch (err) {
+      const cancelled = !isPreparationCurrent(prep);
+      confirmPreparing.closeIfPreparing();
+      if (cancelled) return;
       elements.cfError!.textContent = (err as Error).message || 'Unknown error';
       elements.cfError!.classList.remove('hidden');
     } finally {
@@ -4663,10 +4779,17 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.caTxBroadcastBtn!.addEventListener('click', handleBroadcast);
     elements.caTxCancelBtn!.addEventListener('click', () => {
       state.pendingSignedTx = null;
-      elements.caTxConfirmModal!.classList.add('hidden');
+      confirmPreparing.close();
+      // La ventana la abre ahora también el panel de envío, así que se
+      // devuelve su botón; y la etiqueta de crear la pone updateCreateAssetUI,
+      // que sabe si es «Create Asset» o «Reissue Asset».
+      if (elements.sendSubmitBtn) {
+        elements.sendSubmitBtn.disabled = false;
+        elements.sendSubmitBtn.textContent = 'Send';
+      }
       if (state.cardMode === 'CREATE') {
         elements.caCreateBtn!.disabled = false;
-        elements.caCreateBtn!.textContent = 'Create Asset';
+        updateCreateAssetUI();
       } else {
         elements.cfApplyBtn!.disabled = false;
         updateConfigureAssetUI(); // restores button text

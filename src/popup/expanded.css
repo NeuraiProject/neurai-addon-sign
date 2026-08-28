@@ -1934,3 +1934,74 @@ select:focus,
 .ca-confirm-actions {
   justify-content: flex-end;
 }
+
+/* --- Confirmación en preparación -----------------------------------------
+ *
+ * La ventana se abre al pulsar, no cuando la transacción está lista: mientras
+ * se construye y se firma muestra su propia forma con filas fantasma y una
+ * onda que la recorre. Sustituye al botón que se quedaba en «Creating…», que
+ * no decía en qué punto estaba ni cuánto quedaba.
+ */
+.ca-confirm-panel.is-preparing .ca-confirm-actions .btn-primary {
+  opacity: .5;
+}
+
+.ca-confirm-progress {
+  position: relative;
+  height: 3px;
+  margin: 0 0 14px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  overflow: hidden;
+}
+.ca-confirm-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+    transparent, var(--primary) 35%, var(--accent) 65%, transparent);
+  animation: ca-wave 1.35s ease-in-out infinite;
+}
+@keyframes ca-wave {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
+}
+
+/* Una fila fantasma con la misma caja que una salida real, para que al
+ * llegar el contenido la ventana no dé un salto de tamaño. */
+.ca-output-row--ghost {
+  grid-template-columns: 56px 1fr 72px;
+  pointer-events: none;
+}
+.ca-ghost-bar {
+  height: 11px;
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+    var(--bg-muted) 0%, var(--border) 40%, var(--bg-muted) 80%);
+  background-size: 300% 100%;
+  animation: ca-shimmer 1.6s ease-in-out infinite;
+}
+.ca-ghost-bar--tall { height: 13px; }
+.ca-ghost-bar--short { width: 55%; margin-top: 6px; }
+@keyframes ca-shimmer {
+  0%   { background-position: 120% 0; }
+  100% { background-position: -60% 0; }
+}
+
+.ca-confirm-status {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-height: 16px;
+}
+
+/* Quien haya pedido menos movimiento recibe el mismo estado, quieto. */
+@media (prefers-reduced-motion: reduce) {
+  .ca-confirm-progress::after,
+  .ca-ghost-bar {
+    animation: none;
+  }
+  .ca-confirm-progress::after { width: 100%; opacity: .45; }
+}
