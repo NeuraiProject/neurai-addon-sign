@@ -5,7 +5,7 @@ const NeuraiReader = (function() {
     'use strict';
 
     const URL_MAINNET = 'https://rpc-main.neurai.org/rpc';
-    const URL_TESTNET = 'https://rpc-testnet.neurai.org/rpc';
+    const URL_TESTNET = 'https://rpc-testnet-depin.neurai.org/rpc';
     const ONE_FULL_COIN = 1e8;
 
     let rpcUrl = URL_MAINNET;

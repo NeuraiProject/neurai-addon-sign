@@ -2005,3 +2005,97 @@ select:focus,
   }
   .ca-confirm-progress::after { width: 100%; opacity: .45; }
 }
+
+/* --- Lista de titulares para Freeze / Unfreeze ----------------------------
+ *
+ * Antes había sólo un textarea: había que saberse las direcciones y no se
+ * veía lo único que decide la operación —quién tiene tokens y quién ya está
+ * congelado—. El nodo sabe las dos cosas, así que se enseñan.
+ */
+.cf-holders-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.cf-holders-banner {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: rgba(245, 158, 11, .14);
+  color: var(--text-secondary);
+}
+.cf-holders-list {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+.cf-holder-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.cf-holder-row:hover { background: var(--bg-muted); }
+.cf-holder-row input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+/* Una fila bloqueada sigue leyéndose —es información— pero no se puede
+ * marcar: congelar lo ya congelado, o descongelar lo que no lo está, son
+ * transacciones que el nodo rechaza. */
+.cf-holder-row--blocked { opacity: .58; }
+.cf-holder-row--blocked input[type="checkbox"] { cursor: not-allowed; }
+
+.cf-holder-addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+.cf-holder-qty {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cf-holder-state {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.cf-holder-state--frozen  { background: rgba(59,130,246,.16); color: #60a5fa; }
+.cf-holder-state--free    { background: rgba(34,197,94,.12);  color: var(--success); }
+.cf-holder-state--unknown { background: rgba(148,163,184,.18); color: var(--text-muted); }
+
+.cf-holders-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.cf-holders-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.cf-holders-link:disabled { color: var(--text-muted); cursor: default; text-decoration: none; }
+.cf-holders-empty {
+  padding: 14px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}

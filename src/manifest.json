@@ -15,7 +15,8 @@
   ],
   "host_permissions": [
     "https://rpc-depin.neurai.org/*",
-    "https://rpc-testnet.neurai.org/*"
+    "https://rpc-testnet.neurai.org/*",
+    "https://rpc-testnet-depin.neurai.org/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",

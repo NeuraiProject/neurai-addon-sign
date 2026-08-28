@@ -386,10 +386,24 @@
                 <span class="form-hint" id="cfOwnerTokenHint">Select a type above then click Refresh</span>
               </div>
 
+              <div class="form-group hidden" id="cfHoldersGroup">
+                <div class="cf-holders-head">
+                  <label id="cfHoldersLabel">Holders of this asset</label>
+                  <button class="btn btn-secondary btn-small" id="cfHoldersRefreshBtn" type="button">Refresh holders</button>
+                </div>
+                <p class="cf-holders-banner hidden" id="cfHoldersBanner"></p>
+                <div class="cf-holders-list" id="cfHoldersList"></div>
+                <div class="cf-holders-foot">
+                  <button class="cf-holders-link" id="cfHoldersSelectAll" type="button">Select all available</button>
+                  <button class="cf-holders-link" id="cfHoldersClear" type="button">Clear</button>
+                  <span class="form-hint" id="cfHoldersHint"></span>
+                </div>
+              </div>
+
               <div class="form-group hidden" id="cfAddressesGroup">
-                <label for="cfAddresses">Addresses</label>
+                <label for="cfAddresses" id="cfAddressesLabel">Addresses</label>
                 <textarea id="cfAddresses" rows="4" placeholder="One address per line…" spellcheck="false" autocomplete="off"></textarea>
-                <span class="form-hint">One Neurai address per line</span>
+                <span class="form-hint" id="cfAddressesHint">One Neurai address per line</span>
               </div>
 
               <div class="form-group hidden" id="cfGlobalGroup">
@@ -552,7 +566,7 @@
 
           <div class="form-group">
             <label for="rpcTestnet">RPC Testnet URL</label>
-            <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet.neurai.org/rpc" spellcheck="false">
+            <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet-depin.neurai.org/rpc" spellcheck="false">
           </div>
 
           <div class="form-group">

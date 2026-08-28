@@ -20,7 +20,12 @@ export const NEURAI_CONSTANTS = Object.freeze({
 
   // ── Default RPC endpoints ─────────────────────────────────────────────────
   RPC_URL:         'https://rpc-depin.neurai.org/rpc',
-  RPC_URL_TESTNET: 'https://rpc-testnet.neurai.org/rpc',
+  // El nodo de testnet con DePIN protocolo 2. El anterior
+  // (rpc-testnet.neurai.org) no publica `asset_marker` en
+  // getblockchaininfo, y sin ese campo la política NIP-040 resuelve el
+  // marcador heredado `rvn`, que esta cadena rechaza desde el bloque
+  // 303000 con bad-txns-legacy-asset-marker-after-nip040.
+  RPC_URL_TESTNET: 'https://rpc-testnet-depin.neurai.org/rpc',
 
   // ── Default block explorer URLs (URL templates with {txid} placeholder) ───
   EXPLORER_URL_MAINNET: 'https://explorer.neurai.org/tx/{txid}',

@@ -52,6 +52,11 @@ import {
 } from './expanded/asset-utils.js';
 import { resolveAssetMarker, createAssetMarkerCache } from './expanded/asset-marker.js';
 import { createConfirmPreparing } from './expanded/confirm-preparing.js';
+import {
+  loadHolders, toHolderRows, pruneSelection, selectableAddresses,
+  type HolderListing, type FreezeMode
+} from './expanded/holder-picker.js';
+import { restrictedCandidates, keepExistingAssets } from './expanded/restricted-assets.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
@@ -4466,7 +4471,16 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     elements.cfOwnerTokenLabel!.textContent = needsQualifier ? 'Qualifier' : 'Restricted Asset';
 
+    const showsHolders = needsGlobal && !isGlobal;
+    elements.cfHoldersGroup!.classList.toggle('hidden', !showsHolders);
     elements.cfAddressesGroup!.classList.toggle('hidden', !needsAddresses || (needsGlobal && isGlobal));
+    // Con la lista delante, el textarea pasa a ser para lo que no salga en
+    // ella: una dirección que aún no tiene tokens, por ejemplo.
+    elements.cfAddressesLabel!.textContent = showsHolders ? 'Additional addresses' : 'Addresses';
+    elements.cfAddressesHint!.textContent = showsHolders
+      ? 'Optional — one per line, for addresses not listed above'
+      : 'One Neurai address per line';
+    if (showsHolders) renderHolders();
     elements.cfGlobalGroup!.classList.toggle('hidden', !needsGlobal);
     elements.cfQuantityGroup!.classList.toggle('hidden', !isReissueRestricted);
     elements.cfChangeVerifierGroup!.classList.toggle('hidden', !isReissueRestricted);
@@ -4482,11 +4496,178 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     else if (isUnfreeze) elements.cfApplyBtn!.textContent = isGlobal ? 'Unfreeze Globally' : 'Unfreeze Addresses';
   }
 
+  /**
+   * La lista de titulares del asset restringido seleccionado.
+   *
+   * Se guarda cruda y se vuelve a pintar al cambiar de pestaña: los mismos
+   * datos sirven para Freeze y para Unfreeze, sólo cambia qué se puede marcar.
+   */
+  let cfHolders: HolderListing | null = null;
+  let cfHoldersAsset = '';
+  const cfHolderSelection = new Set<string>();
+
+  function cfFreezeMode(): FreezeMode {
+    return state.configAssetType === 'UNFREEZE' ? 'UNFREEZE' : 'FREEZE';
+  }
+
+  /** Cantidad legible; el nodo devuelve el valor ya escalado. */
+  function formatHolderQuantity(quantity: number): string {
+    if (!Number.isFinite(quantity)) return '—';
+    return quantity.toLocaleString(undefined, { maximumFractionDigits: 8 });
+  }
+
+  function renderHolders(): void {
+    const list = elements.cfHoldersList!;
+    const hint = elements.cfHoldersHint!;
+    const banner = elements.cfHoldersBanner!;
+    list.innerHTML = '';
+    banner.classList.add('hidden');
+
+    if (!cfHolders) {
+      list.innerHTML = '<div class="cf-holders-empty">Select an asset to see who holds it.</div>';
+      hint.textContent = '';
+      return;
+    }
+
+    const mode = cfFreezeMode();
+    const { holders, total, truncated, globallyFrozen } = cfHolders;
+
+    if (globallyFrozen) {
+      banner.textContent =
+        'This asset is frozen globally. Per-address freezes stay recorded, but ' +
+        'no transfer is possible until it is unfrozen globally.';
+      banner.classList.remove('hidden');
+    }
+
+    if (holders.length === 0) {
+      list.innerHTML = '<div class="cf-holders-empty">No address holds this asset yet.</div>';
+      hint.textContent = '';
+      return;
+    }
+
+    // Una selección que ya no procede se retira sola: al pasar de Freeze a
+    // Unfreeze las direcciones marcadas dejan de ser las candidatas.
+    const stillValid = pruneSelection(cfHolderSelection, holders, mode);
+    cfHolderSelection.clear();
+    stillValid.forEach(address => cfHolderSelection.add(address));
+
+    toHolderRows(holders, mode, formatHolderQuantity).forEach(rowModel => {
+      const row = document.createElement('label');
+      row.className = 'cf-holder-row' + (rowModel.selectable ? '' : ' cf-holder-row--blocked');
+
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.disabled = !rowModel.selectable;
+      box.checked = cfHolderSelection.has(rowModel.address);
+      box.addEventListener('change', () => {
+        if (box.checked) cfHolderSelection.add(rowModel.address);
+        else cfHolderSelection.delete(rowModel.address);
+        updateHoldersHint();
+      });
+
+      const addr = document.createElement('span');
+      addr.className = 'cf-holder-addr';
+      addr.textContent = rowModel.address;
+
+      const qty = document.createElement('span');
+      qty.className = 'cf-holder-qty';
+      qty.textContent = rowModel.quantityText;
+
+      const badge = document.createElement('span');
+      badge.className = `cf-holder-state cf-holder-state--${rowModel.stateKind}`;
+      badge.textContent = rowModel.stateText;
+      badge.title = rowModel.stateTitle;
+
+      row.appendChild(box);
+      row.appendChild(addr);
+      row.appendChild(qty);
+      row.appendChild(badge);
+      list.appendChild(row);
+    });
+
+    const availableCount = selectableAddresses(holders, mode).length;
+    elements.cfHoldersSelectAll!.disabled = availableCount === 0;
+    hint.textContent = truncated
+      ? `Showing the ${holders.length} largest of ${total} holders — ${availableCount} available to ${mode.toLowerCase()}.`
+      : `${total} holder${total === 1 ? '' : 's'} — ${availableCount} available to ${mode.toLowerCase()}.`;
+    updateHoldersHint();
+  }
+
+  function updateHoldersHint(): void {
+    const label = elements.cfHoldersLabel!;
+    const picked = cfHolderSelection.size;
+    label.textContent = picked > 0
+      ? `Holders of this asset — ${picked} selected`
+      : 'Holders of this asset';
+  }
+
+  /**
+   * Trae los titulares del asset elegido. Una consulta por dirección para el
+   * estado de congelación, con tope de simultáneas: contra un proxy remoto
+   * lanzarlas todas de golpe es tan malo como hacerlas en fila.
+   */
+  async function loadHoldersForSelectedAsset(): Promise<void> {
+    const type = state.configAssetType;
+    if (type !== 'FREEZE' && type !== 'UNFREEZE') return;
+
+    const assetName = (elements.cfOwnerTokenSelect!.value || '').trim();
+    if (!assetName) {
+      cfHolders = null;
+      cfHoldersAsset = '';
+      cfHolderSelection.clear();
+      renderHolders();
+      return;
+    }
+
+    const wallet = state.wallet as Record<string, unknown> | null;
+    if (!wallet?.address) return;
+
+    if (assetName !== cfHoldersAsset) cfHolderSelection.clear();
+    cfHoldersAsset = assetName;
+
+    elements.cfHoldersRefreshBtn!.disabled = true;
+    elements.cfHoldersList!.innerHTML =
+      '<div class="cf-holders-empty">Asking the node who holds this asset…</div>';
+    elements.cfHoldersHint!.textContent = '';
+
+    try {
+      const rpc = buildRpcFn((wallet.network as string) || 'xna');
+      const listing = await loadHolders(rpc, assetName);
+      // Otra selección pudo cambiar mientras se cargaba: no pisar la actual.
+      if ((elements.cfOwnerTokenSelect!.value || '').trim() !== assetName) return;
+      cfHolders = listing;
+      renderHolders();
+    } catch (err) {
+      cfHolders = null;
+      elements.cfHoldersList!.innerHTML = '';
+      const msg = document.createElement('div');
+      msg.className = 'cf-holders-empty';
+      msg.textContent =
+        'Could not read the holders: ' + ((err as Error).message || 'unknown error') +
+        '. You can still type the addresses below.';
+      elements.cfHoldersList!.appendChild(msg);
+    } finally {
+      elements.cfHoldersRefreshBtn!.disabled = false;
+    }
+  }
+
+  /** Direcciones para freeze/unfreeze: las marcadas más las escritas a mano. */
+  function collectFreezeAddresses(): string[] {
+    const typed = parseUniqueAddresses(elements.cfAddresses!.value || '');
+    const merged = new Set<string>(cfHolderSelection);
+    typed.forEach(address => merged.add(address));
+    return [...merged];
+  }
+
   async function loadOwnerTokensIntoCfSelect() {
     const type = state.configAssetType;
     const needsQualifier = type === 'TAG' || type === 'UNTAG';
     const select = elements.cfOwnerTokenSelect!;
     const hint = elements.cfOwnerTokenHint!;
+    // Freeze y Unfreeze ofrecen los mismos assets: al cambiar de pestaña no
+    // tiene sentido devolver el desplegable a «-- Select asset --» y obligar
+    // a elegir otra vez lo que ya estaba elegido.
+    const previous = select.value;
     select.innerHTML = '<option value="">-- Select asset --</option>';
     hint.textContent = 'Loading…';
     elements.cfLoadTokensBtn!.disabled = true;
@@ -4509,10 +4690,15 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       } else {
         // Restricted operations are driven by the restricted asset name ($TOKEN),
         // but control is proven with the owner token TOKEN!.
-        selectableAssets = balances
-          ? Object.keys(balances)
-              .filter(name => !name.startsWith('#') && name.endsWith('!') && balances[name] > 0)
-              .map(name => `$${name.slice(0, -1)}`)
+        //
+        // Sólo los assets RAÍZ tienen contrapartida restringida, y tener
+        // `NOMBRE!` no implica haber emitido `$NOMBRE`. Antes se anteponía `$`
+        // a cualquier token owner: un DePIN `&TOKIO!` daba `$&TOKIO`, que el
+        // nodo rechaza como nombre inválido, y el desplegable ofrecía assets
+        // imposibles sobre los que después no aparecía ningún titular.
+        const candidates = restrictedCandidates(balances);
+        selectableAssets = candidates.length > 0
+          ? await keepExistingAssets(rpc, candidates)
           : [];
       }
 
@@ -4521,7 +4707,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       if (selectableAssets.length === 0) {
         hint.textContent = needsQualifier
           ? 'No qualifier assets found (#NAME). Create a qualifier first.'
-          : 'No restricted assets found that you can manage.';
+          : 'No restricted assets ($NAME) you can manage. Freezing applies to ' +
+            'restricted assets only — not to root, sub, unique or DePIN assets.';
       } else {
         selectableAssets.forEach(name => {
           const opt = document.createElement('option');
@@ -4530,12 +4717,33 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           select.appendChild(opt);
         });
         hint.textContent = `${selectableAssets.length} asset${selectableAssets.length !== 1 ? 's' : ''} found`;
+        if (previous && selectableAssets.includes(previous)) select.value = previous;
       }
     } catch (err) {
       hint.textContent = 'Failed to load: ' + (err as Error).message;
     } finally {
       elements.cfLoadTokensBtn!.disabled = false;
+      syncHoldersWithSelection();
     }
+  }
+
+  /**
+   * Pone la lista de titulares al día tras recargar el desplegable.
+   *
+   * Si sigue seleccionado el mismo asset se vuelve a pintar sin consultar
+   * nada: los datos son los mismos y sólo cambia qué se puede marcar. Cada
+   * carga cuesta una consulta por dirección, así que repetirla al cambiar de
+   * pestaña sería caro y sin motivo.
+   */
+  function syncHoldersWithSelection(): void {
+    const type = state.configAssetType;
+    if (type !== 'FREEZE' && type !== 'UNFREEZE') return;
+    const selected = (elements.cfOwnerTokenSelect!.value || '').trim();
+    if (selected && selected === cfHoldersAsset && cfHolders) {
+      renderHolders();
+      return;
+    }
+    loadHoldersForSelectedAsset();
   }
 
   async function handleConfigureAsset() {
@@ -4655,9 +4863,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
             ? await neuraiAssets.freezeAssetGlobally({ assetName: tokenName })
             : await neuraiAssets.unfreezeAssetGlobally({ assetName: tokenName });
         } else {
-          const rawAddresses = elements.cfAddresses!.value.trim();
-          if (!rawAddresses) throw new Error('Enter at least one address, or enable global mode.');
-          const addresses = rawAddresses.split('\n').map(a => a.trim()).filter(Boolean);
+          const addresses = collectFreezeAddresses();
+          if (addresses.length === 0) {
+            throw new Error(
+              'Select at least one address from the list, type one below, or enable global mode.'
+            );
+          }
           result = type === 'FREEZE'
             ? await neuraiAssets.freezeAddresses({ assetName: tokenName, addresses })
             : await neuraiAssets.unfreezeAddresses({ assetName: tokenName, addresses });
@@ -4767,6 +4978,24 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     });
 
     elements.cfLoadTokensBtn!.addEventListener('click', loadOwnerTokensIntoCfSelect);
+
+    // Elegir el asset es lo que dispara la consulta de titulares: es cuando
+    // el usuario ya sabe sobre qué quiere operar.
+    elements.cfOwnerTokenSelect!.addEventListener('change', () => {
+      loadHoldersForSelectedAsset();
+    });
+    elements.cfHoldersRefreshBtn!.addEventListener('click', () => {
+      loadHoldersForSelectedAsset();
+    });
+    elements.cfHoldersSelectAll!.addEventListener('click', () => {
+      selectableAddresses(cfHolders?.holders || [], cfFreezeMode())
+        .forEach(address => cfHolderSelection.add(address));
+      renderHolders();
+    });
+    elements.cfHoldersClear!.addEventListener('click', () => {
+      cfHolderSelection.clear();
+      renderHolders();
+    });
     elements.cfApplyBtn!.addEventListener('click', handleConfigureAsset);
 
     // Global toggle in configure panel
