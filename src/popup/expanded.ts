@@ -4582,6 +4582,20 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function bindCreateAsset() {
     if (!elements.createAssetCard) return;
 
+    // Los decimales del asset elegido se consultan al construir una
+    // reemisión, y esa consulta no depende de nada más de la operación. Al
+    // elegirlo en el desplegable el usuario todavía tiene que escribir la
+    // cantidad, así que para cuando pulsa ya está en la caché de
+    // resolveAssetUnits y la fase de construir hace una llamada menos.
+    elements.caParentSelect?.addEventListener('change', () => {
+      const wallet = state.wallet as Record<string, unknown> | null;
+      const selected = elements.caParentSelect!.value;
+      if (!wallet || !wallet.address || !selected) return;
+      const assetName = selected.endsWith('!') ? selected.slice(0, -1) : selected;
+      const network = markerNetworkKey(wallet.network as string | undefined);
+      resolveAssetUnits(buildRpcFn(network), assetName, 0).catch(() => {});
+    });
+
     // Allowed chars per field: A-Z 0-9 _ .  (separator / or # not needed — handled by parent selector)
     const alphaNumDotUnderscore = /[A-Z0-9_.]/;
     const depinAssetNameChars = /[A-Z0-9_./&]/;

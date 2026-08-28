@@ -5999,18 +5999,100 @@ var NeuraiAssetsBundle = (function (exports) {
 		}
 
 		/**
+		 * Encoders that produce the exact scriptPubKey the node will see.
+		 *
+		 * Sizing asset outputs from a hand-written byte formula drifted: the owner
+		 * token a reissue RETURNS is serialized as a transfer (it carries an amount),
+		 * not as the owner payload an issuance CREATES, and the null-asset-data
+		 * outputs of tag/freeze were not counted at all — those outputs are not
+		 * P2PKH-plus-payload, they replace the destination script entirely. The result
+		 * was twelve of eighteen operations budgeting below what the node charges.
+		 *
+		 * Asking the serializer is the only way to keep this from drifting again: the
+		 * numbers below are not a model of the encoding, they ARE the encoding.
+		 */
+		const ct = requireDist_1();
+
+		/** Bytes a CompactSize length prefix occupies for `n`. */
+		function compactSizeBytes(n) {
+		  if (n < 253) return 1;
+		  if (n <= 0xffff) return 3;
+		  if (n <= 0xffffffff) return 5;
+		  return 9;
+		}
+
+		/** An IPFS hash of the right LENGTH; only its size matters here. */
+		const IPFS_PLACEHOLDER = 'Qm' + 'a'.repeat(44);
+
+		/**
+		 * The exact scriptPubKey for an asset-bearing output descriptor, or null when
+		 * the descriptor names no asset operation.
+		 *
+		 * Values are placeholders on purpose: every field the amount or the flag lands
+		 * in is fixed-width, so a zero costs the same bytes as the real number. The
+		 * name, the address and the presence of IPFS are the only things that move the
+		 * size, and those come from the descriptor.
+		 *
+		 * @param {object} descriptor - Output descriptor
+		 * @returns {Uint8Array|null} Encoded script, or null
+		 */
+		function assetOutputScript(descriptor) {
+		  const { address, assetName, kind = 'transfer' } = descriptor;
+		  const ipfs = descriptor.hasIpfs ? (descriptor.ipfsHash || IPFS_PLACEHOLDER) : undefined;
+
+		  switch (kind) {
+		    case 'owner':
+		      return ct.encodeOwnerAssetScript(address, assetName);
+		    case 'issue':
+		      return ct.encodeNewAssetScript(address, assetName, 0n, 0, true, ipfs);
+		    case 'reissue':
+		      return ct.encodeReissueAssetScript(address, assetName, 0n, undefined, true, ipfs);
+		    case 'tag':
+		      return ct.encodeNullAssetTagScript(address, assetName, 'tag');
+		    case 'restriction':
+		      return ct.encodeNullAssetRestrictionScript(address, assetName, 1);
+		    case 'globalRestriction':
+		      return ct.encodeGlobalRestrictionScript(assetName, 1);
+		    case 'verifier':
+		      return ct.encodeVerifierStringScript(descriptor.verifierString || '');
+		    case 'transfer':
+		      return ct.encodeAssetTransferScript(address, assetName, 0n);
+		    default:
+		      return null;
+		  }
+		}
+
+		/**
+		 * Kinds whose script REPLACES the destination rather than extending it.
+		 *
+		 * A tag, a restriction or a verifier string is not "a payment with a payload
+		 * bolted on": there is no P2PKH to pay. Adding a destination's bytes to these
+		 * over-counts; treating them as plain destinations, which is what the builders
+		 * used to do, under-counts by far more.
+		 */
+		const STANDALONE_KINDS = new Set(['tag', 'restriction', 'globalRestriction', 'verifier']);
+
+		/**
+		 * Fallback used only when the encoders cannot express a descriptor — an
+		 * address family they do not accept, say. Keeps the previous behaviour rather
+		 * than throwing in the middle of a fee estimate.
+		 */
+		function assetPayloadBytesApprox(descriptor) {
+		  const nameLength = String(descriptor.assetName || '').length;
+		  const kind = descriptor.kind || 'transfer';
+		  let payload = 5 + nameLength;
+		  if (kind === 'issue') payload += 11;
+		  else if (kind === 'reissue') payload += 10;
+		  else if (kind !== 'owner') payload += 8;
+		  if (descriptor.hasIpfs) payload += 34;
+		  return 1 + (payload > 75 ? 2 : 1) + payload + 1;
+		}
+
+		/**
 		 * Bytes an asset payload adds on top of a plain destination output.
 		 *
-		 * An asset output is `<destination script> OP_XNA_ASSET <pushdata payload>
-		 * OP_DROP`, so it costs the destination plus the wrapper (OP_XNA_ASSET,
-		 * the pushdata prefix and OP_DROP) plus the payload itself:
-		 *
-		 *   marker(3) + type(1) + nameLength(1) + name + kind-specific tail
-		 *
-		 * Sizing these as bare P2PKH outputs under-counts a transaction by tens to
-		 * hundreds of bytes. That is invisible while the node's fee rate sits well
-		 * above its minimum relay fee, and becomes `min relay fee not met` as soon as
-		 * it does not — which is exactly the failure this file's header warns about.
+		 * Kept for callers that only want the delta. Standalone kinds have no
+		 * destination to add to, so this is not meaningful for them.
 		 *
 		 * @param {object} descriptor - Output descriptor with `assetName` and `kind`
 		 * @returns {number} Extra bytes, or 0 when the output carries no asset payload
@@ -6019,46 +6101,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		  if (!descriptor || typeof descriptor !== 'object' || !descriptor.assetName) {
 		    return 0;
 		  }
-
-		  // One byte per character, matching how the payload encodes the name
-		  // (`serializeString` -> `asciiBytes`, which writes a single byte per char).
-		  // Node's byte-length helper would be equivalent here, but it hangs off a
-		  // global that browsers do not have: using it broke the extension bundle with
-		  // "Buffer is not defined", and this library does much of its work there.
-		  const nameLength = String(descriptor.assetName).length;
-		  const kind = descriptor.kind || 'transfer';
-
-		  // marker(3) + type(1) + CompactSize name length(1) + name
-		  let payload = 5 + nameLength;
-
-		  switch (kind) {
-		    case 'owner':
-		      // The owner payload carries no amount: it is always exactly one unit.
-		      break;
-		    case 'issue':
-		      // amount(8) + units(1) + reissuable(1) + has_ipfs(1)
-		      payload += 11;
-		      break;
-		    case 'reissue':
-		      // amount(8) + units(1) + reissuable(1)
-		      payload += 10;
-		      break;
-		    default:
-		      // transfer: amount(8)
-		      payload += 8;
-		      break;
+		  try {
+		    const script = assetOutputScript(descriptor);
+		    if (!script) return 0;
+		    const base = isPQAddress(descriptor.address) ? 34 : 25;
+		    return script.length - base;
+		  } catch {
+		    return assetPayloadBytesApprox(descriptor);
 		  }
-
-		  if (descriptor.hasIpfs) {
-		    payload += 34;
-		  }
-
-		  // OP_XNA_ASSET(1) + pushdata prefix + OP_DROP(1). Payloads over 75 bytes
-		  // need OP_PUSHDATA1, which is one byte wider — reachable with the 121-char
-		  // asset names testnet and regtest allow for DePIN.
-		  const pushPrefix = payload > 75 ? 2 : 1;
-
-		  return 1 + pushPrefix + payload + 1;
 		}
 
 		/**
@@ -6072,10 +6122,26 @@ var NeuraiAssetsBundle = (function (exports) {
 		 * @returns {number} Estimated bytes
 		 */
 		function estimateOutputBytes(target) {
+		  if (typeof target !== 'string' && target && (target.assetName || target.kind === 'verifier')) {
+		    try {
+		      const script = assetOutputScript(target);
+		      if (script) {
+		        // value(8) + CompactSize(scriptLen) + script
+		        return 8 + compactSizeBytes(script.length) + script.length;
+		      }
+		    } catch {
+		      // fall through to the approximation
+		    }
+		    if (STANDALONE_KINDS.has(target.kind)) {
+		      return VBYTES.legacyOutputBytes;
+		    }
+		    const base = isPQAddress(target.address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
+		    return base + assetPayloadBytesApprox(target);
+		  }
+
 		  const address =
 		    typeof target === 'string' ? target : (target && target.address) || '';
-		  const base = isPQAddress(address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
-		  return base + assetPayloadBytes(typeof target === 'string' ? null : target);
+		  return isPQAddress(address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
 		}
 
 		/**
@@ -6105,6 +6171,8 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		feeSizing = {
 		  VBYTES,
+		  compactSizeBytes,
+		  assetOutputScript,
 		  isPQAddress,
 		  isPQScript,
 		  estimateInputVbytes,
@@ -9083,8 +9151,24 @@ var NeuraiAssetsBundle = (function (exports) {
 		      throw new Error('Cannot parse parent asset from SUB asset name');
 		    }
 
-		    // 3. Check if parent asset exists
-		    const parentExists = await this.assetExists(parentAssetName);
+		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
+		    // las lecturas del asset ahorra una ida y vuelta completa. Se ESPERA en su
+		    // sitio de siempre, así que el orden de los errores no cambia.
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(parentAssetName);
+		    const addresses = await this._getAddresses();
+		    const ownerTokenLookup = this.ownerTokenManager.findOwnerTokenUTXO(
+		      ownerTokenName,
+		      addresses
+		    );
+		    ownerTokenLookup.catch(() => {});
+
+		    // 3-4. Existencia del padre y del sub: independientes entre sí, así que
+		    // se preguntan a la vez. Se comprueban en el mismo orden de antes, luego
+		    // «no existe el padre» sigue ganando a «el sub ya existe».
+		    const [parentExists, subExists] = await Promise.all([
+		      this.assetExists(parentAssetName),
+		      this.assetExists(assetName)
+		    ]);
 		    if (!parentExists) {
 		      throw new ParentAssetNotFoundError(
 		        `Parent asset ${parentAssetName} does not exist. You must create the ROOT asset first.`,
@@ -9092,8 +9176,6 @@ var NeuraiAssetsBundle = (function (exports) {
 		      );
 		    }
 
-		    // 4. Check if SUB asset already exists
-		    const subExists = await this.assetExists(assetName);
 		    if (subExists) {
 		      throw new AssetExistsError(
 		        `Asset ${assetName} already exists on the blockchain`,
@@ -9102,18 +9184,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    // 5. Get addresses
-		    const addresses = await this._getAddresses();
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 
 		    // 6. Find parent's owner token (CRITICAL: must have this)
-		    const ownerTokenName = AssetNameParser.getOwnerTokenName(parentAssetName);
 		    let ownerTokenUTXO;
 		    try {
-		      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-		        ownerTokenName,
-		        addresses
-		      );
+		      ownerTokenUTXO = await ownerTokenLookup;
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
@@ -9134,7 +9211,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      { address: changeAddress, assetName: ownerTokenName, kind: 'owner' },
+		      // El token owner que la operación GASTA y devuelve viaja como
+		      // transferencia (lleva importe), no con el payload 'owner', que sólo
+		      // describe el token que una emisión CREA. Estimarlo como 'owner' dejaba
+		      // la transacción 8 bytes por debajo de lo que el nodo cobra.
+		      { address: changeAddress, assetName: ownerTokenName },
 		      { address: toAddress, assetName, kind: 'issue', hasIpfs },
 		      { address: changeAddress, assetName: `${assetName}!`, kind: 'owner' },
 		    ];
@@ -9518,6 +9599,19 @@ var NeuraiAssetsBundle = (function (exports) {
 		      newIpfs
 		    } = this.params;
 
+		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
+		    // los datos del asset ahorra una ida y vuelta completa. Se ESPERA en su
+		    // sitio de siempre (paso 6), así que el orden de los errores no cambia:
+		    // «el asset no existe» y «no es reemitible» se siguen lanzando antes que
+		    // «no tienes el token owner».
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
+		    const addresses = await this._getAddresses();
+		    const ownerTokenLookup = this.ownerTokenManager.findOwnerTokenUTXO(
+		      ownerTokenName,
+		      addresses
+		    );
+		    ownerTokenLookup.catch(() => {});
+
 		    // 2. Get asset data to verify it exists and is reissuable
 		    const assetData = await this.getAssetData(assetName);
 		    if (!assetData) {
@@ -9553,19 +9647,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    // 5. Get addresses
-		    const addresses = await this._getAddresses();
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 		    const isDepinAsset = AssetNameParser.isDepin(assetName);
 
 		    // 6. Find owner token (CRITICAL: must have this)
-		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
 		    let ownerTokenUTXO;
 		    try {
-		      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-		        ownerTokenName,
-		        addresses
-		      );
+		      ownerTokenUTXO = await ownerTokenLookup;
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
@@ -9586,7 +9675,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      { address: changeAddress, assetName: ownerTokenName, kind: 'owner' },
+		      // El token owner que la operación GASTA y devuelve viaja como
+		      // transferencia (lleva importe), no con el payload 'owner', que sólo
+		      // describe el token que una emisión CREA. Estimarlo como 'owner' dejaba
+		      // la transacción 8 bytes por debajo de lo que el nodo cobra.
+		      { address: changeAddress, assetName: ownerTokenName },
 		      { address: toAddress, assetName, kind: 'reissue', hasIpfs: Boolean(newIpfs) },
 		    ];
 		    // Fund the XNA side. The owner-token input counts towards the size
@@ -9854,7 +9947,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		      ...recipients.map(r => ({ address: r.address, assetName })),
 		      { address: changeAddress, assetName }, // asset change (harmless over-count if absent)
 		      ...(isDepin
-		        ? [{ address: changeAddress, assetName: ownerTokenName, kind: 'owner' }]
+		        // Escolta: se gasta y se devuelve, luego es una transferencia.
+		        ? [{ address: changeAddress, assetName: ownerTokenName }]
 		        : []),
 		    ];
 
@@ -10138,6 +10232,17 @@ var NeuraiAssetsBundle = (function (exports) {
 		      ipfsHashes = []
 		    } = this.params;
 
+		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
+		    // las lecturas del asset ahorra una ida y vuelta completa. Se ESPERA en su
+		    // sitio de siempre, así que el orden de los errores no cambia.
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(rootName);
+		    const addresses = await this._getAddresses();
+		    const ownerTokenLookup = this.ownerTokenManager.findOwnerTokenUTXO(
+		      ownerTokenName,
+		      addresses
+		    );
+		    ownerTokenLookup.catch(() => {});
+
 		    // 2. Check if parent asset exists
 		    const parentExists = await this.assetExists(rootName);
 		    if (!parentExists) {
@@ -10147,31 +10252,31 @@ var NeuraiAssetsBundle = (function (exports) {
 		      );
 		    }
 
-		    // 3. Check if any of the unique assets already exist
-		    for (const tag of assetTags) {
-		      const fullName = `${rootName}#${tag}`;
-		      const exists = await this.assetExists(fullName);
-		      if (exists) {
-		        throw new AssetExistsError(
-		          `Unique asset ${fullName} already exists on the blockchain`,
-		          fullName
-		        );
-		      }
+		    // 3. Check if any of the unique assets already exist.
+		    // En fila, emitir diez únicos costaba diez idas y vueltas antes de
+		    // empezar a construir. Ninguna depende de la anterior. El resultado se
+		    // recorre en orden, así que el error sigue nombrando el primer nombre
+		    // repetido de la lista, no el que el nodo conteste primero.
+		    const uniqueNames = assetTags.map(tag => `${rootName}#${tag}`);
+		    const uniqueExists = await Promise.all(
+		      uniqueNames.map(fullName => this.assetExists(fullName))
+		    );
+		    const takenIndex = uniqueExists.findIndex(Boolean);
+		    if (takenIndex !== -1) {
+		      throw new AssetExistsError(
+		        `Unique asset ${uniqueNames[takenIndex]} already exists on the blockchain`,
+		        uniqueNames[takenIndex]
+		      );
 		    }
 
 		    // 4. Get addresses
-		    const addresses = await this._getAddresses();
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 
 		    // 5. Find parent's owner token (CRITICAL: must have this)
-		    const ownerTokenName = AssetNameParser.getOwnerTokenName(rootName);
 		    let ownerTokenUTXO;
 		    try {
-		      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-		        ownerTokenName,
-		        addresses
-		      );
+		      ownerTokenUTXO = await ownerTokenLookup;
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
@@ -10193,7 +10298,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      { address: changeAddress, assetName: ownerTokenName, kind: 'owner' },
+		      // El token owner que la operación GASTA y devuelve viaja como
+		      // transferencia (lleva importe), no con el payload 'owner', que sólo
+		      // describe el token que una emisión CREA. Estimarlo como 'owner' dejaba
+		      // la transacción 8 bytes por debajo de lo que el nodo cobra.
+		      { address: changeAddress, assetName: ownerTokenName },
 		      ...assetTags.map(tag => ({
 		        address: toAddress,
 		        assetName: `${rootName}#${tag}`,
@@ -10677,6 +10786,17 @@ var NeuraiAssetsBundle = (function (exports) {
 		      ipfsHash = ''
 		    } = this.params;
 
+		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
+		    // las lecturas del asset ahorra una ida y vuelta completa. Se ESPERA en su
+		    // sitio de siempre, así que el orden de los errores no cambia.
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
+		    const addresses = await this._getAddresses();
+		    const ownerTokenLookup = this.ownerTokenManager.findOwnerTokenUTXO(
+		      ownerTokenName,
+		      addresses
+		    );
+		    ownerTokenLookup.catch(() => {});
+
 		    // 2. Check if asset already exists
 		    const exists = await this.assetExists(assetName);
 		    if (exists) {
@@ -10693,18 +10813,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const burnInfo = this.burnManager.getIssueRestrictedBurn();
 
 		    // 5. Get addresses
-		    const addresses = await this._getAddresses();
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 
 		    // 6. Find owner token UTXO (CRITICAL: node requires it as input)
-		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
 		    let ownerTokenUTXO;
 		    try {
-		      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-		        ownerTokenName,
-		        addresses
-		      );
+		      ownerTokenUTXO = await ownerTokenLookup;
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
@@ -10716,11 +10831,16 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    // 7. Estimate fee (+1 for owner token input)
+		    // Las salidas de asset deben describirse como lo que el nodo serializa.
+		    // Como direcciones desnudas se contaban 34 bytes por salida y el payload
+		    // entero quedaba sin pagar; las de datos nulos (tag, congelación,
+		    // verificador) ni siquiera llevan destino: su script SUSTITUYE al P2PKH.
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      changeAddress, // owner token return goes to change address
-		      toAddress,
+		      { kind: 'verifier', assetName, verifierString },
+		      { address: changeAddress, assetName: ownerTokenName },
+		      { address: toAddress, assetName, kind: 'issue', hasIpfs: Boolean(this.params.ipfsHash) },
 		    ];
 		    // Fund the XNA side. The owner-token input counts towards the size
 		    // estimate from the first round and is excluded from XNA selection.
@@ -10930,6 +11050,17 @@ var NeuraiAssetsBundle = (function (exports) {
 		      newIpfs
 		    } = this.params;
 
+		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
+		    // las lecturas del asset ahorra una ida y vuelta completa. Se ESPERA en su
+		    // sitio de siempre, así que el orden de los errores no cambia.
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
+		    const addresses = await this._getAddresses();
+		    const ownerTokenLookup = this.ownerTokenManager.findOwnerTokenUTXO(
+		      ownerTokenName,
+		      addresses
+		    );
+		    ownerTokenLookup.catch(() => {});
+
 		    // 2. Get asset data to verify it exists and is reissuable
 		    const assetData = await this.getAssetData(assetName);
 		    if (!assetData) {
@@ -10965,18 +11096,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    // 5. Get addresses
-		    const addresses = await this._getAddresses();
 		    const toAddress = await this.getToAddress();
 		    const changeAddress = await this.getChangeAddress();
 
 		    // 6. Find owner token (CRITICAL: must have this)
-		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
 		    let ownerTokenUTXO;
 		    try {
-		      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-		        ownerTokenName,
-		        addresses
-		      );
+		      ownerTokenUTXO = await ownerTokenLookup;
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
@@ -10992,11 +11118,18 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const burnInfo = this.burnManager.getReissueBurn();
 
 		    // 8. Estimate fee
+		    // Las salidas de asset deben describirse como lo que el nodo serializa.
+		    // Como direcciones desnudas se contaban 34 bytes por salida y el payload
+		    // entero quedaba sin pagar; las de datos nulos (tag, congelación,
+		    // verificador) ni siquiera llevan destino: su script SUSTITUYE al P2PKH.
 		    const outputAddresses = [
 		      burnInfo.address,
 		      changeAddress,
-		      changeAddress, // owner token return goes to change address
-		      toAddress,
+		      ...(changeVerifier && newVerifier
+		        ? [{ kind: 'verifier', assetName, verifierString: newVerifier }]
+		        : []),
+		      { address: changeAddress, assetName: ownerTokenName },
+		      { address: toAddress, assetName, kind: 'reissue', hasIpfs: Boolean(this.params.ipfsHash) },
 		    ];
 		    // Fund the XNA side. The owner-token input counts towards the size
 		    // estimate from the first round and is excluded from XNA selection.
@@ -11256,7 +11389,20 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		    // 6. Estimate fee
 		    // Outputs: burn + XNA change + tag/untag operation (sent to changeAddress)
-		    const outputAddresses = [burnInfo.address, changeAddress, changeAddress];
+		    // Las salidas de asset deben describirse como lo que el nodo serializa.
+		    // Como direcciones desnudas se contaban 34 bytes por salida y el payload
+		    // entero quedaba sin pagar; las de datos nulos (tag, congelación,
+		    // verificador) ni siquiera llevan destino: su script SUSTITUYE al P2PKH.
+		    const outputAddresses = [
+		      burnInfo.address,
+		      changeAddress,
+		      // El nodo devuelve el resto del qualifier a la dirección de cambio.
+		      { address: changeAddress, assetName: qualifierName },
+		      // Una salida de datos nulos por dirección etiquetada.
+		      ...targetAddresses.map(target => ({
+		        address: target, assetName: qualifierName, kind: 'tag'
+		      }))
+		    ];
 		    // 7-11. Fund the XNA side. The qualifier inputs count towards the size
 		    //       estimate from the first round and are excluded from XNA selection.
 		    const burnSats = this.xnaAmountToSats(burnInfo.amount, { label: 'burn amount' });
@@ -11470,6 +11616,17 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		    const { assetName } = this.params;
 
+		    // El token owner no depende de nada de lo que sigue: pedirlo a la vez que
+		    // las lecturas del asset ahorra una ida y vuelta completa. Se ESPERA en su
+		    // sitio de siempre, así que el orden de los errores no cambia.
+		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
+		    const addresses = await this._getAddresses();
+		    const ownerTokenLookup = this.ownerTokenManager.findOwnerTokenUTXO(
+		      ownerTokenName,
+		      addresses
+		    );
+		    ownerTokenLookup.catch(() => {});
+
 		    // 2. Check if asset exists and is restricted
 		    const assetData = await this.getAssetData(assetName);
 		    if (!assetData) {
@@ -11480,17 +11637,12 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    // 3. Get wallet addresses
-		    const addresses = await this._getAddresses();
 		    const changeAddress = await this.getChangeAddress();
 
 		    // 4. Find owner token (CRITICAL: must have this)
-		    const ownerTokenName = AssetNameParser.getOwnerTokenName(assetName);
 		    let ownerTokenUTXO;
 		    try {
-		      ownerTokenUTXO = await this.ownerTokenManager.findOwnerTokenUTXO(
-		        ownerTokenName,
-		        addresses
-		      );
+		      ownerTokenUTXO = await ownerTokenLookup;
 		    } catch (error) {
 		      if (error instanceof OwnerTokenNotFoundError) {
 		        throw new OwnerTokenNotFoundError(
@@ -11506,7 +11658,22 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		    // 6. Estimate fee
 		    // Outputs: XNA change + freeze/unfreeze operation (sent to changeAddress)
-		    const outputAddresses = [changeAddress, changeAddress];
+		    // Las salidas de asset deben describirse como lo que el nodo serializa.
+		    // Como direcciones desnudas se contaban 34 bytes por salida y el payload
+		    // entero quedaba sin pagar; las de datos nulos (tag, congelación,
+		    // verificador) ni siquiera llevan destino: su script SUSTITUYE al P2PKH.
+		    const isGlobal = operationType === 'FREEZE_ASSET' || operationType === 'UNFREEZE_ASSET';
+		    const frozenAddresses = isGlobal ? [] : (this.params.addresses || []);
+		    const outputAddresses = [
+		      changeAddress,
+		      // El token owner se gasta y se devuelve: transferencia.
+		      { address: changeAddress, assetName: ownerTokenName },
+		      ...(isGlobal
+		        ? [{ assetName, kind: 'globalRestriction' }]
+		        : frozenAddresses.map(target => ({
+		            address: target, assetName, kind: 'restriction'
+		          })))
+		    ];
 		    // 7-10. Fund the XNA side (fee only, this operation does not burn). The
 		    //       owner-token input counts towards the size estimate from the first
 		    //       round and is excluded from XNA selection.

@@ -17,7 +17,7 @@
     "verify:libs": "node verify-libs.js"
   },
   "dependencies": {
-    "@neuraiproject/neurai-assets": "^1.5.2",
+    "@neuraiproject/neurai-assets": "^1.5.3",
     "@neuraiproject/neurai-create-transaction": "^0.8.0",
     "@neuraiproject/neurai-key": "^4.0.0",
     "@neuraiproject/neurai-message": "^0.9.1",
