@@ -283,9 +283,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.walletSection.classList.remove('hidden');
     renderWalletInfo();
     renderHistory();
-    // Aquí, no sólo al cambiar de cuenta: es el punto por el que pasan todos
-    // los caminos con la cartera ya cargada —arranque, desbloqueo, importar—
-    // y la pestaña DePIN nace oculta esperando saber en qué red estamos.
+    // Here, not just on account switch: this is the point every path with a
+    // loaded wallet goes through — boot, unlock, import — and the DEPIN tab
+    // starts hidden waiting to learn which network we are on.
     updateDepinTabVisibility();
     touchUnlockSession(true);
     startAutoRefresh();
@@ -1021,11 +1021,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     renderAssetsList();
   }
 
-  // --- Pestaña DePIN -------------------------------------------------------
+  // --- DEPIN tab -----------------------------------------------------------
   //
-  // Todo lo que construye una transacción pasa por el mismo camino que el
-  // resto de la extensión: createNeuraiAssetsClient, la ventana de
-  // confirmación y handleBroadcast. Un segundo camino divergiría.
+  // Everything that builds a transaction goes through the same path as the
+  // rest of the extension: createNeuraiAssetsClient, the confirm modal and
+  // handleBroadcast. A second path would drift.
 
   let depinAssets: DepinAsset[] = [];
   let depinSelectedAsset = '';
@@ -1035,10 +1035,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   const depinSelection = new Set<string>();
 
   /**
-   * Qué se ve en la pestaña. Mismo patrón que la tarjeta de Assets: un
-   * conmutador arriba y una sección por modo. La lista de assets es contexto
-   * compartido de Manage y Send —hay que elegir sobre cuál operar—, así que se
-   * enseña en ambos y se esconde al crear, donde no viene a cuento.
+   * What the tab shows. Same pattern as the Assets card: a switcher on top
+   * and one section per mode. The asset list is context shared by Manage and
+   * Send — you have to pick which asset to operate on — so it shows in both
+   * and hides on Create, where it is beside the point.
    */
   function updateDepinCardMode(): void {
     const isCreate = depinCardMode === 'CREATE';
@@ -1072,7 +1072,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     renderDepinSelectedAsset();
   }
 
-  /** Pone al día lo que depende del asset elegido, en el modo actual. */
+  /** Refreshes whatever depends on the selected asset, in the current mode. */
   function renderDepinSelectedAsset(): void {
     const asset = depinAssets.find(a => a.name === depinSelectedAsset);
     const picked = Boolean(asset);
@@ -1090,9 +1090,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.depinModeToggle!.classList.toggle('hidden', !asset.owned);
     elements.depinMintGroup!.classList.toggle('hidden', !asset.owned);
 
-    // Repartir exige el token owner: el nodo rechaza cualquier otra
-    // transferencia con bad-txns-depin-transfer-not-by-owner. Sin él se dice,
-    // en vez de dejar un formulario que sólo puede fallar.
+    // Handing units out requires the owner token: the node rejects any other
+    // transfer with bad-txns-depin-transfer-not-by-owner. Without it we say
+    // so, instead of leaving a form that can only fail.
     elements.depinSendTitle!.textContent = `Assign ${asset.name} to a device`;
     elements.depinSendBody!.classList.toggle('hidden', !asset.owned);
     if (!asset.owned) {
@@ -1111,7 +1111,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     return ((state.wallet as Record<string, unknown> | null)?.network as string) || 'xna';
   }
 
-  /** La pestaña sólo existe donde el nodo soporta DePIN. */
+  /** The tab only exists where the node supports DEPIN. */
   function updateDepinTabVisibility(): void {
     const available = supportsDepin(depinNetwork());
     elements.depinViewTab?.classList.toggle('hidden', !available);
@@ -1166,8 +1166,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     depinSelectedAsset = assetName;
     renderDepinAssets();
 
-    // Quién puede hacer qué con este asset lo decide renderDepinSelectedAsset:
-    // así Manage y Send comparten una única regla en vez de dos copias.
+    // Who can do what with this asset is decided by renderDepinSelectedAsset,
+    // so Manage and Send share one rule instead of two copies.
     renderDepinSelectedAsset();
     elements.depinDevicesError!.classList.add('hidden');
     elements.depinAssignError!.classList.add('hidden');
@@ -1178,7 +1178,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     try {
       const rpc = buildRpcFn(depinNetwork());
       const holders = await rpc('listdepinholders', [assetName]) as DepinHolder[] | null;
-      if (depinSelectedAsset !== assetName) return;   // el usuario cambió de asset
+      if (depinSelectedAsset !== assetName) return;   // the user switched asset
       depinHolders = Array.isArray(holders) ? holders : [];
       renderDepinDevices();
     } catch (error) {
@@ -1256,7 +1256,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.depinSelectAll!.disabled = available === 0;
   }
 
-  /** Recarga los assets del monedero y el desplegable de padres. */
+  /** Reloads the wallet's assets and the parent dropdown. */
   async function refreshDepinAssets(): Promise<void> {
     const address = depinWalletAddress();
     if (!address) return;
@@ -1291,7 +1291,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
   }
 
-  /** El nombre completo que se va a emitir, según haya padre o no. */
+  /** The full name that will be issued, depending on whether a parent is set. */
   function depinNameToCreate(): string {
     const parent = elements.depinParentSelect!.value;
     const typed = (elements.depinNewName!.value || '').trim().toUpperCase();
@@ -1344,10 +1344,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const select = elements.sendAssetSelect;
     if (!select) return;
     const previous = select.value;
-    // Un DePIN no se envía como cualquier asset: el nodo exige que lo firme el
-    // owner y que la transacción escolte el token owner
-    // (bad-txns-depin-transfer-not-by-owner). Se reparte desde la pestaña
-    // DePIN, que sí conoce esa regla y sabe si tienes el token.
+    // A DEPIN asset is not sent like any other: the node requires the owner
+    // to sign it and the transaction to escort the owner token
+    // (bad-txns-depin-transfer-not-by-owner). It is handed out from the DEPIN
+    // tab, which knows that rule and whether you hold the token.
     const ownedAssets = ((state.assets as Array<{ name: string; amountText: string }>) || [])
       .filter(a => !a.name.startsWith('&'));
     select.replaceChildren(
@@ -1554,8 +1554,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (!elements.sendSubmitBtn) return;
     clearSendError();
 
-    // Igual que en create asset: el botón sólo se bloquea y la ventana de
-    // confirmación se abre ya, contando en qué punto va.
+    // Same as create asset: the button is only disabled, and the confirm
+    // modal opens right away, reporting where it is.
     elements.sendSubmitBtn.disabled = true;
     const prep = openTxConfirmPreparing('Confirm Transaction', 3);
 
@@ -2881,7 +2881,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     });
 
     const totalRpc = run.phases.reduce((n, phase) => n + phase.rpc.length, 0);
-    console.log(`[timing] ${run.label}: ${Math.round(total)} ms, ${totalRpc} llamadas RPC`);
+    console.log(`[timing] ${run.label}: ${Math.round(total)} ms, ${totalRpc} RPC calls`);
     console.table(rows);
   }
 
@@ -2951,7 +2951,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     outputs: NeuraiAssetsBuildResult['outputs'] | Array<Record<string, unknown>>;
     localRawBuild?: NeuraiAssetsLocalRawBuild;
     rpc?: (method: string, params: unknown[]) => Promise<unknown>;
-    /** Marcador ya resuelto para esta operación; evita repetir la consulta. */
+    /** Marker already resolved for this operation; avoids repeating the lookup. */
     assetMarker?: NeuraiCreateTransactionAssetMarker;
   }): Promise<string> {
     const entries = normalizeAssetOutputEntries(params.outputs);
@@ -2962,15 +2962,15 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const txInputs = toTxInputs(params.inputs);
     const envelope = findXnaEnvelope(entries, operationType);
 
-    // NIP-040: cada salida de asset que se construya aquí debe llevar el
-    // marcador que exige el nodo contra el que se va a publicar. Sin esto se
-    // emite el `rvn` heredado por defecto y la cadena lo rechaza con
-    // bad-txns-legacy-asset-marker-after-nip040. Se resuelve una vez por
-    // operación y se aplica a nivel de transacción, de modo que alcanza a
-    // todas las salidas que genere el serializador.
-    // Lo normal es recibirlo ya resuelto desde createNeuraiAssetsClient, que lo
-    // consulta una vez por operación y se lo pasa también a NeuraiAssets. Sólo
-    // se consulta aquí si el llamante no lo trae.
+    // NIP-040: every asset output built here must carry the marker the node
+    // it will be published against requires. Without this the inherited `rvn`
+    // is emitted by default and the chain rejects it with
+    // bad-txns-legacy-asset-marker-after-nip040. It is resolved once per
+    // operation and applied at transaction level, so it reaches every output
+    // the serializer produces.
+    // Normally it arrives already resolved from createNeuraiAssetsClient,
+    // which looks it up once per operation and passes it to NeuraiAssets too.
+    // It is only looked up here when the caller does not bring it.
     let assetMarker = params.assetMarker;
     if (!assetMarker) {
       if (!params.rpc) {
@@ -3317,31 +3317,31 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /**
-   * NeuraiAssets con la construcción de la transacción hecha en local.
+   * NeuraiAssets with the transaction built locally.
    *
-   * El marcador NIP-040 se resuelve UNA vez aquí y se comparte por los dos
-   * caminos: se pasa a NeuraiAssets como `config.assetMarker` —que así no
-   * vuelve a consultarlo— y al constructor local que sustituye a
-   * `createrawtransaction`. Además de ahorrar una ida y vuelta al nodo por
-   * operación, garantiza que ambos usan exactamente el mismo valor: dos
-   * consultas podrían caer a distintos lados de una activación.
+   * The NIP-040 marker is resolved ONCE here and shared by both paths: it is
+   * passed to NeuraiAssets as `config.assetMarker` — so it never looks it up
+   * again — and to the local builder that replaces `createrawtransaction`.
+   * Besides saving a round trip per operation, it guarantees both use exactly
+   * the same value: two lookups could land on opposite sides of an
+   * activation.
    */
   /**
-   * Una caché de marcador por sesión del popup. La lógica vive en
-   * ./expanded/asset-marker para poder ejercitarla con `node --test`; aquí
-   * sólo queda la instancia y de dónde sale la clave de red.
+   * One marker cache per popup session. The logic lives in
+   * ./expanded/asset-marker so `node --test` can exercise it; what remains
+   * here is the instance and where the network key comes from.
    */
   const assetMarkerCache = createAssetMarkerCache();
 
   /**
-   * La clave de la caché. El precalentado y la operación deben derivarla igual,
-   * o el precalentado consulta una red y la operación no encuentra su entrada.
+   * The cache key. Warming and the operation must derive it the same way, or
+   * warming queries one network and the operation misses its entry.
    */
   function markerNetworkKey(network: string | undefined): string {
     return network || 'xna';
   }
 
-  /** Arranca la consulta del marcador sin esperarla. */
+  /** Starts the marker lookup without waiting for it. */
   function warmAssetMarker(): void {
     const wallet = state.wallet as Record<string, unknown> | null;
     if (!wallet || !wallet.address) return;
@@ -3477,22 +3477,21 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     let currentSignedHex = signedHex;
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      // Ninguna de las dos lecturas alimenta a la otra: el tamaño no depende
-      // del tipo de tasa ni al revés. Pedirlas a la vez ahorra una ida y
-      // vuelta completa en cada comprobación.
+      // Neither read feeds the other: the size does not depend on the fee
+      // rate nor the other way round. Asking for both at once saves a whole
+      // round trip on every check.
       const [decoded, feeEstimate] = await Promise.all([
         rpc('decoderawtransaction', [currentSignedHex]) as Promise<{
           vsize?: number;
           size?: number;
           weight?: number;
         } | null>,
-        // MISMO objetivo de confirmación que neurai-assets (UTXOSelector
-        // .getFeeRate usa 20). Con 6 esta comprobación pedía un tipo mayor que
-        // el que el constructor había presupuestado, así que en cuanto la red
-        // devuelve estimaciones distintas por objetivo —regtest no, mainnet
-        // sí— toda operación de asset se reconstruía y volvía a firmarse sin
-        // que hubiera nada mal. El suelo de 0.015 es el que protege del
-        // mínimo de relay; el objetivo sólo tiene que coincidir.
+        // SAME confirmation target as neurai-assets (UTXOSelector.getFeeRate
+        // uses 20). With 6 this check demanded a higher rate than the builder
+        // had budgeted, so as soon as the network returns different estimates
+        // per target — regtest does not, mainnet does — every asset operation
+        // rebuilt and re-signed with nothing actually wrong. The 0.015 floor
+        // is what guards the relay minimum; the target only has to match.
         rpc('estimatesmartfee', [20]).catch(() => null) as Promise<{ feerate?: number } | null>
       ]);
       // The node charges by VSIZE, which already discounts the witness. Taking
@@ -3850,8 +3849,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   function updateCreateAssetUI() {
-    // El usuario aún tiene que elegir tipo y escribir el nombre: tiempo de
-    // sobra para que el marcador llegue antes de que pulse el botón.
+    // The user still has to pick a type and type a name: plenty of time for
+    // the marker to arrive before they press the button.
     warmAssetMarker();
 
     const type = state.createAssetType;
@@ -3863,9 +3862,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const needsParent = isSub || isUnique || isReissue;
     const usesAssetNameInput = !needsParent && !isRestricted;
 
-    // Todo lo DePIN vive en su propia pestaña. Si el estado quedó en DEPIN
-    // —una sesión anterior, por ejemplo— se vuelve a Root en vez de dejar
-    // activo un tipo que este formulario ya no sabe construir.
+    // Everything DEPIN lives in its own tab. If the state was left on DEPIN
+    // — from an earlier session, say — fall back to Root instead of leaving
+    // active a type this form no longer knows how to build.
     if (type === 'DEPIN') {
       state.createAssetType = 'ROOT';
       updateCreateAssetUI();
@@ -4032,7 +4031,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function handleCreateAsset() {
     elements.caError!.textContent = '';
     elements.caError!.classList.add('hidden');
-    // El botón sólo se bloquea; quien cuenta lo que pasa es la ventana.
+    // The button is only disabled; the modal is what reports progress.
     elements.caCreateBtn!.disabled = true;
     const isReissue = state.createAssetType === 'REISSUE';
     const prep = openTxConfirmPreparing(
@@ -4055,7 +4054,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         changeAddress: address,
         toAddress: address,
       });
-      markPhase('resolver marcador NIP-040');
+      markPhase('resolve NIP-040 marker');
       setConfirmProgress(prep, 'Selecting inputs and estimating the fee…');
 
       const type = state.createAssetType;
@@ -4163,7 +4162,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         throw new Error('Unknown asset type: ' + type);
       }
 
-      markPhase('construir (selección de UTXOs + fee)');
+      markPhase('build (UTXO selection + fee)');
       setConfirmProgress(prep, 'Signing…');
 
       // Sign the raw transaction
@@ -4172,19 +4171,19 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         : (state.settings.rpcMainnet || C.RPC_URL);
 
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
-      markPhase('firmar');
+      markPhase('sign');
       if (network === 'xna-pq' || network === 'xna-pq-test') {
         const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'create-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
         setConfirmProgress(prep, 'Checking the relay fee…');
-        markPhase('comprobar relay fee AuthScript');
+        markPhase('check AuthScript relay fee');
       }
 
-      // El usuario pudo cancelar mientras se construía: la transacción está
-      // firmada pero no difundida, así que basta con no ofrecerla.
+      // The user may have cancelled while it was building: the transaction
+      // is signed but not broadcast, so it is enough not to offer it.
       if (!isPreparationCurrent(prep)) {
-        markPhase('cancelado por el usuario');
+        markPhase('cancelled by the user');
         endTiming();
         elements.caCreateBtn!.disabled = false;
         return;
@@ -4193,11 +4192,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       // Store signed TX and show confirm modal instead of broadcasting immediately
       state.pendingSignedTx = { hex: signedHex, rpcUrl, buildResult: result };
       showTxConfirmModal(result, signedHex);
-      markPhase('pintar el modal');
+      markPhase('paint the modal');
       endTiming();
 
     } catch (err) {
-      markPhase('fallo');
+      markPhase('failure');
       endTiming();
       const cancelled = !isPreparationCurrent(prep);
       confirmPreparing.closeIfPreparing();
@@ -4211,17 +4210,17 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /**
-   * La ventana de confirmación, abierta ANTES de tener la transacción.
+   * The confirm modal, opened BEFORE the transaction exists.
    *
-   * Antes el único indicio de que algo estaba pasando era el botón pulsado
-   * diciendo «Creating…», que no dice en qué punto está ni cuánto queda. Ahora
-   * se abre la propia ventana en la que va a aterrizar el resultado, con su
-   * misma forma —filas fantasma del alto de una salida real— y una onda que la
-   * recorre. Cuando llega la transacción sólo se sustituye el contenido, así
-   * que la ventana no aparece de golpe ni cambia de tamaño.
+   * The only sign that anything was happening used to be the pressed button
+   * reading "Creating…", which says neither where it is nor how much is left.
+   * Now the very window the result will land in opens, with its final shape —
+   * ghost rows the height of a real output — and a wave running across it.
+   * When the transaction arrives only the content is replaced, so the window
+   * neither appears out of nowhere nor changes size.
    *
-   * La máquina de estados vive en ./expanded/confirm-preparing para poder
-   * probarla; aquí queda sólo cómo se traduce cada paso al DOM.
+   * The state machine lives in ./expanded/confirm-preparing so it can be
+   * tested; what remains here is how each step maps to the DOM.
    */
   const confirmPreparing = createConfirmPreparing({
     showGhosts(rows: number) {
@@ -4247,7 +4246,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         row.appendChild(amount);
         list.appendChild(row);
       }
-      // Nada que enseñar todavía de la transacción.
+      // Nothing to show about the transaction yet.
       elements.caTxRawHex!.classList.add('hidden');
       elements.caTxDebugJson!.classList.add('hidden');
       elements.caTxConfirmError!.textContent = '';
@@ -4489,8 +4488,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       elements.caTxConfirmModal!.classList.add('hidden');
 
       if (pendingKind === 'depin') {
-        // El usuario está en la pestaña DePIN: el resultado va ahí, no a la
-        // tarjeta de Assets que no tiene delante.
+        // The user is on the DEPIN tab: the result goes there, not to the
+        // Assets card they are not looking at.
         if (elements.depinTxid) elements.depinTxid.textContent = txid;
         if (elements.depinTxExplorerLink) {
           const explorerUrl = resolveExplorerTxUrl(
@@ -4506,9 +4505,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           }
         }
         elements.depinResult?.classList.remove('hidden');
-        // La lista todavía no refleja la transacción: está en el mempool, no
-        // minada. Se recarga igualmente para que el siguiente Refresh no sea
-        // el primero que enseñe algo distinto.
+        // The list does not reflect the transaction yet: it is in the
+        // mempool, not mined. Reload anyway so the next Refresh is not the
+        // first thing to show something different.
         depinSelection.clear();
         refreshDepinAssets().catch(() => { /* best-effort */ });
         if (depinSelectedAsset) selectDepinAsset(depinSelectedAsset).catch(() => { });
@@ -4590,9 +4589,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       // listassetbalancesbyaddress returns {assetName: amount, ...}
       const balances = await rpc('listassetbalancesbyaddress', [address]) as Record<string, number> | null;
-      // Los DePIN se gestionan en su propia pestaña: ofrecerlos aquí llevaría a
-      // crear sub-DePIN o reemitirlos desde un formulario que no conoce sus
-      // reglas (0 decimales, escolta del token owner del padre).
+      // DEPIN assets are managed in their own tab: offering them here would
+      // mean creating sub-DEPIN assets or reissuing them from a form that
+      // does not know their rules (0 decimals, parent owner-token escort).
       const ownerTokens = balances
         ? Object.keys(balances).filter(name =>
             name.endsWith('!') && balances[name] > 0 && !name.startsWith('&'))
@@ -4778,7 +4777,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.createAssetPanel!.classList.toggle('hidden', !isCreate);
     elements.configureAssetPanel!.classList.toggle('hidden', isCreate);
     elements.caCardTitle!.textContent = isCreate ? 'Create Asset' : 'Configure Asset';
-    // Los DePIN se crean y se gestionan en su propia pestaña.
+    // DEPIN assets are created and managed in their own tab.
     elements.caCardCopy!.textContent = isCreate
       ? 'Issue new tokens and NFTs on the Neurai network.'
       : 'Manage existing assets — tag addresses, reissue or freeze.';
@@ -4809,8 +4808,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const showsHolders = needsGlobal && !isGlobal;
     elements.cfHoldersGroup!.classList.toggle('hidden', !showsHolders);
     elements.cfAddressesGroup!.classList.toggle('hidden', !needsAddresses || (needsGlobal && isGlobal));
-    // Con la lista delante, el textarea pasa a ser para lo que no salga en
-    // ella: una dirección que aún no tiene tokens, por ejemplo.
+    // With the list in front of you, the textarea becomes for whatever does
+    // not appear in it: an address that holds no tokens yet, for instance.
     elements.cfAddressesLabel!.textContent = showsHolders ? 'Additional addresses' : 'Addresses';
     elements.cfAddressesHint!.textContent = showsHolders
       ? 'Optional — one per line, for addresses not listed above'
@@ -4832,10 +4831,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /**
-   * La lista de titulares del asset restringido seleccionado.
+   * The holder list of the selected restricted asset.
    *
-   * Se guarda cruda y se vuelve a pintar al cambiar de pestaña: los mismos
-   * datos sirven para Freeze y para Unfreeze, sólo cambia qué se puede marcar.
+   * Kept raw and re-rendered on tab change: the same data serves Freeze and
+   * Unfreeze, only what can be selected changes.
    */
   let cfHolders: HolderListing | null = null;
   let cfHoldersAsset = '';
@@ -4845,7 +4844,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     return state.configAssetType === 'UNFREEZE' ? 'UNFREEZE' : 'FREEZE';
   }
 
-  /** Cantidad legible; el nodo devuelve el valor ya escalado. */
+  /** Readable amount; the node returns the value already scaled. */
   function formatHolderQuantity(quantity: number): string {
     if (!Number.isFinite(quantity)) return '—';
     return quantity.toLocaleString(undefined, { maximumFractionDigits: 8 });
@@ -4880,8 +4879,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       return;
     }
 
-    // Una selección que ya no procede se retira sola: al pasar de Freeze a
-    // Unfreeze las direcciones marcadas dejan de ser las candidatas.
+    // A selection that no longer applies drops itself: switching from Freeze
+    // to Unfreeze makes the selected addresses stop being the candidates.
     const stillValid = pruneSelection(cfHolderSelection, holders, mode);
     cfHolderSelection.clear();
     stillValid.forEach(address => cfHolderSelection.add(address));
@@ -4937,9 +4936,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /**
-   * Trae los titulares del asset elegido. Una consulta por dirección para el
-   * estado de congelación, con tope de simultáneas: contra un proxy remoto
-   * lanzarlas todas de golpe es tan malo como hacerlas en fila.
+   * Fetches the holders of the selected asset. One lookup per address for
+   * the freeze state, with a cap on simultaneous ones: against a remote proxy
+   * firing them all at once is as bad as running them in sequence.
    */
   async function loadHoldersForSelectedAsset(): Promise<void> {
     const type = state.configAssetType;
@@ -4968,7 +4967,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     try {
       const rpc = buildRpcFn((wallet.network as string) || 'xna');
       const listing = await loadHolders(rpc, assetName);
-      // Otra selección pudo cambiar mientras se cargaba: no pisar la actual.
+      // The selection may have changed while loading: do not clobber it.
       if ((elements.cfOwnerTokenSelect!.value || '').trim() !== assetName) return;
       cfHolders = listing;
       renderHolders();
@@ -4986,7 +4985,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
   }
 
-  /** Direcciones para freeze/unfreeze: las marcadas más las escritas a mano. */
+  /** Addresses for freeze/unfreeze: the selected ones plus the typed ones. */
   function collectFreezeAddresses(): string[] {
     const typed = parseUniqueAddresses(elements.cfAddresses!.value || '');
     const merged = new Set<string>(cfHolderSelection);
@@ -4999,9 +4998,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const needsQualifier = type === 'TAG' || type === 'UNTAG';
     const select = elements.cfOwnerTokenSelect!;
     const hint = elements.cfOwnerTokenHint!;
-    // Freeze y Unfreeze ofrecen los mismos assets: al cambiar de pestaña no
-    // tiene sentido devolver el desplegable a «-- Select asset --» y obligar
-    // a elegir otra vez lo que ya estaba elegido.
+    // Freeze and Unfreeze offer the same assets: on tab change there is no
+    // point resetting the dropdown to "-- Select asset --" and forcing a
+    // re-pick of what was already picked.
     const previous = select.value;
     select.innerHTML = '<option value="">-- Select asset --</option>';
     hint.textContent = 'Loading…';
@@ -5026,11 +5025,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         // Restricted operations are driven by the restricted asset name ($TOKEN),
         // but control is proven with the owner token TOKEN!.
         //
-        // Sólo los assets RAÍZ tienen contrapartida restringida, y tener
-        // `NOMBRE!` no implica haber emitido `$NOMBRE`. Antes se anteponía `$`
-        // a cualquier token owner: un DePIN `&TOKIO!` daba `$&TOKIO`, que el
-        // nodo rechaza como nombre inválido, y el desplegable ofrecía assets
-        // imposibles sobre los que después no aparecía ningún titular.
+        // Only ROOT assets have a restricted counterpart, and holding
+        // `NAME!` does not imply having issued `$NAME`. This used to prefix
+        // `$` to any owner token: a DEPIN `&TOKIO!` gave `$&TOKIO`, which the
+        // node rejects as an invalid name, and the dropdown offered
+        // impossible assets that then showed no holders at all.
         const candidates = restrictedCandidates(balances);
         selectableAssets = candidates.length > 0
           ? await keepExistingAssets(rpc, candidates)
@@ -5063,12 +5062,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /**
-   * Pone la lista de titulares al día tras recargar el desplegable.
+   * Brings the holder list up to date after reloading the dropdown.
    *
-   * Si sigue seleccionado el mismo asset se vuelve a pintar sin consultar
-   * nada: los datos son los mismos y sólo cambia qué se puede marcar. Cada
-   * carga cuesta una consulta por dirección, así que repetirla al cambiar de
-   * pestaña sería caro y sin motivo.
+   * If the same asset is still selected it is re-rendered without querying
+   * anything: the data is the same and only what can be selected changes.
+   * Each load costs one lookup per address, so repeating it on a tab change
+   * would be expensive and pointless.
    */
   function syncHoldersWithSelection(): void {
     const type = state.configAssetType;
@@ -5084,8 +5083,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function handleConfigureAsset() {
     elements.cfError!.textContent = '';
     elements.cfError!.classList.add('hidden');
-    // Mismo trato que create y send: el botón se bloquea y la ventana de
-    // confirmación se abre ya, en vez de dejar el botón en «Processing…».
+    // Same treatment as create and send: the button is disabled and the
+    // confirm modal opens right away, instead of leaving it on "Processing…".
     elements.cfApplyBtn!.disabled = true;
     const origText = elements.cfApplyBtn!.textContent || 'Apply';
     const prep = openTxConfirmPreparing('Confirm Asset Operation', 3);
@@ -5242,12 +5241,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /**
-   * Construye, firma y ofrece una operación DePIN.
+   * Builds, signs and offers a DEPIN operation.
    *
-   * Comparte con crear asset y enviar exactamente el mismo camino: el cliente
-   * de neurai-assets con el marcador ya resuelto, la ventana de confirmación
-   * que se abre antes de tener la transacción, y `handleBroadcast`. Lo único
-   * propio es qué método de la librería se llama.
+   * It shares exactly the same path as create asset and send: the
+   * neurai-assets client with the marker already resolved, the confirm modal
+   * that opens before the transaction exists, and `handleBroadcast`. The only
+   * thing of its own is which library method gets called.
    */
   async function runDepinOperation(
     title: string,
@@ -5313,12 +5312,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
   }
 
-  /** Bloquear, desbloquear o renunciar, según el asset y el modo. */
+  /** Block, unblock or renounce, depending on the asset and the mode. */
   async function handleDepinDeviceAction(): Promise<void> {
     const asset = depinAssets.find(a => a.name === depinSelectedAsset);
     if (!asset) return;
 
-    // Sin token owner sólo cabe renunciar al propio, que no necesita selección.
+    // Without the owner token the only option is renouncing your own, which
+    // needs no selection.
     if (!asset.owned) {
       await runDepinOperation(
         'Confirm DePIN Renounce', 3,
@@ -5347,7 +5347,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     );
   }
 
-  /** Repartir unidades del asset a un dispositivo. */
+  /** Hand units of the asset to a device. */
   async function handleDepinAssign(): Promise<void> {
     const asset = depinAssets.find(a => a.name === depinSelectedAsset);
     if (!asset) return;
@@ -5379,7 +5379,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     );
   }
 
-  /** Emitir más unidades de un DePIN que ya existe. */
+  /** Mint more units of a DEPIN asset that already exists. */
   async function handleDepinMint(): Promise<void> {
     const asset = depinAssets.find(a => a.name === depinSelectedAsset);
     if (!asset) return;
@@ -5428,7 +5428,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       if (mode !== 'CREATE' && mode !== 'MANAGE' && mode !== 'SEND') return;
       depinCardMode = mode;
       updateDepinCardMode();
-      // Manage y Send necesitan la lista para elegir asset; al crear no.
+      // Manage and Send need the list to pick an asset; Create does not.
       if (mode !== 'CREATE' && depinAssets.length === 0) refreshDepinAssets();
     });
 
@@ -5467,11 +5467,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function bindCreateAsset() {
     if (!elements.createAssetCard) return;
 
-    // Los decimales del asset elegido se consultan al construir una
-    // reemisión, y esa consulta no depende de nada más de la operación. Al
-    // elegirlo en el desplegable el usuario todavía tiene que escribir la
-    // cantidad, así que para cuando pulsa ya está en la caché de
-    // resolveAssetUnits y la fase de construir hace una llamada menos.
+    // The selected asset's decimals are looked up when building a reissue,
+    // and that lookup depends on nothing else in the operation. After picking
+    // it in the dropdown the user still has to type the amount, so by the
+    // time they press the button it is already in resolveAssetUnits' cache
+    // and the build phase makes one call fewer.
     elements.caParentSelect?.addEventListener('change', () => {
       const wallet = state.wallet as Record<string, unknown> | null;
       const selected = elements.caParentSelect!.value;
@@ -5532,8 +5532,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     elements.cfLoadTokensBtn!.addEventListener('click', loadOwnerTokensIntoCfSelect);
 
-    // Elegir el asset es lo que dispara la consulta de titulares: es cuando
-    // el usuario ya sabe sobre qué quiere operar.
+    // Picking the asset is what triggers the holder lookup: that is when the
+    // user knows what they want to operate on.
     elements.cfOwnerTokenSelect!.addEventListener('change', () => {
       loadHoldersForSelectedAsset();
     });
@@ -5562,9 +5562,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.caTxCancelBtn!.addEventListener('click', () => {
       state.pendingSignedTx = null;
       confirmPreparing.close();
-      // La ventana la abre ahora también el panel de envío, así que se
-      // devuelve su botón; y la etiqueta de crear la pone updateCreateAssetUI,
-      // que sabe si es «Create Asset» o «Reissue Asset».
+      // The send panel opens this modal too now, so its button is restored;
+      // and the create label is set by updateCreateAssetUI, which knows
+      // whether it is "Create Asset" or "Reissue Asset".
       if (elements.sendSubmitBtn) {
         elements.sendSubmitBtn.disabled = false;
         elements.sendSubmitBtn.textContent = 'Send';

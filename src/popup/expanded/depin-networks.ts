@@ -1,20 +1,19 @@
 /**
- * En qué redes existe DePIN.
+ * Which networks have DEPIN.
  *
- * El nodo lo dice sin rodeos: «DEPIN assets (soulbound, enabled on testnet and
- * regtest)» (`src/assets/assets.cpp:66`). En mainnet no hay fork todavía, así
- * que ofrecer la operación allí sólo produce transacciones que la cadena
- * rechaza.
+ * The node says it plainly: "DEPIN assets (soulbound, enabled on testnet and
+ * regtest)" (`src/assets/assets.cpp:66`). Mainnet has no fork yet, so offering
+ * the operation there only produces transactions the chain rejects.
  *
- * Deliberadamente una lista y no una sonda al nodo: hoy la respuesta es fija y
- * conocida, y una lista no tiene modos de fallo. **El día que DePIN active en
- * mainnet, esto es lo único que hay que tocar** — añadir `'xna'` (y `'xna-pq'`
- * si la variante PQ llega a la vez).
+ * Deliberately a list and not a probe against the node: today the answer is
+ * fixed and known, and a list has no failure modes. **The day DEPIN activates
+ * on mainnet, this is the only thing to touch** — add `'xna'` (and `'xna-pq'`
+ * if the PQ variant lands at the same time).
  *
- * Sin imports ni DOM: `node --test` lo carga tal cual.
+ * No imports and no DOM: `node --test` loads it as is.
  */
 
-/** Redes donde el nodo soporta assets DePIN. */
+/** Networks where the node supports DEPIN assets. */
 export const DEPIN_NETWORKS: readonly string[] = [
   'xna-test',
   'xna-legacy-test',
@@ -22,13 +21,13 @@ export const DEPIN_NETWORKS: readonly string[] = [
 ];
 
 /**
- * ¿Soporta esta red los assets DePIN?
+ * Does this network support DEPIN assets?
  *
- * Una red desconocida devuelve `false`: es preferible esconder la operación
- * que ofrecer una que la cadena va a rechazar.
+ * An unknown network returns `false`: hiding the operation is preferable to
+ * offering one the chain is going to reject.
  *
- * @param network - Etiqueta de red del monedero (`xna`, `xna-test`, …)
- * @returns True si DePIN existe en esa red
+ * @param network - The wallet's network label (`xna`, `xna-test`, …)
+ * @returns True if DEPIN exists on that network
  */
 export function supportsDepin(network: string | undefined | null): boolean {
   if (typeof network !== 'string') return false;

@@ -1,37 +1,37 @@
 /**
- * Qué assets restringidos puede gestionar realmente este monedero.
+ * Which restricted assets this wallet can actually manage.
  *
- * Freeze/Unfreeze operan sobre assets restringidos (`$NOMBRE`), y para ello
- * hace falta el token owner del asset raíz (`NOMBRE!`). El panel derivaba el
- * nombre restringido de CUALQUIER token owner del monedero, así que un DePIN
- * `&TOKIO!` producía `$&TOKIO` —que el nodo rechaza con «_Not a valid asset
- * name»— y un sub `FOO/BAR!` producía `$FOO/BAR`, que no existe. El
- * desplegable ofrecía cosas imposibles y la búsqueda de titulares no
- * encontraba nada, que es exactamente lo que se reportó.
+ * Freeze/Unfreeze operate on restricted assets (`$NAME`), and that requires
+ * the root asset's owner token (`NAME!`). The panel derived the restricted
+ * name from ANY owner token in the wallet, so a DEPIN `&TOKIO!` produced
+ * `$&TOKIO` — which the node rejects with "_Not a valid asset name" — and a
+ * sub `FOO/BAR!` produced `$FOO/BAR`, which does not exist. The dropdown
+ * offered impossible things and the holder lookup found nothing, which is
+ * exactly what was reported.
  *
- * Sin imports ni DOM: `node --test` lo carga tal cual.
+ * No imports and no DOM: `node --test` loads it as is.
  */
 
 type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
 
-/** Consultas de existencia en vuelo a la vez. */
+/** Existence lookups in flight at once. */
 export const DEFAULT_CONCURRENCY = 6;
 
 /**
- * ¿Puede este nombre ser la raíz de un asset restringido?
+ * Can this name be the root of a restricted asset?
  *
- * Sólo los assets RAÍZ tienen contrapartida restringida. Un sub (`FOO/BAR`),
- * un único (`FOO#BAR`), un mensaje (`FOO~BAR`), un qualifier (`#FOO`) y un
- * DePIN (`&FOO`) no la tienen, y anteponerles `$` da un nombre que el nodo ni
- * siquiera acepta como válido.
+ * Only ROOT assets have a restricted counterpart. A sub (`FOO/BAR`), a unique
+ * (`FOO#BAR`), a message (`FOO~BAR`), a qualifier (`#FOO`) and a DEPIN
+ * (`&FOO`) do not, and prefixing them with `$` yields a name the node does not
+ * even accept as valid.
  *
- * @param name - Nombre del asset, sin el `!` del token owner
- * @returns True si `$name` es un nombre posible
+ * @param name - Asset name, without the owner token's `!`
+ * @returns True if `$name` is a possible name
  */
 export function canBeRestrictedRoot(name: string): boolean {
   if (typeof name !== 'string') return false;
-  // El nodo admite A-Z 0-9 _ . en la raíz, entre 3 y 30 caracteres, sin
-  // puntuación al principio o al final ni dos seguidas.
+  // The node allows A-Z 0-9 _ . in a root name, 3 to 30 characters, with no
+  // leading or trailing punctuation and no two in a row.
   if (!/^[A-Z0-9._]{3,30}$/.test(name)) return false;
   if (/^[._]|[._]$/.test(name)) return false;
   if (/[._]{2}/.test(name)) return false;
@@ -39,13 +39,13 @@ export function canBeRestrictedRoot(name: string): boolean {
 }
 
 /**
- * Los `$NOMBRE` que este monedero podría gestionar, a partir de sus saldos.
+ * The `$NAME` assets this wallet could manage, derived from its balances.
  *
- * Es un filtro local y por tanto sólo descarta lo imposible; que el asset
- * restringido EXISTA lo dice el nodo (ver `keepExistingAssets`).
+ * A local filter, so it only rules out the impossible; whether the restricted
+ * asset EXISTS is the node's answer (see `keepExistingAssets`).
  *
- * @param balances - Respuesta de `listassetbalancesbyaddress`
- * @returns Nombres restringidos candidatos, ordenados y sin repetir
+ * @param balances - Response of `listassetbalancesbyaddress`
+ * @returns Candidate restricted names, sorted and deduplicated
  */
 export function restrictedCandidates(balances: Record<string, unknown> | null): string[] {
   if (!balances || typeof balances !== 'object') return [];
@@ -57,7 +57,7 @@ export function restrictedCandidates(balances: Record<string, unknown> | null): 
   return [...new Set(names)].sort();
 }
 
-/** Ejecuta `task` sobre cada elemento con como mucho `limit` a la vez. */
+/** Runs `task` over each item with at most `limit` in flight. */
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
@@ -79,20 +79,20 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Se queda con los que existen en la cadena.
+ * Keeps the ones that exist on chain.
  *
- * Tener `NOMBRE!` no implica haber emitido `$NOMBRE`: lo normal es tener el
- * token owner de un asset raíz y ningún restringido. Ofrecerlos sin comprobar
- * llenaba el desplegable de assets que no existen.
+ * Holding `NAME!` does not imply having issued `$NAME`: the normal case is
+ * holding a root asset's owner token and no restricted asset at all. Offering
+ * them unchecked filled the dropdown with assets that do not exist.
  *
- * Un fallo de consulta NO descarta el candidato: si el nodo no contesta, se
- * conserva y ya dirá que no al operar. Descartar por no haber podido leer
- * escondería un asset que sí existe.
+ * A failed lookup does NOT drop the candidate: if the node does not answer it
+ * is kept, and the operation will say no later. Dropping it because the read
+ * failed would hide an asset that does exist.
  *
- * @param rpc - Función RPC contra el nodo
- * @param names - Candidatos `$NOMBRE`
- * @param options - `concurrency` de consultas simultáneas
- * @returns Los que existen (o cuyo estado no se pudo determinar)
+ * @param rpc - RPC function bound to the node
+ * @param names - `$NAME` candidates
+ * @param options - `concurrency` of simultaneous lookups
+ * @returns The ones that exist (or whose state could not be determined)
  */
 export async function keepExistingAssets(
   rpc: RpcFn,
@@ -106,7 +106,7 @@ export async function keepExistingAssets(
       return { name, exists: data !== null && data !== undefined };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // «no encontrado» es una respuesta; cualquier otro fallo es ruido de red.
+      // "not found" is an answer; any other failure is network noise.
       if (/not found|doesn't exist|does not exist/i.test(message)) {
         return { name, exists: false };
       }

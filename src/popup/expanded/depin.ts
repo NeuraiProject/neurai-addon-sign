@@ -1,60 +1,60 @@
 /**
- * Modelo de la pestaña DePIN: qué assets DePIN tiene este monedero, qué puede
- * hacer con cada uno y qué dispositivos los sostienen.
+ * Model for the DEPIN tab: which DEPIN assets this wallet holds, what it can
+ * do with each, and which devices hold them.
  *
- * Sin imports ni DOM a propósito: `node --test` lo carga tal cual, igual que
- * `holder-picker` y `confirm-preparing`. Lo que se decide aquí —qué se puede
- * marcar, qué acciones se ofrecen— es justo lo que hay que poder probar sin
- * navegador.
+ * Import-free and DOM-free on purpose: `node --test` loads it as is, like
+ * `holder-picker` and `confirm-preparing`. What is decided here — what can be
+ * selected, what actions are offered — is exactly what must be testable
+ * without a browser.
  */
 
-/** Un asset DePIN presente en el monedero. */
+/** A DEPIN asset present in the wallet. */
 export interface DepinAsset {
-  /** Nombre completo, "&FLEET" o "&FLEET/SENSOR". */
+  /** Full name, "&FLEET" or "&FLEET/SENSOR". */
   name: string;
-  /** Unidades que tiene este monedero. */
+  /** Units this wallet holds. */
   amount: number;
-  /** True si el monedero tiene "&NOMBRE!", que es lo que habilita gestionarlo. */
+  /** True if the wallet holds "&NAME!", which is what allows managing it. */
   owned: boolean;
-  /** Padre inmediato, o null para una raíz. */
+  /** Immediate parent, or null for a root. */
   parent: string | null;
-  /** Profundidad: 0 raíz, 1 sub, 2 sub-sub… */
+  /** Depth: 0 root, 1 sub, 2 sub-sub… */
   depth: number;
 }
 
-/** Un titular del asset, tal como lo reporta `listdepinholders`. */
+/** A holder of the asset, as `listdepinholders` reports it. */
 export interface DepinHolder {
   address: string;
   amount: number;
-  /** 1 activo, 0 bloqueado o revocado. */
+  /** 1 active, 0 blocked or revoked. */
   valid: number;
 }
 
 export type DeviceMode = 'FREEZE' | 'UNFREEZE';
 
-/** Fila de dispositivo lista para pintar. */
+/** A device row ready to render. */
 export interface DeviceRow {
   address: string;
   amount: number;
   amountText: string;
-  /** `active` o `blocked`. */
+  /** `active` or `blocked`. */
   stateKind: 'active' | 'blocked';
-  /** Lo que se lee en el distintivo: el motivo si está bloqueada. */
+  /** What the badge reads: the reason when it cannot be selected. */
   stateText: string;
   stateTitle: string;
   selectable: boolean;
-  /** True si esta dirección es la del propio monedero. */
+  /** True if this address is the wallet's own. */
   isSelf: boolean;
 }
 
 /**
- * El padre INMEDIATO de un nombre DePIN.
+ * The IMMEDIATE parent of a DEPIN name.
  *
- * El nodo lo resuelve con find_last_of, así que el dueño de "&A/B/C" es
- * "&A/B!", no "&A!".
+ * The node resolves it with find_last_of, so "&A/B/C" is owned by "&A/B!",
+ * not "&A!".
  *
- * @param name - Nombre DePIN
- * @returns El padre, o null si es una raíz
+ * @param name - DEPIN name
+ * @returns The parent, or null for a root
  */
 export function depinParent(name: string): string | null {
   const slash = name.lastIndexOf('/');
@@ -62,10 +62,10 @@ export function depinParent(name: string): string | null {
 }
 
 /**
- * Los assets DePIN de este monedero, a partir de sus saldos.
+ * This wallet's DEPIN assets, derived from its balances.
  *
- * @param balances - Respuesta de `listassetbalancesbyaddress`
- * @returns Assets DePIN, raíces primero y por nombre
+ * @param balances - Response of `listassetbalancesbyaddress`
+ * @returns DEPIN assets, roots first and then by name
  */
 export function parseDepinAssets(balances: Record<string, unknown> | null): DepinAsset[] {
   if (!balances || typeof balances !== 'object') return [];
@@ -88,15 +88,15 @@ export function parseDepinAssets(balances: Record<string, unknown> | null): Depi
 }
 
 /**
- * Los assets cuyo token owner tiene este monedero, sirvan o no de padre.
+ * The assets whose owner token this wallet holds, parent material or not.
  *
- * Se usa para el desplegable de crear un sub: sólo se puede crear bajo un
- * DePIN del que se tenga el token owner. Incluye assets de los que se tiene el
- * token owner aunque no se tengan unidades del asset en sí, que es lo normal
- * tras repartirlo entre dispositivos.
+ * Used by the sub-asset creation dropdown: a sub can only be created under a
+ * DEPIN asset whose owner token you hold. It includes assets you hold the
+ * owner token for even with no units of the asset itself, which is the normal
+ * case once it has been handed out to devices.
  *
- * @param balances - Respuesta de `listassetbalancesbyaddress`
- * @returns Nombres DePIN gestionables, ordenados
+ * @param balances - Response of `listassetbalancesbyaddress`
+ * @returns Manageable DEPIN names, sorted
  */
 export function manageableDepinParents(balances: Record<string, unknown> | null): string[] {
   if (!balances || typeof balances !== 'object') return [];
@@ -107,26 +107,26 @@ export function manageableDepinParents(balances: Record<string, unknown> | null)
 }
 
 /**
- * ¿Tiene sentido marcar este dispositivo para esta operación?
+ * Does selecting this device make sense for this operation?
  *
- * Congelar el que ya está bloqueado, o descongelar el que está activo, son
- * transacciones que el nodo rechaza.
+ * Blocking one already blocked, or unblocking one that is active, are
+ * transactions the node rejects.
  *
- * @param holder - El titular
- * @param mode - La operación
- * @returns True si se puede marcar
+ * @param holder - The holder
+ * @param mode - The operation
+ * @returns True if it can be selected
  */
 export function isDeviceSelectable(holder: DepinHolder, mode: DeviceMode): boolean {
   return mode === 'FREEZE' ? holder.valid === 1 : holder.valid !== 1;
 }
 
 /**
- * Convierte los titulares en filas para la operación indicada.
+ * Turns holders into rows for the given operation.
  *
- * @param holders - Titulares tal como los devolvió el nodo
- * @param mode - La operación en curso
- * @param options - `ownerAddress` (la dirección del monedero) y `formatAmount`
- * @returns Una fila por titular, de mayor a menor cantidad
+ * @param holders - Holders as the node returned them
+ * @param mode - The operation in progress
+ * @param options - `ownerAddress` (the wallet's address) and `formatAmount`
+ * @returns One row per holder, largest amount first
  */
 export function toDeviceRows(
   holders: readonly DepinHolder[],
@@ -155,12 +155,12 @@ export function toDeviceRows(
 }
 
 /**
- * Quita de la selección lo que ya no procede al cambiar de operación.
+ * Drops from the selection whatever no longer applies after switching mode.
  *
- * @param selection - Direcciones marcadas
- * @param holders - Titulares actuales
- * @param mode - La operación en curso
- * @returns Las que siguen siendo válidas
+ * @param selection - Selected addresses
+ * @param holders - Current holders
+ * @param mode - The operation in progress
+ * @returns The ones that are still valid
  */
 export function pruneDeviceSelection(
   selection: Iterable<string>,
@@ -175,12 +175,12 @@ export function pruneDeviceSelection(
 }
 
 /**
- * La dirección del token owner no puede congelarse ni revocarse: el nodo lo
- * rechaza y, de colarse, nadie podría deshacerlo.
+ * The owner token's address cannot be blocked or revoked: the node rejects it
+ * and, if it slipped through, nobody could undo it.
  *
- * @param addresses - Direcciones marcadas
- * @param ownerAddress - Dirección de este monedero
- * @returns El motivo por el que no se puede seguir, o null
+ * @param addresses - Selected addresses
+ * @param ownerAddress - This wallet's address
+ * @returns The reason it cannot proceed, or null
  */
 export function blockingReasonForFreeze(
   addresses: readonly string[],

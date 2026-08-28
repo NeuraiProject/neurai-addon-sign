@@ -1,9 +1,9 @@
-// En qué redes se ofrece DePIN.
+// Which networks offer DEPIN.
 //
-// Hasta ahora el formulario ofrecía crear assets DePIN también en mainnet,
-// donde el fork no ha ocurrido: la transacción se construía y la cadena la
-// rechazaba. La lista es deliberada — el día de la activación en mainnet se
-// añade 'xna' aquí y no hay nada más que tocar.
+// Until now the form offered creating DEPIN assets on mainnet too, where the
+// fork has not happened: the transaction was built and the chain rejected it.
+// The list is deliberate — on the day mainnet activates, 'xna' is added here
+// and there is nothing else to touch.
 //
 // Run with:  npm test
 
@@ -11,32 +11,32 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { supportsDepin, DEPIN_NETWORKS } from '../src/popup/expanded/depin-networks.ts';
 
-test('testnet soporta DePIN, en todas sus variantes', () => {
+test('testnet supports DEPIN, in every variant', () => {
   assert.equal(supportsDepin('xna-test'), true);
   assert.equal(supportsDepin('xna-legacy-test'), true);
   assert.equal(supportsDepin('xna-pq-test'), true);
 });
 
-test('mainnet no, ni en su variante PQ', () => {
+test('mainnet does not, nor its PQ variant', () => {
   assert.equal(supportsDepin('xna'), false);
   assert.equal(supportsDepin('xna-pq'), false);
   assert.equal(supportsDepin('xna-legacy'), false);
 });
 
-test('una red desconocida no ofrece DePIN', () => {
-  // Esconder de más es preferible a ofrecer una operación que la cadena
-  // rechazaría.
+test('an unknown network does not offer DEPIN', () => {
+  // Hiding too much is preferable to offering an operation the chain would
+  // reject.
   assert.equal(supportsDepin('alguna-red-futura'), false);
 });
 
-test('sin red no se ofrece', () => {
+test('with no network it is not offered', () => {
   assert.equal(supportsDepin(undefined), false);
   assert.equal(supportsDepin(null), false);
   assert.equal(supportsDepin(''), false);
 });
 
-test('la lista no incluye ninguna red de mainnet', () => {
-  // Guarda contra añadir 'xna' por error al tocar la lista.
+test('the list includes no mainnet network', () => {
+  // Guards against adding 'xna' by mistake when touching the list.
   assert.ok(DEPIN_NETWORKS.every(n => n.endsWith('-test')),
-    `alguna red de la lista no es testnet: ${DEPIN_NETWORKS.join(', ')}`);
+    `a network in the list is not testnet: ${DEPIN_NETWORKS.join(', ')}`);
 });

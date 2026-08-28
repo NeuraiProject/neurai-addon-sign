@@ -1,34 +1,34 @@
 /**
- * Quién tiene un asset restringido y quién está congelado.
+ * Who holds a restricted asset, and who is frozen.
  *
- * Freeze/Unfreeze pedían las direcciones escritas a mano, que es donde se
- * cometen erratas y donde no se ve lo único que importa para decidir: quién
- * tiene tokens y quién ya está congelado. El nodo sabe ambas cosas.
+ * Freeze/Unfreeze asked for hand-typed addresses, which is where typos happen
+ * and where the only thing that matters for the decision is invisible: who
+ * holds tokens and who is already frozen. The node knows both.
  *
- * Sin imports y sin DOM a propósito: `node --test` lo carga tal cual, y así
- * la parte que decide qué se puede marcar se puede probar sin navegador.
+ * Import-free and DOM-free on purpose: `node --test` loads it as is, so the
+ * part that decides what can be selected is testable without a browser.
  */
 
-/** Una dirección que tiene el asset, con su estado de congelación. */
+/** An address holding the asset, with its freeze state. */
 export interface Holder {
   address: string;
-  /** Cantidad del asset, tal como la reporta el nodo. */
+  /** Asset amount, as the node reports it. */
   quantity: number;
   /**
-   * `true` congelada, `false` libre, `null` cuando el nodo no contestó.
-   * `null` no se traduce a `false`: «no lo sé» y «no está congelada» llevan
-   * a decisiones distintas, y el segundo sería una invención.
+   * `true` frozen, `false` free, `null` when the node did not answer.
+   * `null` is not folded into `false`: "I do not know" and "it is not frozen"
+   * lead to different decisions, and the second would be an invention.
    */
   frozen: boolean | null;
 }
 
 export interface HolderListing {
   holders: Holder[];
-  /** Cuántas direcciones tiene el asset en total, antes de recortar. */
+  /** How many addresses hold the asset in total, before truncating. */
   total: number;
-  /** True si se recortó la lista por el límite. */
+  /** True if the list was truncated by the limit. */
   truncated: boolean;
-  /** True si el asset está congelado globalmente. */
+  /** True if the asset is frozen globally. */
   globallyFrozen: boolean | null;
 }
 
@@ -36,42 +36,42 @@ export type FreezeMode = 'FREEZE' | 'UNFREEZE';
 
 type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
 
-/** Cuántas direcciones se traen como mucho: cada una cuesta una consulta. */
+/** How many addresses to fetch at most: each one costs a lookup. */
 export const DEFAULT_HOLDER_LIMIT = 200;
-/** Consultas de estado en vuelo a la vez. */
+/** State lookups in flight at once. */
 export const DEFAULT_CONCURRENCY = 6;
 
 /**
- * ¿Tiene sentido marcar esta dirección para esta operación?
+ * Does selecting this address make sense for this operation?
  *
- * Congelar la que ya está congelada, o descongelar la que no lo está, son
- * transacciones que el nodo rechaza: mejor no dejar marcarlas. Cuando el
- * estado es desconocido sí se deja marcar —el nodo sigue siendo la autoridad
- * y rechazará lo que no proceda—, porque bloquear por no haber podido leer
- * dejaría la lista inservible ante un fallo pasajero.
+ * Freezing one already frozen, or unfreezing one that is not, are
+ * transactions the node rejects: better not to allow selecting them. When the
+ * state is unknown selection IS allowed — the node remains the authority and
+ * will reject what does not apply — because blocking on a failed read would
+ * leave the list useless after a transient failure.
  *
- * @param holder - La dirección y su estado
- * @param mode - La operación que se va a hacer
- * @returns True si se puede marcar
+ * @param holder - The address and its state
+ * @param mode - The operation about to run
+ * @returns True if it can be selected
  */
 export function isSelectable(holder: Holder, mode: FreezeMode): boolean {
   if (holder.frozen === null) return true;
   return mode === 'FREEZE' ? !holder.frozen : holder.frozen;
 }
 
-/** Por qué no se puede marcar, para enseñarlo al lado. */
+/** Why it cannot be selected, to show next to it. */
 export function blockedReason(holder: Holder, mode: FreezeMode): string | null {
   if (isSelectable(holder, mode)) return null;
   return mode === 'FREEZE' ? 'Already frozen' : 'Not frozen';
 }
 
-/** Etiqueta del estado, incluida la incertidumbre. */
+/** State label, uncertainty included. */
 export function frozenLabel(holder: Holder): string {
   if (holder.frozen === null) return 'Status unknown';
   return holder.frozen ? 'Frozen' : 'Free';
 }
 
-/** Ejecuta `task` sobre cada elemento con como mucho `limit` a la vez. */
+/** Runs `task` over each item with at most `limit` in flight. */
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
   limit: number,
@@ -93,8 +93,8 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Normaliza lo que devuelve `listaddressesbyasset`, que es un objeto
- * `{direccion: cantidad}`.
+ * Normalises what `listaddressesbyasset` returns, an object of
+ * `{address: amount}`.
  */
 export function parseAddressBalances(raw: unknown): Array<{ address: string; quantity: number }> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
@@ -105,17 +105,17 @@ export function parseAddressBalances(raw: unknown): Array<{ address: string; qua
 }
 
 /**
- * Pide al nodo quién tiene el asset y en qué estado está cada dirección.
+ * Asks the node who holds the asset and what state each address is in.
  *
- * El estado se pregunta una vez por dirección —el nodo no ofrece una consulta
- * en bloque— con un tope de consultas simultáneas, porque contra un proxy
- * remoto cada una cuesta cientos de milisegundos y lanzarlas todas de golpe
- * es tan malo como hacerlas en fila.
+ * State is asked once per address — the node offers no bulk query — with a
+ * cap on simultaneous lookups, because against a remote proxy each one costs
+ * hundreds of milliseconds and firing them all at once is as bad as running
+ * them in sequence.
  *
- * @param rpc - Función RPC contra el nodo de la operación
- * @param assetName - El asset restringido ($NOMBRE)
- * @param options - `limit` de direcciones y `concurrency` de consultas
- * @returns La lista, cuántas hay en total y si se recortó
+ * @param rpc - RPC function bound to the operation's node
+ * @param assetName - The restricted asset ($NAME)
+ * @param options - `limit` of addresses and `concurrency` of lookups
+ * @returns The list, how many there are in total, and whether it was truncated
  */
 export async function loadHolders(
   rpc: RpcFn,
@@ -152,31 +152,32 @@ export async function loadHolders(
   };
 }
 
-/** Lo que una fila necesita pintar, ya decidido. */
+/** What a row needs to render, already decided. */
 export interface HolderRow {
   address: string;
   quantity: number;
-  /** Cantidad ya formateada para leer. */
+  /** Amount already formatted for reading. */
   quantityText: string;
-  /** `frozen` | `free` | `unknown`, para el color del distintivo. */
+  /** `frozen` | `free` | `unknown`, for the badge colour. */
   stateKind: 'frozen' | 'free' | 'unknown';
-  /** Lo que se lee en el distintivo: el motivo si está bloqueada. */
+  /** What the badge reads: the reason when it cannot be selected. */
   stateText: string;
-  /** El estado real, para el tooltip. */
+  /** The real state, for the tooltip. */
   stateTitle: string;
   selectable: boolean;
 }
 
 /**
- * Convierte los titulares en filas para la operación indicada.
+ * Turns holders into rows for the given operation.
  *
- * Vive aquí y no en el pintado porque lo que decide —qué se puede marcar y
- * qué se lee en cada fila— es justo lo que hay que poder probar sin navegador.
+ * It lives here and not in the rendering because what it decides — what can be
+ * selected and what each row reads — is exactly what must be testable without
+ * a browser.
  *
- * @param holders - Titulares tal como los devolvió el nodo
- * @param mode - La operación en curso
- * @param formatQuantity - Cómo formatear la cantidad (inyectable para probar)
- * @returns Una fila por titular
+ * @param holders - Holders as the node returned them
+ * @param mode - The operation in progress
+ * @param formatQuantity - How to format the amount (injectable for testing)
+ * @returns One row per holder
  */
 export function toHolderRows(
   holders: readonly Holder[],
@@ -199,15 +200,16 @@ export function toHolderRows(
 }
 
 /**
- * Quita de la selección lo que ya no procede.
+ * Drops from the selection whatever no longer applies.
  *
- * Al pasar de Freeze a Unfreeze las direcciones marcadas dejan de ser las
- * candidatas: mantenerlas marcadas mandaría al nodo una operación imposible.
+ * Switching from Freeze to Unfreeze makes the selected addresses stop being
+ * the candidates: keeping them selected would send the node an impossible
+ * operation.
  *
- * @param selection - Direcciones marcadas
- * @param holders - Titulares actuales
- * @param mode - La operación en curso
- * @returns Las direcciones que siguen siendo válidas
+ * @param selection - Selected addresses
+ * @param holders - Current holders
+ * @param mode - The operation in progress
+ * @returns The addresses that are still valid
  */
 export function pruneSelection(
   selection: Iterable<string>,
@@ -221,7 +223,7 @@ export function pruneSelection(
   });
 }
 
-/** Las direcciones que `Select all` debería marcar. */
+/** The addresses `Select all` should select. */
 export function selectableAddresses(
   holders: readonly Holder[],
   mode: FreezeMode

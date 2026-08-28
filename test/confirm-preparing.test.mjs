@@ -1,11 +1,11 @@
-// La ventana de confirmación mientras se prepara la transacción.
+// The confirm modal while a transaction is being prepared.
 //
-// Estos tests existen por un fallo publicado: al pintar el contenido real se
-// salía del estado de «preparación», y el cierre estaba condicionado a estar
-// en ese estado. Resultado: Cancel dejaba de cerrar la ventana y, como sí
-// ponía la transacción pendiente a null, el siguiente clic en Broadcast salía
-// por su `if (!pending) return` y también parecía muerto. Un fallo, dos
-// botones aparentemente rotos.
+// These tests exist because of a shipped bug: painting the real content left
+// the "preparing" state, and closing was conditional on being in that state.
+// Result: Cancel stopped closing the modal and, since it did set the pending
+// transaction to null, the next click on Broadcast fell out of its
+// `if (!pending) return` and looked dead too. One bug, two apparently broken
+// buttons.
 //
 // Run with:  npm test
 
@@ -17,7 +17,7 @@ import {
   READY_SUBTITLE
 } from '../src/popup/expanded/confirm-preparing.ts';
 
-/** Host que apunta el estado en el que va quedando la ventana. */
+/** Host that records the state the modal ends up in. */
 function fakeHost() {
   const state = {
     title: '', subtitle: '', status: '',
@@ -38,7 +38,7 @@ function fakeHost() {
   };
 }
 
-test('open deja la ventana abierta, en preparación y sin poder difundir', () => {
+test('open leaves the modal open, preparing and unable to broadcast', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   const token = c.open('Confirm Asset Transaction', 4);
@@ -54,31 +54,31 @@ test('open deja la ventana abierta, en preparación y sin poder difundir', () =>
   assert.equal(c.isPreparing(), true);
 });
 
-test('settle sale de la preparación pero NO cierra la ventana', () => {
+test('settle leaves the preparing state but does NOT close the modal', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   c.open('t');
   c.settle();
 
-  assert.equal(host.state.modalVisible, true, 'la ventana con el contenido real sigue abierta');
+  assert.equal(host.state.modalVisible, true, 'the modal with the real content stays open');
   assert.equal(host.state.preparing, false);
   assert.equal(host.state.progressVisible, false);
   assert.equal(host.state.subtitle, READY_SUBTITLE);
   assert.equal(c.isPreparing(), false);
 });
 
-test('LA REGRESIÓN: close cierra también después de settle', () => {
+test('THE REGRESSION: close also closes after settle', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   c.open('t');
-  c.settle();          // llegó la transacción, se pintó
-  c.close();           // el usuario pulsa Cancel
+  c.settle();          // the transaction arrived and was painted
+  c.close();           // the user presses Cancel
 
   assert.equal(host.state.modalVisible, false,
-    'Cancel debe cerrar la ventana con el contenido ya pintado');
+    'Cancel must close the modal once the content is painted');
 });
 
-test('close cierra también mientras se prepara', () => {
+test('close also closes while preparing', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   c.open('t');
@@ -88,7 +88,7 @@ test('close cierra también mientras se prepara', () => {
   assert.equal(host.state.preparing, false);
 });
 
-test('closeIfPreparing no toca una ventana ya asentada', () => {
+test('closeIfPreparing does not touch an already settled modal', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   c.open('t');
@@ -96,11 +96,11 @@ test('closeIfPreparing no toca una ventana ya asentada', () => {
   host.state.calls.length = 0;
   c.closeIfPreparing();
 
-  assert.equal(host.state.modalVisible, true, 'no debe cerrar lo que ya no prepara');
-  assert.deepEqual(host.state.calls, [], 'ni tocar la ventana en absoluto');
+  assert.equal(host.state.modalVisible, true, 'must not close what is no longer preparing');
+  assert.deepEqual(host.state.calls, [], 'nor touch the modal at all');
 });
 
-test('closeIfPreparing sí cierra si el fallo llega durante la preparación', () => {
+test('closeIfPreparing does close when the failure lands while preparing', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   c.open('t');
@@ -109,17 +109,17 @@ test('closeIfPreparing sí cierra si el fallo llega durante la preparación', ()
   assert.equal(host.state.modalVisible, false);
 });
 
-test('cancelar durante la preparación invalida su testigo', () => {
+test('cancelling while preparing invalidates its token', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   const token = c.open('t');
-  c.close();                       // Cancel mientras se construía
+  c.close();                       // Cancel while it was building
 
   assert.equal(c.isCurrent(token), false,
-    'el trabajo en vuelo no debe volver a abrir nada al terminar');
+    'the in-flight work must not reopen anything when it finishes');
 });
 
-test('una segunda preparación desbanca a la primera', () => {
+test('a second preparation supersedes the first', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   const first = c.open('t');
@@ -129,17 +129,17 @@ test('una segunda preparación desbanca a la primera', () => {
   assert.equal(c.isCurrent(second), true);
 });
 
-test('setProgress ignora un testigo ya caducado', () => {
+test('setProgress ignores an expired token', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   const stale = c.open('t');
   c.open('t');
-  c.setProgress(stale, 'de una operación anterior');
+  c.setProgress(stale, 'from an earlier operation');
 
-  assert.notEqual(host.state.status, 'de una operación anterior');
+  assert.notEqual(host.state.status, 'from an earlier operation');
 });
 
-test('abandon olvida la preparación sin tocar la ventana', () => {
+test('abandon forgets the preparation without touching the modal', () => {
   const host = fakeHost();
   const c = createConfirmPreparing(host);
   const token = c.open('t');

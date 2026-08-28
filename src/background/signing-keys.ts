@@ -1,10 +1,10 @@
-// Neurai Wallet — Material de clave para el signer local.
+// Neurai Wallet — key material for the local signer.
 //
-// Extrae la lógica inline de `signRawTxForPage` (legacy vs PQ) en helpers
-// reutilizables. **Preserva el comportamiento actual byte-a-byte**: los
-// mensajes de error, el orden de fallbacks y la llamada a
-// `NEURAI_UTILS.decryptTextWithPin` se mantienen idénticos al código
-// original de `background.ts:540-588`.
+// Extracts the inline logic of `signRawTxForPage` (legacy vs PQ) into
+// reusable helpers. **Preserves the current behaviour byte for byte**: the
+// error messages, the fallback order and the call to
+// `NEURAI_UTILS.decryptTextWithPin` stay identical to the original code in
+// `background.ts:540-588`.
 
 import { NEURAI_UTILS } from '../shared/utils.js';
 import type { WalletData, WalletSettings, WalletNetwork } from '../types/index.js';

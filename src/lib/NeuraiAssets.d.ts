@@ -178,11 +178,11 @@ declare global {
     checkAddressTag(address: string, qualifierName: string): Promise<boolean>;
     listTagsForAddress(address: string): Promise<string[]>;
     /**
-     * Un titular renuncia a su propio asset DePIN (1.6.0+). No necesita el
-     * token owner: la prueba es gastar su propia UTXO del asset.
+     * A holder renounces its own DEPIN asset (1.6.0+). No owner token needed:
+     * the proof is spending its own asset UTXO.
      */
     selfRevokeDepin(params: { assetName: string; holderAddress?: string }): Promise<NeuraiAssetsBuildResult>;
-    /** Direcciones con clave pública revelada (1.6.0+, el nodo necesita -pubkeyindex). */
+    /** Addresses with a revealed public key (1.6.0+, node needs -pubkeyindex). */
     listDepinAddresses(assetName: string, count?: number, start?: number): Promise<Array<{ address: string; pubkey: string }>>;
     listDepinHolders(assetName: string): Promise<unknown[]>;
     checkDepinValidity(assetName: string, address: string): Promise<unknown>;

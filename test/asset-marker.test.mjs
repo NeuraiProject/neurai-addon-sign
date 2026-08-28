@@ -73,16 +73,16 @@ test('a null reply is treated as a node without the field, not as a failure', as
   assert.equal(await resolveAssetMarker(rpcReturning(null)), 'rvn');
 });
 
-// --- Caché por sesión ---------------------------------------------------
+// --- Per-session cache ---------------------------------------------------
 //
-// Precalentar el marcador al abrir el formulario quita ~840 ms del camino
-// crítico de cada operación. Lo que hay que fijar es que la caché no cambie
-// el comportamiento observable: una consulta compartida, ninguna respuesta
-// cruzada entre redes, y un fallo que no deje la sesión inservible.
+// Warming the marker when the form opens takes ~840 ms off the critical path
+// of every operation. What must be pinned is that the cache does not change
+// observable behaviour: one shared lookup, no answer crossing between
+// networks, and a failure that does not leave the session unusable.
 
 import { createAssetMarkerCache } from '../src/popup/expanded/asset-marker.ts';
 
-/** RPC que cuenta llamadas y devuelve el marcador indicado. */
+/** RPC that counts calls and returns the given marker. */
 function markerRpc(marker, { fail = false } = {}) {
   const calls = [];
   const rpc = async (method) => {
@@ -93,7 +93,7 @@ function markerRpc(marker, { fail = false } = {}) {
   return { rpc, calls };
 }
 
-test('la caché consulta el nodo una sola vez por red', async () => {
+test('the cache queries the node once per network', async () => {
   const { rpc, calls } = markerRpc('xna');
   const cache = createAssetMarkerCache();
 
@@ -102,7 +102,7 @@ test('la caché consulta el nodo una sola vez por red', async () => {
   assert.deepEqual(calls, ['getblockchaininfo']);
 });
 
-test('dos operaciones simultáneas comparten una consulta', async () => {
+test('two simultaneous operations share one lookup', async () => {
   const { rpc, calls } = markerRpc('xna');
   const cache = createAssetMarkerCache();
 
@@ -115,20 +115,20 @@ test('dos operaciones simultáneas comparten una consulta', async () => {
   assert.equal(calls.length, 1);
 });
 
-test('cada red tiene su entrada: no se cruza la respuesta de otra', async () => {
+test('each network has its own entry: no answer crosses over', async () => {
   const cache = createAssetMarkerCache();
   const testnet = markerRpc('xna');
   const mainnet = markerRpc('rvn');
 
   assert.equal(await cache.resolve('xna-test', testnet.rpc), 'xna');
   assert.equal(await cache.resolve('xna', mainnet.rpc), 'rvn');
-  // Y ninguna de las dos ha invalidado a la otra.
+  // And neither has invalidated the other.
   assert.equal(await cache.resolve('xna-test', testnet.rpc), 'xna');
   assert.equal(testnet.calls.length, 1);
   assert.equal(mainnet.calls.length, 1);
 });
 
-test('un fallo se propaga y NO se queda cacheado', async () => {
+test('a failure propagates and is NOT cached', async () => {
   const cache = createAssetMarkerCache();
   const broken = markerRpc(null, { fail: true });
 
@@ -137,23 +137,23 @@ test('un fallo se propaga y NO se queda cacheado', async () => {
     /Cannot resolve the NIP-040 asset marker/
   );
 
-  // El siguiente intento vuelve a preguntar en vez de repetir el error.
+  // The next attempt asks again instead of repeating the error.
   const healthy = markerRpc('xna');
   assert.equal(await cache.resolve('xna-test', healthy.rpc), 'xna');
   assert.equal(healthy.calls.length, 1);
 });
 
-test('warm no lanza aunque el nodo falle, y resolve sigue dando el error', async () => {
+test('warm does not throw when the node fails, and resolve still errors', async () => {
   const cache = createAssetMarkerCache();
   const broken = markerRpc(null, { fail: true });
 
-  cache.warm('xna-test', broken.rpc);          // no debe reventar el hilo de UI
+  cache.warm('xna-test', broken.rpc);          // must not break the UI thread
   await new Promise((r) => setTimeout(r, 0));
 
   await assert.rejects(() => cache.resolve('xna-test', broken.rpc), /getblockchaininfo failed/);
 });
 
-test('warm deja el valor listo: resolve posterior no vuelve a consultar', async () => {
+test('warm leaves the value ready: a later resolve does not query again', async () => {
   const { rpc, calls } = markerRpc('xna');
   const cache = createAssetMarkerCache();
 
