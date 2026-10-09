@@ -9,6 +9,16 @@ import { isTxComplete } from '../shared/completeness.js';
 import { parseRawTransactionOutputs } from '../shared/parse-raw-tx.js';
 import { decodePrefixAddress } from '../shared/script-to-address.js';
 import { resolvePrivateKeysForSigning } from './signing-keys.js';
+import {
+  isPQNetwork,
+  isEcdsaNetwork,
+  isLegacyNetwork,
+  isTestnetNetwork,
+  toKeyNetwork,
+  walletFamily
+} from '../shared/networks.js';
+import { checkedJsonRpc } from '../shared/chain-identity.js';
+import { runWalletMigrations } from '../shared/migrations.js';
 import type {
   WalletData,
   WalletSettings,
@@ -66,18 +76,8 @@ function hexToBufferLike(hex: string): BufferLike {
   return bytes as BufferLike;
 }
 
-function isPQNetwork(network: string): network is Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'> {
-  return network === 'xna-pq' || network === 'xna-pq-test';
-}
-
-function isLegacySigningNetwork(
-  network: string
-): network is Extract<WalletNetwork, 'xna' | 'xna-test' | 'xna-legacy' | 'xna-legacy-test'> {
-  return network === 'xna' || network === 'xna-test' || network === 'xna-legacy' || network === 'xna-legacy-test';
-}
-
 function getRpcUrl(network: WalletNetwork | string = 'xna'): string {
-  if (NEURAI_UTILS.isTestnetNetwork(network)) {
+  if (isTestnetNetwork(network)) {
     return walletSettings.rpcTestnet || NEURAI_CONSTANTS.RPC_URL_TESTNET;
   }
   return walletSettings.rpcMainnet || NEURAI_CONSTANTS.RPC_URL;
@@ -87,10 +87,10 @@ function isHardwareWallet(wallet: WalletData | null): wallet is WalletData & { w
   return wallet?.walletType === 'hardware';
 }
 
-function getAuthScriptPQApprovalAddress(wallet: WalletData, network: Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'>): string {
+function getAuthScriptPQApprovalAddress(wallet: WalletData, network: WalletNetwork | string): string {
   if (!wallet.publicKey) return wallet.address;
   try {
-    return NeuraiKey.pqPublicKeyToAddress(network, wallet.publicKey);
+    return NeuraiKey.pqPublicKeyToAddress(toKeyNetwork(network) as NeuraiKeyPQNetwork, wallet.publicKey);
   } catch (error) {
     console.warn('[AuthScript PQ] failed to derive approval address from stored public key', {
       address: wallet.address,
@@ -104,6 +104,7 @@ function getAuthScriptPQApprovalAddress(wallet: WalletData, network: Extract<Wal
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 async function loadWalletData(): Promise<void> {
+  await migrateStoredWallets();
   const result = await chrome.storage.local.get([
     NEURAI_CONSTANTS.STORAGE_KEY,
     NEURAI_CONSTANTS.ACCOUNTS_KEY,
@@ -113,6 +114,24 @@ async function loadWalletData(): Promise<void> {
   const activeId = String(result[NEURAI_CONSTANTS.ACTIVE_ACCOUNT_KEY] || '1');
   const activeWallet = accounts && accounts[activeId] ? accounts[activeId] : null;
   walletData = activeWallet || (result[NEURAI_CONSTANTS.STORAGE_KEY] as WalletData | null) || null;
+}
+
+let storedWalletMigration: Promise<void> | null = null;
+
+/**
+ * Bring stored accounts to the neurai-key 5 address formats (see
+ * shared/migrations.ts), once per service-worker lifetime: accounts created
+ * afterwards already use them. A failure must not block the wallet.
+ */
+function migrateStoredWallets(): Promise<void> {
+  storedWalletMigration ??= runWalletMigrations({
+    accounts: NEURAI_CONSTANTS.ACCOUNTS_KEY,
+    activeWallet: NEURAI_CONSTANTS.STORAGE_KEY
+  }).then(
+    () => undefined,
+    (error) => console.warn('[migrations] stored wallet migration failed', error)
+  );
+  return storedWalletMigration;
 }
 
 async function loadWalletSettings(): Promise<void> {
@@ -224,20 +243,16 @@ function stopPolling(): void {
 }
 
 async function fetchBalance(address: string, network: WalletNetwork | string = 'xna'): Promise<string> {
-  const rpcUrl = getRpcUrl(network);
-  const response = await fetch(rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '1.0',
-      id: 'neurai-wallet-bg',
-      method: 'getaddressbalance',
-      params: [{ addresses: [address] }, false]
-    })
-  });
-  const data = await response.json() as { result: { balance: number }; error?: { message: string } };
-  if (data.error) throw new Error(data.error.message);
-  return (data.result.balance / 1e8).toFixed(8);
+  // Refuses a node of another chain first (the testnet before its reset
+  // answers like the new one), so a stale balance is never reported.
+  const result = await checkedJsonRpc(
+    getRpcUrl(network),
+    network,
+    'getaddressbalance',
+    [{ addresses: [address] }, false],
+    'neurai-wallet-bg'
+  ) as { balance: number };
+  return (result.balance / 1e8).toFixed(8);
 }
 
 // ── Message routing ───────────────────────────────────────────────────────────
@@ -359,7 +374,7 @@ async function signMessageForPage(
   } else {
     if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
         !walletData?.mnemonicEnc && !walletData?.mnemonic) {
-      return { error: 'No AuthScript PQ wallet configured' };
+      return { error: 'No PQ wallet configured' };
     }
   }
   if (!walletData!.address) return { error: 'No address available' };
@@ -385,7 +400,7 @@ async function signMessageForPage(
     let signingAddress = walletData!.address;
 
     if (isPQNetwork(network)) {
-      // AuthScript PQ signing: re-derive ML-DSA-44 keypair from mnemonic
+      // PQ signing: re-derive the ML-DSA-44 keypair from the mnemonic.
       const pin = approval.pin || '';
       let mnemonic: string | null = walletData!.mnemonic || null;
       if (!mnemonic && walletData!.mnemonicEnc) {
@@ -393,21 +408,23 @@ async function signMessageForPage(
         if (!pin) return { error: 'PIN is required to decrypt wallet key' };
         mnemonic = await NEURAI_UTILS.decryptTextWithPin(walletData!.mnemonicEnc, pin);
       }
-      if (!mnemonic) return { error: 'Unable to access wallet mnemonic for AuthScript PQ signing' };
+      if (!mnemonic) return { error: 'Unable to access wallet mnemonic for PQ signing' };
 
       let passphrase = '';
       if (walletData!.passphraseEnc) {
         passphrase = await NEURAI_UTILS.decryptTextWithPin(walletData!.passphraseEnc, pin) || '';
       }
 
-      const pqAddr = NeuraiKey.getPQAddress(network, mnemonic, 0, 0, passphrase || undefined);
+      const pqAddr = NeuraiKey.getPQAddress(toKeyNetwork(network) as NeuraiKeyPQNetwork, mnemonic, 0, 0, passphrase || undefined);
       const pqPrivKeyBytes = hexToBufferLike(pqAddr.privateKey);
       const pqPubKeyBytes = hexToBufferLike(pqAddr.publicKey);
-      signature = NeuraiMessage.signPQMessage(messageText, pqPrivKeyBytes, pqPubKeyBytes);
+      // A strict PQ v2 signature is bound to its address, like the node's
+      // signmessage: without it the signature does not verify for pq1z….
+      signature = NeuraiMessage.signPQMessage(messageText, pqPrivKeyBytes, pqPubKeyBytes, pqAddr.address);
       signingAddress = pqAddr.address;
 
       if (walletData!.address !== pqAddr.address || walletData!.publicKey !== pqAddr.publicKey) {
-        console.warn('[AuthScript PQ] wallet identity mismatch', {
+        console.warn('[PQ] wallet identity mismatch', {
           storedAddress: walletData!.address,
           storedPublicKey: walletData!.publicKey || null,
           derivedAddress: pqAddr.address,
@@ -416,8 +433,8 @@ async function signMessageForPage(
         });
         await syncActiveWalletIdentity(pqAddr.address, pqAddr.publicKey);
       }
-    } else if (isLegacySigningNetwork(network)) {
-      // Legacy ECDSA signing
+    } else if (isLegacyNetwork(network) || isEcdsaNetwork(network)) {
+      // secp256k1 signing: Legacy P2PKH or ECDSA witness v3.
       let privateKeyWif: string | null = walletData!.privateKey || null;
       if (!privateKeyWif && walletData!.privateKeyEnc) {
         if (!walletSettings.pinHash) return { error: 'Wallet key is encrypted but PIN is not configured' };
@@ -426,9 +443,16 @@ async function signMessageForPage(
       }
       if (!privateKeyWif) return { error: 'Unable to access wallet private key' };
 
-      const addrData = NeuraiKey.getAddressByWIF(network, privateKeyWif);
+      const addrData = NeuraiKey.getAddressByWIF(toKeyNetwork(network) as NeuraiKeyNetwork, privateKeyWif);
       const privateKeyBuffer = hexToBufferLike(addrData.privateKey);
-      signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true) as string;
+      if (isEcdsaNetwork(network)) {
+        // Bound to the nq1r… address like the node's signmessage; a plain
+        // Legacy signature of the same key does not verify for it.
+        signature = NeuraiMessage.signECDSAWitnessMessage(messageText, privateKeyBuffer, addrData.address);
+        signingAddress = addrData.address;
+      } else {
+        signature = NeuraiMessage.sign(messageText, privateKeyBuffer, true) as string;
+      }
     } else {
       return { error: `Unsupported wallet network: ${network}` };
     }
@@ -504,9 +528,11 @@ async function signRawTxForPage(
   await loadWalletSettings();
 
   const network = walletData?.network || 'xna';
+  // `legacy` covers every secp256k1 wallet, ECDSA witness v3 included: the
+  // key is a WIF and the library picks the template from each prevout.
   const walletKind: WalletSigningKind = isHardwareWallet(walletData)
     ? 'hardware'
-    : isPQNetwork(network)
+    : walletFamily(network) === 'pq'
     ? 'pq'
     : 'legacy';
 
@@ -540,7 +566,7 @@ async function signRawTxForPage(
   } else {
     if (!walletData?.seedKey && !walletData?.seedKeyEnc &&
         !walletData?.mnemonicEnc && !walletData?.mnemonic) {
-      return { error: 'No AuthScript PQ wallet configured' };
+      return { error: 'No PQ wallet configured' };
     }
   }
   if (!walletData!.address) return { error: 'No address available' };
@@ -625,10 +651,12 @@ async function signRawTxForPage(
     }));
 
     const signedHex: string = NeuraiSignTransaction.sign(
-      network,
+      toKeyNetwork(network) as NeuraiSignTransactionNetwork,
       txHex,
       signTxUtxos,
-      privateKeys
+      privateKeys,
+      // The library logs every step (sighashes included) unless told not to.
+      { debug: false }
     );
     const complete: boolean = isTxComplete(signedHex);
 
@@ -1143,19 +1171,15 @@ async function verifyOwnership(address: string, message: string, signature: stri
   await loadWalletSettings();
 
   try {
-    const response = await fetch(getRpcUrl(walletData?.network || 'xna'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '1.0',
-        id: 'neurai-wallet-verify',
-        method: 'verifymessage',
-        params: [address, signature, message]
-      })
-    });
-    const data = await response.json() as { result: boolean; error?: { message: string } };
-    if (data.error) return { error: data.error.message || 'RPC verification error' };
-    return { valid: data.result };
+    const network = walletData?.network || 'xna';
+    const valid = await checkedJsonRpc(
+      getRpcUrl(network),
+      network,
+      'verifymessage',
+      [address, signature, message],
+      'neurai-wallet-verify'
+    );
+    return { valid: !!valid };
   } catch (error) {
     return { error: (error as Error).message };
   }

@@ -12,10 +12,7 @@
 
 import { NEURAI_CONSTANTS } from './constants.js';
 import type { WalletNetwork, WalletSettings } from '../types/index.js';
-
-function isTestnetNetwork(network: WalletNetwork | string | undefined): boolean {
-  return network === 'xna-test' || network === 'xna-legacy-test' || network === 'xna-pq-test';
-}
+import { isTestnetNetwork } from './networks.js';
 
 /**
  * Resolve the block-explorer URL for a given `txid` and `network`. Returns

@@ -129,7 +129,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		  }
 		}
 
+		/** Required and available are exact display amounts, before any funding buffer. */
 		class InsufficientFundsError extends ValidationError {
+		  /**
+		   * @param {string} message
+		   * @param {number|string} required
+		   * @param {number|string} available
+		   */
 		  constructor(message, required, available) {
 		    super(message);
 		    this.name = 'InsufficientFundsError';
@@ -938,6 +944,64 @@ var NeuraiAssetsBundle = (function (exports) {
 		if (hasRequiredDist_1) return dist;
 		hasRequiredDist_1 = 1;
 
+		/** Exact monetary primitives. This module has no runtime dependencies. */
+		const SATS_PER_XNA = 100000000n;
+		const MAX_MONEY = 2100000000000000000n;
+		/** Normalize a raw integer without preserving an already rounded number. */
+		function toRawInteger(value, label = 'amount') {
+		    if (typeof value === 'bigint')
+		        return value;
+		    if (typeof value === 'number' && Number.isSafeInteger(value))
+		        return BigInt(value);
+		    if (typeof value === 'string' && /^-?\d+$/.test(value) && value.length <= 100)
+		        return BigInt(value);
+		    throw new Error(`${label}: expected an exact integer; use bigint or an integer string for large values`);
+		}
+		function assertMoneyRange(value, label = 'amount') {
+		    const raw = toRawInteger(value, label);
+		    if (raw < 0n || raw > MAX_MONEY)
+		        throw new Error(`${label} outside Neurai monetary range`);
+		    return raw;
+		}
+		/** Parse decimal units exactly, including scientific notation, with at most 8 decimals. */
+		function decimalToSatoshis(value) {
+		    if (typeof value !== 'string' && typeof value !== 'number')
+		        throw new Error('Expected decimal string or number');
+		    if (typeof value === 'number' && !Number.isFinite(value))
+		        throw new Error('Amount must be finite');
+		    const text = String(value);
+		    if (text.length > 100)
+		        throw new Error('Amount too long');
+		    const match = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(text);
+		    if (!match)
+		        throw new Error('Invalid decimal amount');
+		    const exponent = Number(match[4] ?? 0);
+		    if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 100)
+		        throw new Error('Invalid decimal exponent');
+		    const fraction = match[3] ?? '';
+		    const shift = 8 + exponent - fraction.length;
+		    let raw = BigInt(match[2] + fraction);
+		    if (shift >= 0)
+		        raw *= 10n ** BigInt(shift);
+		    else {
+		        const divisor = 10n ** BigInt(-shift);
+		        if (raw % divisor !== 0n)
+		            throw new Error('Amount has more than 8 decimals');
+		        raw /= divisor;
+		    }
+		    if (typeof value === 'number' && raw > BigInt(Number.MAX_SAFE_INTEGER) && !Number.isSafeInteger(value)) {
+		        throw new Error('Large fractional amounts must be supplied as decimal strings');
+		    }
+		    return match[1] ? -raw : raw;
+		}
+		/** Format signed raw units without converting to floating point. */
+		function satoshisToDecimal(value) {
+		    const raw = toRawInteger(value);
+		    const abs = raw < 0n ? -raw : raw;
+		    const fraction = (abs % SATS_PER_XNA).toString().padStart(8, '0').replace(/0+$/, '');
+		    return `${raw < 0n ? '-' : ''}${abs / SATS_PER_XNA}${fraction ? '.' + fraction : ''}`;
+		}
+
 		function ensureHex(hex, label = 'hex') {
 		    const normalized = String(hex || '').trim().toLowerCase();
 		    if (!/^[0-9a-f]*$/.test(normalized) || normalized.length % 2 !== 0) {
@@ -986,7 +1050,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return out;
 		}
 		function u64LE(value) {
-		    const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+		    const bigintValue = toRawInteger(value);
 		    if (bigintValue < 0n || bigintValue > 0xffffffffffffffffn) {
 		        throw new Error(`uint64 out of range: ${bigintValue}`);
 		    }
@@ -999,7 +1063,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return out;
 		}
 		function i64LE(value) {
-		    const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+		    const bigintValue = toRawInteger(value);
 		    if (bigintValue < -0x8000000000000000n || bigintValue > 0x7fffffffffffffffn) {
 		        throw new Error(`int64 out of range: ${bigintValue}`);
 		    }
@@ -1009,7 +1073,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return out;
 		}
 		function compactSize(value) {
-		    const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+		    const bigintValue = toRawInteger(value);
 		    if (bigintValue < 0n)
 		        throw new Error('CompactSize cannot encode negative numbers');
 		    if (bigintValue < 253n) {
@@ -1810,20 +1874,65 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		const LEGACY_MAINNET_PREFIX = 53;
 		const LEGACY_TESTNET_PREFIX = 127;
-		const PQ_MAINNET_HRP = 'nq';
-		const PQ_TESTNET_HRP = 'tnq';
 		const OP_XNA_ASSET = 0xc0;
 		const OP_DROP = 0x75;
 		const OP_1 = 0x51;
 		const OP_RESERVED = 0x50;
+		const WITNESS_FAMILIES = [
+		    {
+		        type: 'authscript',
+		        witnessVersion: 1,
+		        hrp: { mainnet: 'nc', testnet: 'tnc' },
+		        network: { mainnet: 'xna-authscript', testnet: 'xna-authscript-test' }
+		    },
+		    {
+		        type: 'pq',
+		        witnessVersion: 2,
+		        hrp: { mainnet: 'pq', testnet: 'tpq' },
+		        network: { mainnet: 'xna-pq', testnet: 'xna-pq-test' }
+		    },
+		    {
+		        type: 'ecdsa',
+		        witnessVersion: 3,
+		        hrp: { mainnet: 'nq', testnet: 'tnq' },
+		        network: { mainnet: 'xna', testnet: 'xna-test' }
+		    }
+		];
+		const AUTHSCRIPT_MAINNET_HRP = 'nc';
+		const AUTHSCRIPT_TESTNET_HRP = 'tnc';
+		const PQ_MAINNET_HRP = 'pq';
+		const PQ_TESTNET_HRP = 'tpq';
+		const ECDSA_MAINNET_HRP = 'nq';
+		const ECDSA_TESTNET_HRP = 'tnq';
+		/** The family that owns `hrp` (lowercase), with the chain it encodes. */
+		function witnessFamilyByHrp(hrp) {
+		    for (const family of WITNESS_FAMILIES) {
+		        if (family.hrp.mainnet === hrp)
+		            return { family, chain: 'mainnet' };
+		        if (family.hrp.testnet === hrp)
+		            return { family, chain: 'testnet' };
+		    }
+		    return undefined;
+		}
+		/** The family encoded by `witnessVersion`, or undefined for any other version. */
+		function witnessFamilyByVersion(witnessVersion) {
+		    return WITNESS_FAMILIES.find((family) => family.witnessVersion === witnessVersion);
+		}
+		/** `OP_1`, `OP_2` or `OP_3`: the scriptPubKey opcode of a witness version. */
+		function witnessVersionOpcode(witnessVersion) {
+		    if (!witnessFamilyByVersion(witnessVersion)) {
+		        throw new Error(`Unsupported AuthScript witness version: ${String(witnessVersion)} (expected 1, 2 or 3)`);
+		    }
+		    return OP_1 - 1 + witnessVersion;
+		}
 		/**
 		 * NIP-040 asset payload marker.
 		 *
 		 * Every transfer / new / owner / reissue payload opens with a 3-byte marker
 		 * followed by the type byte. The marker is consensus: blocks below the NIP-040
 		 * activation height of a network only accept `rvn` on new asset outputs and
-		 * blocks at or above it only accept `xna` (mainnet: not scheduled; testnet:
-		 * 303000; regtest: 1). This library does NOT know chain state and never
+		 * blocks at or above it only accept `xna` (mainnet: not scheduled; reset testnet:
+		 * 10; regtest: 1). This library does NOT know chain state and never
 		 * infers the marker from a network or an address: the caller passes the
 		 * value reported by the node for the next block
 		 * (`getblockchaininfo.asset_marker`, node commit 347362b) — or, when building
@@ -1866,35 +1975,62 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const [a, b, c] = ASSET_MARKER_BYTES[resolveAssetMarker(marker)];
 		    return Uint8Array.of(a, b, c, typeByte);
 		}
-		function inferNetworkFromAddress(address) {
-		    const normalized = resolveAddressInput(address).toLowerCase();
-		    if (normalized.startsWith(PQ_MAINNET_HRP + '1'))
-		        return 'xna-pq';
-		    if (normalized.startsWith(PQ_TESTNET_HRP + '1'))
-		        return 'xna-pq-test';
-		    if (normalized.startsWith('n'))
-		        return 'xna';
-		    if (normalized.startsWith('t'))
-		        return 'xna-test';
-		    throw new Error(`Unsupported Neurai address: ${address}`);
-		}
 
-		function decodeAddress(address) {
-		    const normalized = resolveAddressInput(address);
-		    const lowered = normalized.toLowerCase();
-		    if (!normalized)
-		        throw new Error('Address is required');
-		    if (lowered.startsWith(PQ_MAINNET_HRP + '1') || lowered.startsWith(PQ_TESTNET_HRP + '1')) {
-		        const decoded = distExports.bech32m.decode(normalized);
-		        const version = decoded.words[0];
-		        const program = Uint8Array.from(distExports.bech32m.fromWords(decoded.words.slice(1)));
-		        if (version !== 1 || program.length !== 32) {
-		            throw new Error(`Unsupported AuthScript address program for ${address}`);
-		        }
-		        const network = lowered.startsWith(PQ_TESTNET_HRP + '1') ? 'xna-pq-test' : 'xna-pq';
-		        return { address: normalized, type: 'authscript', network, program, commitment: program };
+		// Longest Bech32m string the node's decoder accepts (bech32.cpp).
+		const BECH32M_MAX_LENGTH = 90;
+		const AUTHSCRIPT_PROGRAM_LENGTH = 32;
+		function tryBech32mDecode(address) {
+		    try {
+		        const { prefix, words } = distExports.bech32m.decode(address, BECH32M_MAX_LENGTH);
+		        return { hrp: prefix.toLowerCase(), words };
 		    }
-		    const payload = Uint8Array.from(bs58check.decode(normalized));
+		    catch {
+		        return null;
+		    }
+		}
+		function decodeWitnessAddress(address, parts) {
+		    const owner = witnessFamilyByHrp(parts.hrp);
+		    if (!owner) {
+		        throw new Error(`Unsupported Bech32m prefix "${parts.hrp}" for ${address}`);
+		    }
+		    if (parts.words.length === 0) {
+		        throw new Error(`Empty witness program in ${address}`);
+		    }
+		    const version = parts.words[0];
+		    const { family, chain } = owner;
+		    if (version !== family.witnessVersion) {
+		        const actual = witnessFamilyByVersion(version);
+		        const hint = actual
+		            ? `; witness v${version} addresses use the "${actual.hrp[chain]}" prefix`
+		            : '';
+		        const legacyHint = family.type === 'ecdsa' && version === 1
+		            ? ' Generic AuthScript v1 addresses are now encoded as nc1p… / tnc1p… ' +
+		                '(same scriptPubKey): regenerate the address (neurai-key xna-authscript networks).'
+		            : '';
+		        throw new Error(`Address ${address}: the "${parts.hrp}" prefix only encodes witness v${family.witnessVersion}, ` +
+		            `not v${version}${hint}.${legacyHint}`);
+		    }
+		    let program;
+		    try {
+		        program = Uint8Array.from(distExports.bech32m.fromWords(parts.words.slice(1)));
+		    }
+		    catch {
+		        throw new Error(`Invalid witness program padding in ${address}`);
+		    }
+		    if (program.length !== AUTHSCRIPT_PROGRAM_LENGTH) {
+		        throw new Error(`Unsupported AuthScript program length ${program.length} for ${address} (expected ${AUTHSCRIPT_PROGRAM_LENGTH})`);
+		    }
+		    return {
+		        address,
+		        type: family.type,
+		        witnessVersion: family.witnessVersion,
+		        network: family.network[chain],
+		        program,
+		        commitment: program
+		    };
+		}
+		function decodeLegacyAddress(address) {
+		    const payload = Uint8Array.from(bs58check.decode(address));
 		    if (payload.length !== 21) {
 		        throw new Error(`Unsupported legacy address payload length for ${address}`);
 		    }
@@ -1903,44 +2039,135 @@ var NeuraiAssetsBundle = (function (exports) {
 		        throw new Error(`Unsupported legacy address prefix ${prefix} for ${address}`);
 		    }
 		    return {
-		        address: normalized,
+		        address,
 		        type: 'p2pkh',
-		        network: inferNetworkFromAddress(normalized),
+		        network: prefix === LEGACY_MAINNET_PREFIX ? 'xna-legacy' : 'xna-legacy-test',
 		        program: payload.slice(1),
 		        hash: payload.slice(1)
 		    };
 		}
+		/**
+		 * Decode a Neurai address the way the node does (base58.cpp
+		 * `DecodeDestination`): Bech32m first, Base58Check otherwise.
+		 *
+		 * - Base58 P2PKH → `type: 'p2pkh'`, network `xna-legacy` / `xna-legacy-test`
+		 *   (an `xna-old-legacy` address is indistinguishable and reports
+		 *   `xna-legacy`).
+		 * - Bech32m → `authscript` (v1, `nc`/`tnc`), `pq` (v2, `pq`/`tpq`) or
+		 *   `ecdsa` (v3, `nq`/`tnq`), with `witnessVersion` and the 32-byte
+		 *   commitment. Any other HRP/version pair is rejected, including the old
+		 *   `nq1p…` / `tnq1p…` encoding of generic AuthScript v1.
+		 *
+		 * The decoder does not know whether a witness family is active on the
+		 * target chain: before activation the node refuses v2/v3 addresses and a
+		 * witness output is anyone-can-spend.
+		 */
+		function decodeAddress(address) {
+		    const normalized = resolveAddressInput(address);
+		    if (!normalized)
+		        throw new Error('Address is required');
+		    const bech32mParts = tryBech32mDecode(normalized);
+		    if (bech32mParts) {
+		        return decodeWitnessAddress(normalized, bech32mParts);
+		    }
+		    try {
+		        return decodeLegacyAddress(normalized);
+		    }
+		    catch (legacyError) {
+		        // Not Base58 either. When the string carries a known Bech32m prefix the
+		        // Bech32m failure (bad checksum, mixed case…) is the useful diagnosis.
+		        const separator = normalized.lastIndexOf('1');
+		        const hrp = separator > 0 ? normalized.slice(0, separator).toLowerCase() : '';
+		        if (witnessFamilyByHrp(hrp)) {
+		            throw new Error(`Invalid Bech32m address ${normalized} (checksum, case or character error)`);
+		        }
+		        throw legacyError;
+		    }
+		}
+		/** Chain-family label of an address: see `decodeAddress`. */
+		function inferNetworkFromAddress(address) {
+		    return decodeAddress(address).network;
+		}
+		/** True for the Bech32m (AuthScript v1, PQ v2, ECDSA v3) destinations. */
+		function isWitnessDestination(destination) {
+		    return destination.type !== 'p2pkh';
+		}
+		/** `OP_n 0x20 <32-byte commitment>` for witness version `n` (1, 2 or 3). */
+		function encodeWitnessProgramScript(witnessVersion, commitment) {
+		    const bytes = typeof commitment === 'string' ? hexToBytes(commitment) : commitment;
+		    if (bytes.length !== AUTHSCRIPT_PROGRAM_LENGTH) {
+		        throw new Error(`AuthScript commitment must be ${AUTHSCRIPT_PROGRAM_LENGTH} bytes, got ${bytes.length}`);
+		    }
+		    return concatBytes(Uint8Array.of(witnessVersionOpcode(witnessVersion)), pushData(bytes));
+		}
 		function encodeP2PKHScript(address) {
 		    const destination = decodeAddress(address);
 		    if (destination.type !== 'p2pkh') {
-		        throw new Error(`Address ${address} is not legacy P2PKH`);
+		        throw new Error(`Address ${resolveAddressInput(address)} is not legacy P2PKH`);
 		    }
 		    return Uint8Array.of(0x76, 0xa9, 0x14, ...destination.hash, 0x88, 0xac);
 		}
+		/**
+		 * scriptPubKey of an AuthScript destination of any witness version:
+		 * `OP_1` (generic v1), `OP_2` (PQ) or `OP_3` (ECDSA) followed by the
+		 * 32-byte commitment.
+		 */
 		function encodeAuthScriptDestinationScript(address) {
 		    const destination = decodeAddress(address);
-		    if (destination.type !== 'authscript') {
-		        throw new Error(`Address ${address} is not AuthScript witness v1`);
+		    if (!isWitnessDestination(destination)) {
+		        throw new Error(`Address ${resolveAddressInput(address)} is not an AuthScript (witness v1, v2 or v3) address`);
 		    }
-		    return concatBytes(Uint8Array.of(OP_1), pushData(destination.commitment));
+		    return encodeWitnessProgramScript(destination.witnessVersion, destination.commitment);
 		}
 		function encodeDestinationScript(address) {
 		    const destination = decodeAddress(address);
-		    return destination.type === 'authscript'
-		        ? encodeAuthScriptDestinationScript(address)
+		    return isWitnessDestination(destination)
+		        ? encodeWitnessProgramScript(destination.witnessVersion, destination.commitment)
 		        : encodeP2PKHScript(address);
 		}
 		function encodeNullAssetDestinationScript(address, mode = 'strict') {
 		    const destination = decodeAddress(address);
-		    if (destination.type === 'authscript') {
+		    if (isWitnessDestination(destination)) {
 		        if (mode === 'hash20') {
 		            throw new Error('hash20 null-asset mode is not supported for AuthScript destinations');
 		        }
-		        return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_1), pushData(destination.commitment));
+		        return concatBytes(Uint8Array.of(OP_XNA_ASSET, witnessVersionOpcode(destination.witnessVersion)), pushData(destination.commitment));
 		    }
 		    return concatBytes(Uint8Array.of(OP_XNA_ASSET), pushData(destination.hash));
 		}
+		/**
+		 * @deprecated The name predates the PQ witness v2 family: it encodes every
+		 * AuthScript witness version. Use `encodeAuthScriptDestinationScript`.
+		 */
 		const encodePQWitnessScript = encodeAuthScriptDestinationScript;
+		/**
+		 * Classify a scriptPubKey by its destination prefix, ignoring any trailing
+		 * asset wrapper: `76a914<20>88ac…` is P2PKH, `5120<32>…`, `5220<32>…` and
+		 * `5320<32>…` are AuthScript v1 (generic), v2 (PQ) and v3 (ECDSA).
+		 */
+		function classifyScriptPubKey(script) {
+		    const bytes = typeof script === 'string' ? hexToBytes(script) : script;
+		    if (bytes.length >= 25 &&
+		        bytes[0] === 0x76 &&
+		        bytes[1] === 0xa9 &&
+		        bytes[2] === 0x14 &&
+		        bytes[23] === 0x88 &&
+		        bytes[24] === 0xac) {
+		        return { type: 'p2pkh', program: bytes.slice(3, 23), hasSuffix: bytes.length > 25 };
+		    }
+		    if (bytes.length >= 34 && bytes[1] === 0x20) {
+		        const family = witnessFamilyByVersion(bytes[0] - (OP_1 - 1));
+		        if (family) {
+		            return {
+		                type: family.type,
+		                witnessVersion: family.witnessVersion,
+		                program: bytes.slice(2, 34),
+		                hasSuffix: bytes.length > 34
+		            };
+		        }
+		    }
+		    return { type: 'unknown', hasSuffix: false };
+		}
 
 		const OWNER_ASSET_AMOUNT = 100000000n;
 		const UNIQUE_ASSET_AMOUNT = 100000000n;
@@ -2003,10 +2230,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		const NETWORK_FAMILY = {
 		    'xna': 'mainnet',
 		    'xna-legacy': 'mainnet',
+		    'xna-old-legacy': 'mainnet',
 		    'xna-pq': 'mainnet',
+		    'xna-authscript': 'mainnet',
 		    'xna-test': 'testnet',
 		    'xna-legacy-test': 'testnet',
-		    'xna-pq-test': 'testnet'
+		    'xna-pq-test': 'testnet',
+		    'xna-authscript-test': 'testnet'
 		};
 		/**
 		 * Resolve a network to its chain family, rejecting anything unrecognised.
@@ -2053,8 +2283,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return BURN_COSTS_XNA[operation] * multiplier;
 		}
 		function getBurnAmountSats(operation, multiplier = 1) {
-		    return BigInt(Math.round(getBurnAmountXna(operation, multiplier) * 1e8));
+		    return assertMoneyRange(decimalToSatoshis(BURN_COSTS_XNA[operation]) * assertMoneyRange(toRawInteger(multiplier, 'burn multiplier')));
 		}
+		/**
+		 * Network label of an address, from its encoding (see `decodeAddress`):
+		 * `xna-legacy[-test]` for Base58, `xna-authscript[-test]` for `nc1`/`tnc1`,
+		 * `xna-pq[-test]` for `pq1`/`tpq1` and `xna[-test]` for `nq1`/`tnq1`.
+		 */
 		function inferNetworkFromAnyAddress(address) {
 		    return inferNetworkFromAddress(address);
 		}
@@ -2116,7 +2351,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		}
 
 		function xnaToSatoshis(amount) {
-		    return BigInt(Math.round(Number(amount || 0) * 1e8));
+		    return assertMoneyRange(decimalToSatoshis(amount));
 		}
 		function assetUnitsToRaw(amount) {
 		    return xnaToSatoshis(amount);
@@ -2125,12 +2360,12 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const payload = [
 		        assetPayloadPrefix(options?.assetMarker, 'transfer'),
 		        serializeString(assetName),
-		        u64LE(amountRaw)
+		        u64LE(assertMoneyRange(amountRaw))
 		    ];
 		    const encodedMessage = encodeAssetDataReference(message);
 		    if (encodedMessage.length > 0) {
 		        payload.push(encodedMessage);
-		        if (expireTime !== undefined && BigInt(expireTime) !== 0n) {
+		        if (expireTime !== undefined && toRawInteger(expireTime) !== 0n) {
 		            payload.push(i64LE(expireTime));
 		        }
 		    }
@@ -2155,11 +2390,15 @@ var NeuraiAssetsBundle = (function (exports) {
 		}
 		/**
 		 * True when `script` is exactly the 34-byte AuthScript form
-		 * `OP_1 0x20 <32-byte commitment>`. Consensus only recognises the asset
-		 * wrapper when OP_XNA_ASSET sits at byte 34 after this exact prefix.
+		 * `OP_n 0x20 <32-byte commitment>`, with `OP_1` (generic v1), `OP_2` (PQ)
+		 * or `OP_3` (ECDSA). Consensus only recognises the asset wrapper when
+		 * OP_XNA_ASSET sits at byte 34 after this exact prefix; `OP_2` / `OP_3`
+		 * only where the strict AuthScript families are active.
 		 */
 		function isAuthScriptScript(script) {
-		    return script.length === 34 && script[0] === 0x51 && script[1] === 0x20;
+		    return (script.length === 34 &&
+		        (script[0] === 0x51 || script[0] === 0x52 || script[0] === 0x53) &&
+		        script[1] === 0x20);
 		}
 		/**
 		 * Like `encodeAssetTransferScript` but takes a raw scriptPubKey instead of
@@ -2167,7 +2406,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		 * scriptPubKey bytes.
 		 *
 		 * The recipient script must be exactly P2PKH (25 bytes) or AuthScript
-		 * `OP_1 <32B>` (34 bytes): the node's OP_XNA_ASSET placement rules only
+		 * `OP_n <32B>` (34 bytes, n = 1, 2 or 3): the node's OP_XNA_ASSET placement rules only
 		 * accept the asset wrapper right after one of those two prefixes, on every
 		 * network, so appending it to any other script (a bare covenant, P2SH, …)
 		 * produces a consensus-invalid output. To pay assets into an arbitrary
@@ -2190,14 +2429,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		    if (!isP2pkhScript(spkBytes) && !isAuthScriptScript(spkBytes)) {
 		        throw new Error('asset transfers to arbitrary scripts are rejected by consensus ' +
 		            '(OP_XNA_ASSET placement rules): the recipient scriptPubKey must be ' +
-		            'exactly P2PKH (25 bytes) or AuthScript OP_1 <32B> (34 bytes); ' +
+		            'exactly P2PKH (25 bytes) or AuthScript OP_1/OP_2/OP_3 <32B> (34 bytes); ' +
 		            'commit the script into an AuthScript destination instead');
 		    }
 		    return concatBytes(spkBytes, Uint8Array.of(OP_XNA_ASSET), pushData(encodeAssetTransferPayload(assetName, amountRaw, message, expireTime, options)), Uint8Array.of(OP_DROP));
 		}
 		function encodeNewAssetPayload(assetName, quantityRaw, units = 0, reissuable = true, ipfsHash, options) {
 		    const encodedIpfs = encodeAssetDataReference(ipfsHash);
-		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'new'), serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(units & 0xff, reissuable ? 1 : 0, encodedIpfs.length > 0 ? 1 : 0), encodedIpfs);
+		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'new'), serializeString(assetName), u64LE(assertMoneyRange(quantityRaw)), Uint8Array.of(units & 0xff, reissuable ? 1 : 0, encodedIpfs.length > 0 ? 1 : 0), encodedIpfs);
 		}
 		function encodeNewAssetScript(address, assetName, quantityRaw, units = 0, reissuable = true, ipfsHash, options) {
 		    return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeNewAssetPayload(assetName, quantityRaw, units, reissuable, ipfsHash, options)), Uint8Array.of(OP_DROP));
@@ -2241,7 +2480,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return resolved & 0xff;
 		}
 		function encodeReissueAssetPayload(assetName, quantityRaw, units, reissuable = true, ipfsHash, options) {
-		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'reissue'), serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(reissueUnitsByte(units), reissuable ? 1 : 0), encodeAssetDataReference(ipfsHash));
+		    return concatBytes(assetPayloadPrefix(options?.assetMarker, 'reissue'), serializeString(assetName), u64LE(assertMoneyRange(quantityRaw)), Uint8Array.of(reissueUnitsByte(units), reissuable ? 1 : 0), encodeAssetDataReference(ipfsHash));
 		}
 		function encodeReissueAssetScript(address, assetName, quantityRaw, units, reissuable = true, ipfsHash, options) {
 		    return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeReissueAssetPayload(assetName, quantityRaw, units, reissuable, ipfsHash, options)), Uint8Array.of(OP_DROP));
@@ -2270,7 +2509,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		}
 		function createXnaOutput(address, valueSats) {
 		    return {
-		        valueSats: typeof valueSats === 'bigint' ? valueSats : BigInt(valueSats),
+		        valueSats: assertMoneyRange(valueSats),
 		        scriptPubKeyHex: bytesToHex(encodeDestinationScript(address))
 		    };
 		}
@@ -2366,6 +2605,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return concatBytes(u64LE(output.valueSats), compactSize(scriptPubKey.length), scriptPubKey);
 		}
 		function createUnsignedTransaction(tx) {
+		    let total = 0n;
+		    for (const output of tx.outputs)
+		        total += assertMoneyRange(output.valueSats, 'output');
+		    assertMoneyRange(total, 'total outputs');
 		    const version = tx.version ?? 2;
 		    const locktime = tx.locktime ?? 0;
 		    const inputs = tx.inputs.map(serializeInput);
@@ -2386,10 +2629,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		    };
 		}
 		function appendXnaEnvelope(outputs, burnAddress, burnAmountSats, changeAddress, changeSats) {
-		    if (burnAddress && burnAmountSats !== undefined && BigInt(burnAmountSats) > 0n) {
+		    if (burnAddress && burnAmountSats !== undefined && toRawInteger(burnAmountSats) > 0n) {
 		        outputs.push(createXnaOutput(burnAddress, burnAmountSats));
 		    }
-		    if (changeAddress && changeSats !== undefined && BigInt(changeSats) > 0n) {
+		    if (changeAddress && changeSats !== undefined && toRawInteger(changeSats) > 0n) {
 		        outputs.push(createXnaOutput(changeAddress, changeSats));
 		    }
 		}
@@ -2507,7 +2750,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		function createIssueDepinTransaction(params) {
 		    assertDepinAssetName(params.assetName);
 		    assertDepinNetwork(params.network);
-		    if (BigInt(params.quantityRaw) <= 0n) {
+		    if (toRawInteger(params.quantityRaw) <= 0n) {
 		        throw new Error('DEPIN issue quantity must be positive');
 		    }
 		    if (params.reissuable !== undefined && typeof params.reissuable !== 'boolean') {
@@ -2544,7 +2787,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		        if (transfer.assetName !== assetName) {
 		            throw new Error(`DEPIN transfers must all move the same asset (got ${transfer.assetName} and ${assetName}); build one transaction per DEPIN asset`);
 		        }
-		        if (BigInt(transfer.amountRaw) <= 0n) {
+		        if (toRawInteger(transfer.amountRaw) <= 0n) {
 		            throw new Error(`DEPIN transfer amount must be positive: ${assetName}`);
 		        }
 		    }
@@ -2562,7 +2805,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		function createDepinSelfRevokeTransaction(params) {
 		    assertDepinAssetName(params.assetName);
 		    assertDepinNetwork(params.network);
-		    if (BigInt(params.amountRaw) <= 0n) {
+		    if (toRawInteger(params.amountRaw) <= 0n) {
 		        throw new Error('DEPIN self-revoke amount must be positive');
 		    }
 		    // Exact consensus pattern: one self-transfer of "&X" back to the holder plus
@@ -3518,17 +3761,28 @@ var NeuraiAssetsBundle = (function (exports) {
 		    return { size, strippedSize, weight, vsize: Math.ceil(weight / 4) };
 		}
 
+		dist.AUTHSCRIPT_MAINNET_HRP = AUTHSCRIPT_MAINNET_HRP;
+		dist.AUTHSCRIPT_TESTNET_HRP = AUTHSCRIPT_TESTNET_HRP;
 		dist.DEFAULT_ASSET_MARKER = DEFAULT_ASSET_MARKER;
 		dist.DEPIN_MAX_NAME_LENGTH = DEPIN_MAX_NAME_LENGTH;
+		dist.ECDSA_MAINNET_HRP = ECDSA_MAINNET_HRP;
+		dist.ECDSA_TESTNET_HRP = ECDSA_TESTNET_HRP;
+		dist.MAX_MONEY = MAX_MONEY;
 		dist.OWNER_ASSET_AMOUNT = OWNER_ASSET_AMOUNT;
+		dist.PQ_MAINNET_HRP = PQ_MAINNET_HRP;
+		dist.PQ_TESTNET_HRP = PQ_TESTNET_HRP;
 		dist.REGTEST_GLOBAL_BURN_ADDRESS = REGTEST_GLOBAL_BURN_ADDRESS;
+		dist.SATS_PER_XNA = SATS_PER_XNA;
 		dist.UNIQUE_ASSETS_REISSUABLE = UNIQUE_ASSETS_REISSUABLE;
 		dist.UNIQUE_ASSET_AMOUNT = UNIQUE_ASSET_AMOUNT;
 		dist.UNIQUE_ASSET_UNITS = UNIQUE_ASSET_UNITS;
+		dist.WITNESS_FAMILIES = WITNESS_FAMILIES;
 		dist.assertDepinAssetName = assertDepinAssetName;
 		dist.assertDepinNetwork = assertDepinNetwork;
+		dist.assertMoneyRange = assertMoneyRange;
 		dist.assetPayloadPrefix = assetPayloadPrefix;
 		dist.assetUnitsToRaw = assetUnitsToRaw;
+		dist.classifyScriptPubKey = classifyScriptPubKey;
 		dist.computeTxid = computeTxid;
 		dist.computeWtxid = computeWtxid;
 		dist.createAssetTransferOutput = createAssetTransferOutput;
@@ -3561,6 +3815,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		dist.createUnsignedTransaction = createUnsignedTransaction;
 		dist.createVerifierStringOutput = createVerifierStringOutput;
 		dist.createXnaOutput = createXnaOutput;
+		dist.decimalToSatoshis = decimalToSatoshis;
 		dist.decodeAddress = decodeAddress;
 		dist.decodeAssetDataReferenceHex = decodeAssetDataReferenceHex;
 		dist.encodeAssetDataReference = encodeAssetDataReference;
@@ -3585,6 +3840,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		dist.encodeReissueAssetScript = encodeReissueAssetScript;
 		dist.encodeVerifierStringPayload = encodeVerifierStringPayload;
 		dist.encodeVerifierStringScript = encodeVerifierStringScript;
+		dist.encodeWitnessProgramScript = encodeWitnessProgramScript;
 		dist.estimateTransactionSize = estimateTransactionSize;
 		dist.formatAssetDataReferenceHex = formatAssetDataReferenceHex;
 		dist.getBurnAddressForOperation = getBurnAddressForOperation;
@@ -3599,13 +3855,16 @@ var NeuraiAssetsBundle = (function (exports) {
 		dist.isEncodedAssetDataReferenceHex = isEncodedAssetDataReferenceHex;
 		dist.isRawAssetDataReferenceHex = isRawAssetDataReferenceHex;
 		dist.isTxidAssetReference = isTxidAssetReference;
+		dist.isWitnessDestination = isWitnessDestination;
 		dist.normalizeVerifierString = normalizeVerifierString;
 		dist.parseTransaction = parseTransaction;
 		dist.resolveAddressInput = resolveAddressInput;
 		dist.resolveAssetMarker = resolveAssetMarker;
+		dist.satoshisToDecimal = satoshisToDecimal;
 		dist.serializeInput = serializeInput;
 		dist.serializeOutput = serializeOutput;
 		dist.serializeTransaction = serializeTransaction;
+		dist.toRawInteger = toRawInteger;
 		dist.xnaToSatoshis = xnaToSatoshis;
 		
 		return dist;
@@ -3713,6 +3972,247 @@ var NeuraiAssetsBundle = (function (exports) {
 		return fees;
 	}
 
+	var networks;
+	var hasRequiredNetworks;
+
+	function requireNetworks () {
+		if (hasRequiredNetworks) return networks;
+		hasRequiredNetworks = 1;
+		const { decodeAddress } = requireDist_1();
+
+		/**
+		 * Network Configuration for Neurai
+		 *
+		 * Network labels name a chain family. `xna` / `xna-test` are the canonical
+		 * labels (legacy address flows) and `xna-pq` / `xna-pq-test` the AuthScript
+		 * flows. The labels of neurai-key 5 (`xna-legacy[-test]`, `xna-old-legacy`,
+		 * `xna-authscript[-test]`) are accepted as aliases of their family: in this
+		 * package a label never selects an address type, the address itself does.
+		 */
+
+		const MAINNET_NETWORKS = [
+		  'xna', 'mainnet', 'xna-pq', 'mainnet-pq', 'xna-legacy', 'xna-old-legacy', 'xna-authscript'
+		];
+		const TESTNET_NETWORKS = [
+		  'xna-test', 'testnet', 'regtest', 'xna-pq-test', 'testnet-pq', 'xna-legacy-test', 'xna-authscript-test'
+		];
+
+		/** Labels that select the AuthScript configuration of their family. */
+		const AUTHSCRIPT_NETWORKS = ['xna-pq', 'mainnet-pq', 'xna-authscript', 'xna-pq-test', 'testnet-pq', 'xna-authscript-test'];
+
+		/**
+		 * Address prefixes per chain. Every Bech32m prefix only goes with one witness
+		 * version (node base58.cpp `DecodeDestination`):
+		 *   authScript: generic AuthScript witness v1 (nc1p… / tnc1p…)
+		 *   pq:         strict PQ witness v2 (pq1z… / tpq1z…)
+		 *   ecdsa:      strict ECDSA witness v3 (nq1r… / tnq1r…)
+		 */
+		const MAINNET_PREFIXES = {
+		  addressPrefix: 'N',
+		  authScriptAddressPrefix: 'nc1',
+		  pqAddressPrefix: 'pq1',
+		  ecdsaAddressPrefix: 'nq1'
+		};
+		const TESTNET_PREFIXES = {
+		  addressPrefix: 't',
+		  authScriptAddressPrefix: 'tnc1',
+		  pqAddressPrefix: 'tpq1',
+		  ecdsaAddressPrefix: 'tnq1'
+		};
+
+		const NETWORKS = {
+		  MAINNET: {
+		    name: 'xna',
+		    displayName: 'Neurai Mainnet',
+		    ...MAINNET_PREFIXES,
+		    assetNameMaxLength: 31,
+		    defaultRPCPort: 19001,
+		    coin: 'XNA',
+		    baseNetwork: 'xna'
+		  },
+		  TESTNET: {
+		    name: 'xna-test',
+		    displayName: 'Neurai Testnet',
+		    ...TESTNET_PREFIXES,
+		    assetNameMaxLength: 121, // DePIN networks (testnet/regtest) extend the cap
+		    defaultRPCPort: 19101,
+		    coin: 'TXNA',
+		    baseNetwork: 'xna-test'
+		  },
+		  MAINNET_PQ: {
+		    name: 'xna-pq',
+		    displayName: 'Neurai Mainnet AuthScript',
+		    ...MAINNET_PREFIXES,
+		    assetNameMaxLength: 31,
+		    defaultRPCPort: 19001,
+		    coin: 'XNA',
+		    baseNetwork: 'xna'
+		  },
+		  TESTNET_PQ: {
+		    name: 'xna-pq-test',
+		    displayName: 'Neurai Testnet AuthScript',
+		    ...TESTNET_PREFIXES,
+		    assetNameMaxLength: 121,
+		    defaultRPCPort: 19101,
+		    coin: 'TXNA',
+		    baseNetwork: 'xna-test'
+		  }
+		};
+
+		/**
+		 * Asset naming helpers.
+		 * Network-specific maximum lengths are enforced in AssetNameValidator.
+		 */
+		const ASSET_NAME_RULES = {
+		  ROOT: {
+		    minLength: 3,
+		    maxLength: 31,
+		    pattern: /^[A-Z0-9_.]+$/,
+		    reserved: ['XNA', 'NEURAI', 'NEURAICOIN']
+		  },
+		  SUB: {
+		    minLength: 1,
+		    maxLength: 31,
+		    pattern: /^[A-Z0-9_.]+$/,
+		    separator: '/',
+		    maxDepth: null
+		  },
+		  UNIQUE: {
+		    minLength: 1,
+		    maxLength: 32,
+		    pattern: /^[-A-Za-z0-9@$%&*()[\]{}_.?:]+$/,
+		    separator: '#'
+		  },
+		  QUALIFIER: {
+		    minLength: 3,
+		    maxLength: 32,
+		    pattern: /^[A-Z0-9_.]+$/,
+		    prefix: '#',
+		    separator: '/'
+		  },
+		  RESTRICTED: {
+		    minLength: 3,
+		    maxLength: 32,
+		    pattern: /^[A-Z0-9_.]+$/,
+		    prefix: '$'
+		  },
+		  DEPIN: {
+		    minLength: 3,
+		    maxLength: 121,
+		    pattern: /^[A-Z0-9_.]+$/,
+		    prefix: '&',
+		    separator: '/'
+		  }
+		};
+
+		/**
+		 * Asset quantity limits
+		 */
+		const ASSET_LIMITS = {
+		  MIN_QUANTITY: 1,
+		  MAX_QUANTITY: 21000000000,  // 21 billion (same as Bitcoin's 21M with 3 extra decimals)
+		  MIN_UNITS: 0,
+		  MAX_UNITS: 8,
+		  OWNER_TOKEN_QUANTITY: 1,    // Owner tokens are always exactly 1
+		  QUALIFIER_MIN_QUANTITY: 1,
+		  QUALIFIER_MAX_QUANTITY: 10  // Qualifiers are limited to 1-10 units
+		};
+
+		/**
+		 * Get network configuration
+		 * `xna-pq` / `xna-pq-test` (and neurai-key 5's `xna-authscript[-test]`)
+		 * select the AuthScript configuration of the same mainnet/testnet family.
+		 *
+		 * @param {string} networkName - Any label of MAINNET_NETWORKS / TESTNET_NETWORKS
+		 * @returns {object} Network configuration
+		 */
+		function getNetworkConfig(networkName) {
+		  if (MAINNET_NETWORKS.includes(networkName)) {
+		    return AUTHSCRIPT_NETWORKS.includes(networkName)
+		      ? NETWORKS.MAINNET_PQ
+		      : NETWORKS.MAINNET;
+		  } else if (TESTNET_NETWORKS.includes(networkName)) {
+		    return AUTHSCRIPT_NETWORKS.includes(networkName)
+		      ? NETWORKS.TESTNET_PQ
+		      : NETWORKS.TESTNET;
+		  } else {
+		    throw new Error(`Unknown network: ${networkName}`);
+		  }
+		}
+
+		/**
+		 * Resolve a network name to its chain family.
+		 * AuthScript aliases share the same family as legacy addresses.
+		 *
+		 * @param {string} networkName - Network name
+		 * @returns {'mainnet'|'testnet'} Network family
+		 */
+		function resolveAddressNetworkFamily(networkName) {
+		  if (MAINNET_NETWORKS.includes(networkName)) {
+		    return 'mainnet';
+		  }
+
+		  if (TESTNET_NETWORKS.includes(networkName)) {
+		    return 'testnet';
+		  }
+
+		  throw new Error(`Unknown network: ${networkName}`);
+		}
+
+		/**
+		 * Determine whether two network labels are compatible for address use.
+		 * This treats legacy and AuthScript labels on the same chain as compatible.
+		 *
+		 * @param {string} left - First network name
+		 * @param {string} right - Second network name
+		 * @returns {boolean} True if both belong to the same chain family
+		 */
+		function areAddressNetworksCompatible(left, right) {
+		  return resolveAddressNetworkFamily(left) === resolveAddressNetworkFamily(right);
+		}
+
+		/**
+		 * Detect the network family of an address by decoding it (the node's rules,
+		 * through neurai-create-transaction `decodeAddress`).
+		 *
+		 * Base58 P2PKH addresses report `xna` / `xna-test`; every Bech32m AuthScript
+		 * address — generic v1 (`nc1p…`), strict PQ v2 (`pq1z…`) and strict ECDSA v3
+		 * (`nq1r…`) — reports `xna-pq` / `xna-pq-test`, this package's AuthScript
+		 * label. The old `nq1p…` / `tnq1p…` encoding of generic v1 is not an address
+		 * anymore and throws, like in the node.
+		 *
+		 * @param {string} address - Neurai address
+		 * @returns {string} Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		 */
+		function detectNetworkFromAddress(address) {
+		  let decoded;
+		  try {
+		    decoded = decodeAddress(address);
+		  } catch (error) {
+		    throw new Error(`Cannot detect network from address: ${address} (${error.message})`);
+		  }
+		  const testnet = decoded.network.endsWith('-test');
+		  if (decoded.type === 'p2pkh') {
+		    return testnet ? 'xna-test' : 'xna';
+		  }
+		  return testnet ? 'xna-pq-test' : 'xna-pq';
+		}
+
+		networks = {
+		  NETWORKS,
+		  MAINNET_NETWORKS,
+		  TESTNET_NETWORKS,
+		  AUTHSCRIPT_NETWORKS,
+		  ASSET_NAME_RULES,
+		  ASSET_LIMITS,
+		  getNetworkConfig,
+		  resolveAddressNetworkFamily,
+		  areAddressNetworksCompatible,
+		  detectNetworkFromAddress
+		};
+		return networks;
+	}
+
 	/**
 	 * Burn Addresses for Asset Operations
 	 * Different addresses for mainnet and testnet
@@ -3724,8 +4224,7 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireBurnAddresses () {
 		if (hasRequiredBurnAddresses) return burnAddresses;
 		hasRequiredBurnAddresses = 1;
-		const MAINNET_NETWORKS = ['xna', 'mainnet', 'xna-pq', 'mainnet-pq'];
-		const TESTNET_NETWORKS = ['xna-test', 'testnet', 'regtest', 'xna-pq-test', 'testnet-pq'];
+		const { MAINNET_NETWORKS, TESTNET_NETWORKS } = requireNetworks();
 
 		function resolveNetworkFamily(network) {
 		  if (MAINNET_NETWORKS.includes(network)) {
@@ -3832,213 +4331,6 @@ var NeuraiAssetsBundle = (function (exports) {
 		  isBurnAddress
 		};
 		return burnAddresses;
-	}
-
-	/**
-	 * Network Configuration for Neurai
-	 */
-
-	var networks;
-	var hasRequiredNetworks;
-
-	function requireNetworks () {
-		if (hasRequiredNetworks) return networks;
-		hasRequiredNetworks = 1;
-		const MAINNET_NETWORKS = ['xna', 'mainnet', 'xna-pq', 'mainnet-pq'];
-		const TESTNET_NETWORKS = ['xna-test', 'testnet', 'regtest', 'xna-pq-test', 'testnet-pq'];
-
-		const NETWORKS = {
-		  MAINNET: {
-		    name: 'xna',
-		    displayName: 'Neurai Mainnet',
-		    addressPrefix: 'N',
-		    authScriptAddressPrefix: 'nq1',
-		    pqAddressPrefix: 'nq1',
-		    assetNameMaxLength: 31,
-		    defaultRPCPort: 19001,
-		    coin: 'XNA',
-		    baseNetwork: 'xna'
-		  },
-		  TESTNET: {
-		    name: 'xna-test',
-		    displayName: 'Neurai Testnet',
-		    addressPrefix: 't',
-		    authScriptAddressPrefix: 'tnq1',
-		    pqAddressPrefix: 'tnq1',
-		    assetNameMaxLength: 121, // DePIN networks (testnet/regtest) extend the cap
-		    defaultRPCPort: 19101,
-		    coin: 'TXNA',
-		    baseNetwork: 'xna-test'
-		  },
-		  MAINNET_PQ: {
-		    name: 'xna-pq',
-		    displayName: 'Neurai Mainnet AuthScript',
-		    addressPrefix: 'N',
-		    authScriptAddressPrefix: 'nq1',
-		    pqAddressPrefix: 'nq1',
-		    assetNameMaxLength: 31,
-		    defaultRPCPort: 19001,
-		    coin: 'XNA',
-		    baseNetwork: 'xna'
-		  },
-		  TESTNET_PQ: {
-		    name: 'xna-pq-test',
-		    displayName: 'Neurai Testnet AuthScript',
-		    addressPrefix: 't',
-		    authScriptAddressPrefix: 'tnq1',
-		    pqAddressPrefix: 'tnq1',
-		    assetNameMaxLength: 121,
-		    defaultRPCPort: 19101,
-		    coin: 'TXNA',
-		    baseNetwork: 'xna-test'
-		  }
-		};
-
-		/**
-		 * Asset naming helpers.
-		 * Network-specific maximum lengths are enforced in AssetNameValidator.
-		 */
-		const ASSET_NAME_RULES = {
-		  ROOT: {
-		    minLength: 3,
-		    maxLength: 31,
-		    pattern: /^[A-Z0-9_.]+$/,
-		    reserved: ['XNA', 'NEURAI', 'NEURAICOIN']
-		  },
-		  SUB: {
-		    minLength: 1,
-		    maxLength: 31,
-		    pattern: /^[A-Z0-9_.]+$/,
-		    separator: '/',
-		    maxDepth: null
-		  },
-		  UNIQUE: {
-		    minLength: 1,
-		    maxLength: 32,
-		    pattern: /^[-A-Za-z0-9@$%&*()[\]{}_.?:]+$/,
-		    separator: '#'
-		  },
-		  QUALIFIER: {
-		    minLength: 3,
-		    maxLength: 32,
-		    pattern: /^[A-Z0-9_.]+$/,
-		    prefix: '#',
-		    separator: '/'
-		  },
-		  RESTRICTED: {
-		    minLength: 3,
-		    maxLength: 32,
-		    pattern: /^[A-Z0-9_.]+$/,
-		    prefix: '$'
-		  },
-		  DEPIN: {
-		    minLength: 3,
-		    maxLength: 121,
-		    pattern: /^[A-Z0-9_.]+$/,
-		    prefix: '&',
-		    separator: '/'
-		  }
-		};
-
-		/**
-		 * Asset quantity limits
-		 */
-		const ASSET_LIMITS = {
-		  MIN_QUANTITY: 1,
-		  MAX_QUANTITY: 21000000000,  // 21 billion (same as Bitcoin's 21M with 3 extra decimals)
-		  MIN_UNITS: 0,
-		  MAX_UNITS: 8,
-		  OWNER_TOKEN_QUANTITY: 1,    // Owner tokens are always exactly 1
-		  QUALIFIER_MIN_QUANTITY: 1,
-		  QUALIFIER_MAX_QUANTITY: 10  // Qualifiers are limited to 1-10 units
-		};
-
-		/**
-		 * Get network configuration
-		 * `xna-pq` / `xna-pq-test` are preserved as compatibility aliases for
-		 * AuthScript address flows on the same mainnet/testnet families.
-		 *
-		 * @param {string} networkName - Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
-		 * @returns {object} Network configuration
-		 */
-		function getNetworkConfig(networkName) {
-		  if (MAINNET_NETWORKS.includes(networkName)) {
-		    return networkName === 'xna-pq' || networkName === 'mainnet-pq'
-		      ? NETWORKS.MAINNET_PQ
-		      : NETWORKS.MAINNET;
-		  } else if (TESTNET_NETWORKS.includes(networkName)) {
-		    return networkName === 'xna-pq-test' || networkName === 'testnet-pq'
-		      ? NETWORKS.TESTNET_PQ
-		      : NETWORKS.TESTNET;
-		  } else {
-		    throw new Error(`Unknown network: ${networkName}`);
-		  }
-		}
-
-		/**
-		 * Resolve a network name to its chain family.
-		 * AuthScript aliases share the same family as legacy addresses.
-		 *
-		 * @param {string} networkName - Network name
-		 * @returns {'mainnet'|'testnet'} Network family
-		 */
-		function resolveAddressNetworkFamily(networkName) {
-		  if (MAINNET_NETWORKS.includes(networkName)) {
-		    return 'mainnet';
-		  }
-
-		  if (TESTNET_NETWORKS.includes(networkName)) {
-		    return 'testnet';
-		  }
-
-		  throw new Error(`Unknown network: ${networkName}`);
-		}
-
-		/**
-		 * Determine whether two network labels are compatible for address use.
-		 * This treats legacy and AuthScript labels on the same chain as compatible.
-		 *
-		 * @param {string} left - First network name
-		 * @param {string} right - Second network name
-		 * @returns {boolean} True if both belong to the same chain family
-		 */
-		function areAddressNetworksCompatible(left, right) {
-		  return resolveAddressNetworkFamily(left) === resolveAddressNetworkFamily(right);
-		}
-
-		/**
-		 * Detect network from address prefix.
-		 * `nq1...` / `tnq1...` are AuthScript witness-v1 destinations.
-		 *
-		 * @param {string} address - Neurai address
-		 * @returns {string} Network name ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
-		 */
-		function detectNetworkFromAddress(address) {
-		  if (address.startsWith(NETWORKS.MAINNET_PQ.authScriptAddressPrefix)) {
-		    return 'xna-pq';
-		  } else if (address.startsWith(NETWORKS.TESTNET_PQ.authScriptAddressPrefix)) {
-		    return 'xna-pq-test';
-		  } else if (address.startsWith('N')) {
-		    return 'xna';
-		  } else if (address.startsWith('t')) {
-		    return 'xna-test';
-		  } else {
-		    throw new Error(`Cannot detect network from address: ${address}`);
-		  }
-		}
-
-		networks = {
-		  NETWORKS,
-		  MAINNET_NETWORKS,
-		  TESTNET_NETWORKS,
-		  ASSET_NAME_RULES,
-		  ASSET_LIMITS,
-		  getNetworkConfig,
-		  resolveAddressNetworkFamily,
-		  areAddressNetworksCompatible,
-		  detectNetworkFromAddress
-		};
-		return networks;
 	}
 
 	/**
@@ -4590,9 +4882,435 @@ var NeuraiAssetsBundle = (function (exports) {
 	}
 
 	/**
-	 * Amount Converter
-	 * Converts between user amounts and satoshis (protocol internal format)
+	 * Exact amount conversion for the canonical createTransactionBuild contract.
+	 *
+	 * Everything the chain encodes in a transaction is an integer:
+	 *   - XNA values are 10^8 sats;
+	 *   - asset payload quantities are ALSO 10^8-scaled, independently of the
+	 *     asset's `units`. `units` limits divisibility and presentation, it is
+	 *     never a multiplier (see the node's CheckAmountWithUnits in assets.cpp).
+	 *
+	 * The display <-> raw conversion is therefore a fixed 10^8 scaling, done
+	 * **through text**: scaling the decimal string keeps every digit the caller
+	 * wrote, and refuses the ones it cannot keep.
+	 *
+	 * neurai-create-transaction also converts through exact decimal parsing.
+	 * This adapter retains the assets API policies: plain decimal strings,
+	 * divisibility checks, monetary limits and asset-specific validation errors.
 	 */
+
+	var assetAmount;
+	var hasRequiredAssetAmount;
+
+	function requireAssetAmount () {
+		if (hasRequiredAssetAmount) return assetAmount;
+		hasRequiredAssetAmount = 1;
+		const { InvalidAmountError, InvalidUnitsError } = requireErrors();
+
+		/** Asset payload and XNA values are both encoded with 8 decimals. */
+		const PROTOCOL_DECIMALS = 8;
+
+		/** 10^8, as a bigint, for callers that need the scale itself. */
+		const PROTOCOL_SCALE = 100000000n;
+
+		/**
+		 * Consensus ceiling for any CAmount, asset payloads included:
+		 * `MAX_MONEY = 21000000000 * COIN` in the node's `src/amount.h`, with
+		 * `MoneyRange(v)` requiring `0 <= v <= MAX_MONEY`.
+		 *
+		 * Enforced here rather than left to the callers because it is a property of
+		 * the value, not of the operation: a string is not exempt just because it
+		 * carried its digits faithfully.
+		 */
+		const MAX_MONEY_RAW = 2100000000000000000n;
+
+		const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
+		const SCIENTIFIC_DECIMAL = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/;
+
+		/**
+		 * Expand a scientific-notation decimal ("1e-7", "2.1e+19") into plain decimal
+		 * text. Returns the input unchanged when it carries no exponent.
+		 *
+		 * @param {string} text - Decimal text, possibly with an exponent
+		 * @returns {string} Plain decimal text
+		 */
+		function expandScientificNotation(text) {
+		  const match = SCIENTIFIC_DECIMAL.exec(text);
+		  if (!match) {
+		    return text;
+		  }
+
+		  const [, sign, intPart, fracPart = '', exponentText] = match;
+		  const digits = intPart + fracPart;
+		  const pointPosition = intPart.length + Number.parseInt(exponentText, 10);
+
+		  let expanded;
+		  if (pointPosition <= 0) {
+		    expanded = `0.${'0'.repeat(-pointPosition)}${digits}`;
+		  } else if (pointPosition >= digits.length) {
+		    expanded = digits + '0'.repeat(pointPosition - digits.length);
+		  } else {
+		    expanded = `${digits.slice(0, pointPosition)}.${digits.slice(pointPosition)}`;
+		  }
+
+		  return sign + expanded;
+		}
+
+		/**
+		 * Normalize a public amount into canonical plain decimal text.
+		 *
+		 * Strings must already be plain decimals: a caller that writes "1e3" is more
+		 * likely to have a bug than to mean 1000, and there is no reason to guess.
+		 * Numbers are accepted through their shortest round-trip representation
+		 * (`String(0.1)` is `"0.1"`, not the exact binary expansion), then expanded,
+		 * which is the only reading under which a literal like `1e-7` is meaningful.
+		 *
+		 * @param {string|number} value - Public amount
+		 * @param {string} label - What is being converted, for the error message
+		 * @returns {string} Plain decimal text
+		 * @throws {InvalidAmountError} If the value cannot be read exactly
+		 */
+		function normalizeDecimalText(value, label) {
+		  if (typeof value === 'bigint') {
+		    throw new InvalidAmountError(
+		      `${label}: a bigint is ambiguous as a display amount (is 5n five tokens ` +
+		      `or five raw units?). Pass a decimal string such as "5", or set the ` +
+		      `*Raw / *Sats field directly when you already hold protocol integers.`,
+		      value
+		    );
+		  }
+
+		  if (typeof value === 'number') {
+		    if (!Number.isFinite(value)) {
+		      throw new InvalidAmountError(`${label}: ${value} is not a finite number`, value);
+		    }
+		    return expandScientificNotation(String(value));
+		  }
+
+		  if (typeof value === 'string') {
+		    const text = value.trim();
+		    if (text === '') {
+		      throw new InvalidAmountError(`${label}: empty string is not an amount`, value);
+		    }
+		    if (SCIENTIFIC_DECIMAL.test(text)) {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" uses exponent notation. Pass a plain decimal ` +
+		        `string (for example "${expandScientificNotation(text)}") so the ` +
+		        `intended value is unambiguous.`,
+		        value
+		      );
+		    }
+		    if (!PLAIN_DECIMAL.test(text)) {
+		      throw new InvalidAmountError(`${label}: "${text}" is not a decimal number`, value);
+		    }
+		    return text;
+		  }
+
+		  throw new InvalidAmountError(
+		    `${label}: expected a decimal string or a number, received ${value === null ? 'null' : typeof value}`,
+		    value
+		  );
+		}
+
+		/**
+		 * Scale plain decimal text by 10^decimals, exactly, using text only.
+		 *
+		 * `rounding: 'ceil'` exists for one purpose: a *threshold* — a fee or a
+		 * funding requirement — computed by float arithmetic upstream, which can
+		 * carry noise digits below the satoshi (`0.031275000000000004`). Rounding it
+		 * up asks for slightly more than needed, which is safe; rounding a value that
+		 * will be *encoded* would silently create money, so the default is to reject.
+		 *
+		 * @param {string} text - Plain decimal text
+		 * @param {number} decimals - Number of decimals of the target scale
+		 * @param {string} label - What is being converted, for the error message
+		 * @param {'exact'|'ceil'} [rounding] - How to treat excess precision
+		 * @returns {bigint} Scaled integer
+		 * @throws {InvalidAmountError} If the value carries more decimals than the scale
+		 */
+		function scaleDecimalText(text, decimals, label, rounding = 'exact') {
+		  const negative = text.startsWith('-');
+		  const unsigned = negative ? text.slice(1) : text;
+		  const [intPart, fracPart = ''] = unsigned.split('.');
+
+		  if (fracPart.length > decimals) {
+		    if (rounding !== 'ceil') {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" has ${fracPart.length} decimals; the protocol ` +
+		        `encodes at most ${decimals}. The extra digits would be silently ` +
+		        `dropped, so this is rejected instead of rounded.`,
+		        text
+		      );
+		    }
+		    if (negative) {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" is negative; rounding up a negative threshold is not meaningful`,
+		        text
+		      );
+		    }
+		    const kept = BigInt(intPart + fracPart.slice(0, decimals));
+		    const dropped = fracPart.slice(decimals);
+		    return /[1-9]/.test(dropped) ? kept + 1n : kept;
+		  }
+
+		  const scaled = BigInt(intPart + fracPart.padEnd(decimals, '0'));
+		  return negative ? -scaled : scaled;
+		}
+
+		/**
+		 * Refuse a `number` whose scaled value no longer fits a safe integer.
+		 *
+		 * Above `MAX_SAFE_INTEGER / 1e8` (~90071992.55) a double can no longer name
+		 * every 8-decimal value, so the shortest round-trip form this module reads is
+		 * not necessarily the decimal the caller meant. The two paths then disagree:
+		 *
+		 *   assetAmountToRaw(184467440.73709551)   → 18446744073709550n
+		 *   assetAmountToRaw('184467440.73709551') → 18446744073709551n
+		 *
+		 * because `String(184467440.73709551)` is `'184467440.7370955'` — one digit
+		 * shorter. Neither answer is wrong for the double that arrived; the problem is
+		 * that the intended decimal was already lost at the call site. Asking for a
+		 * string is the only way to get it back, so this fails closed instead of
+		 * picking one. Strings are never restricted.
+		 *
+		 * A number that is itself a safe integer is still accepted, however large it
+		 * scales: it names its value exactly and has no fractional digits to lose, so
+		 * `21000000000` — the documented maximum supply — keeps working. What is
+		 * refused is a number that is neither a safe integer nor small enough for its
+		 * eight decimals to be unambiguous.
+		 *
+		 * @param {string|number} value - The original input
+		 * @param {bigint} raw - Scaled result
+		 * @param {string} text - Normalized decimal text
+		 * @param {string} label - Prefix for error messages
+		 * @throws {InvalidAmountError} If a number cannot carry the value exactly
+		 */
+		function assertNumberCarriedItExactly(value, raw, text, label) {
+		  if (typeof value !== 'number') {
+		    return;
+		  }
+		  if (raw <= BigInt(Number.MAX_SAFE_INTEGER) || Number.isSafeInteger(value)) {
+		    return;
+		  }
+		  throw new InvalidAmountError(
+		    `${label}: ${text} scales to ${raw}, past Number.MAX_SAFE_INTEGER, and the ` +
+		    `number that arrived can no longer name every 8-decimal value at that ` +
+		    `magnitude — it may already differ from the amount intended. Pass it as a ` +
+		    `decimal string ("${text}") instead.`,
+		    value
+		  );
+		}
+
+		/**
+		 * Convert a user-facing asset amount into the raw 10^8-scaled integer that
+		 * goes into the asset payload.
+		 *
+		 * @param {string|number} value - Display amount (e.g. "1.25")
+		 * @param {number} [units] - Asset decimal places; when given, divisibility is enforced
+		 * @param {object} [options]
+		 * @param {string} [options.label] - Prefix for error messages
+		 * @returns {bigint} Raw amount, 10^8-scaled
+		 * @throws {InvalidAmountError|InvalidUnitsError} If the amount cannot be encoded
+		 */
+		function assetAmountToRaw(value, units, options = {}) {
+		  const label = options.label || 'asset amount';
+		  const text = normalizeDecimalText(value, label);
+		  const raw = scaleDecimalText(text, PROTOCOL_DECIMALS, label);
+
+		  if (raw < 0n) {
+		    throw new InvalidAmountError(`${label}: "${text}" is negative`, value);
+		  }
+
+		  assertNumberCarriedItExactly(value, raw, text, label);
+
+		  if (raw > MAX_MONEY_RAW) {
+		    throw new InvalidAmountError(
+		      `${label}: "${text}" scales to ${raw}, above the consensus ceiling ` +
+		      `MAX_MONEY (${MAX_MONEY_RAW}, i.e. 21000000000 units). The node rejects ` +
+		      `it with MoneyRange, so it is refused here rather than serialized.`,
+		      value
+		    );
+		  }
+
+		  if (units !== undefined && units !== null) {
+		    if (!Number.isInteger(units) || units < 0 || units > PROTOCOL_DECIMALS) {
+		      throw new InvalidUnitsError(
+		        `${label}: units must be an integer between 0 and ${PROTOCOL_DECIMALS}, received ${units}`,
+		        units
+		      );
+		    }
+		    const step = 10n ** BigInt(PROTOCOL_DECIMALS - units);
+		    if (raw % step !== 0n) {
+		      throw new InvalidAmountError(
+		        `${label}: "${text}" is not a multiple of the asset's precision ` +
+		        `(units=${units} allows steps of ${formatRawAsDecimal(step)}). The ` +
+		        `node rejects it with CheckAmountWithUnits.`,
+		        value
+		      );
+		    }
+		  }
+
+		  return raw;
+		}
+
+		/**
+		 * Convert a user-facing XNA amount into satoshis, exactly.
+		 *
+		 * @param {string|number} value - Display XNA amount
+		 * @param {object} [options]
+		 * @param {string} [options.label] - Prefix for error messages
+		 * @param {boolean} [options.allowNegative] - Permit negative results
+		 * @param {'exact'|'ceil'} [options.rounding] - Only for thresholds; see scaleDecimalText
+		 * @returns {bigint} Satoshis
+		 * @throws {InvalidAmountError} If the amount cannot be encoded
+		 */
+		function xnaAmountToSats(value, options = {}) {
+		  const label = options.label || 'XNA amount';
+		  const text = normalizeDecimalText(value, label);
+		  const sats = scaleDecimalText(text, PROTOCOL_DECIMALS, label, options.rounding);
+		  assertNumberCarriedItExactly(value, sats < 0n ? -sats : sats, text, label);
+		  if (!options.allowNegative && sats > MAX_MONEY_RAW) throw new InvalidAmountError(`${label}: exceeds MAX_MONEY`, value);
+
+		  if (sats < 0n && !options.allowNegative) {
+		    throw new InvalidAmountError(`${label}: "${text}" is negative`, value);
+		  }
+
+		  return sats;
+		}
+
+		/**
+		 * Render a protocol integer back as plain decimal text, exactly.
+		 *
+		 * Used for the RPC/legacy envelopes, which speak display amounts. Text keeps
+		 * values above `Number.MAX_SAFE_INTEGER` intact; `toNumber` is the explicit,
+		 * lossy step for the places that still need a JS number.
+		 *
+		 * @param {bigint} raw - Protocol integer (10^8-scaled)
+		 * @returns {string} Plain decimal text without trailing zeros
+		 */
+		function formatRawAsDecimal(raw) {
+		  const negative = raw < 0n;
+		  const digits = (negative ? -raw : raw).toString().padStart(PROTOCOL_DECIMALS + 1, '0');
+		  const intPart = digits.slice(0, digits.length - PROTOCOL_DECIMALS);
+		  const fracPart = digits.slice(digits.length - PROTOCOL_DECIMALS).replace(/0+$/, '');
+		  const text = fracPart === '' ? intPart : `${intPart}.${fracPart}`;
+		  return negative ? `-${text}` : text;
+		}
+
+		/**
+		 * Render a protocol integer as a compatible display amount.
+		 * @param {bigint|string|number} raw - Exact protocol integer
+		 * @returns {number|string} Number only when a decimal round-trip retains every unit
+		 */
+		function rawToDisplayAmount(raw) {
+		  const value = toProtocolInteger(raw);
+		  const abs = value < 0n ? -value : value;
+		  if (abs <= BigInt(Number.MAX_SAFE_INTEGER) ||
+		      (abs % PROTOCOL_SCALE === 0n && abs / PROTOCOL_SCALE <= BigInt(Number.MAX_SAFE_INTEGER))) {
+		    const text = formatRawAsDecimal(value);
+		    const num = Number(text);
+		    return expandScientificNotation(String(num)) === text ? num : text;
+		  }
+		  return formatRawAsDecimal(value);
+		}
+
+		/**
+		 * @param {bigint} raw - Protocol integer
+		 * @param {string} [label] - Error context
+		 * @returns {number} Display number, or throws if the decimal round-trip loses units
+		 */
+		function rawToDisplayNumber(raw, label = 'amount') {
+		  const text = formatRawAsDecimal(raw);
+		  const asNumber = Number(text);
+		  if (!Number.isFinite(asNumber) || expandScientificNotation(String(asNumber)) !== text) {
+		    throw new InvalidAmountError(
+		      `${label}: ${text} cannot be represented exactly as a JavaScript number. ` +
+		      `Read the raw bigint instead of the display field.`,
+		      text
+		    );
+		  }
+		  return asNumber;
+		}
+
+		/**
+		 * Normalize a chain-reported integer (UTXO `satoshis`, asset balance) to bigint.
+		 *
+		 * A `number` is only accepted when it is a safe integer. An unsafe one is
+		 * rejected rather than converted: `JSON.parse` already destroyed the low bits,
+		 * and `BigInt(9007199254740993)` cannot bring them back — it would just make
+		 * the corruption look deliberate.
+		 *
+		 * @param {bigint|string|number} value - Chain integer
+		 * @param {string} [label] - Prefix for error messages
+		 * @returns {bigint} The same integer, exactly
+		 * @throws {InvalidAmountError} If the value is not an exact integer
+		 */
+		function toProtocolInteger(value, label = 'value') {
+		  if (typeof value === 'bigint') {
+		    return value;
+		  }
+
+		  if (typeof value === 'number') {
+		    if (!Number.isInteger(value)) {
+		      throw new InvalidAmountError(`${label}: ${value} is not an integer`, value);
+		    }
+		    if (!Number.isSafeInteger(value)) {
+		      throw new InvalidAmountError(
+		        `${label}: ${value} exceeds Number.MAX_SAFE_INTEGER, so JSON parsing ` +
+		        `already lost digits. Have the RPC transport deliver this field as a ` +
+		        `string or bigint; converting it here would preserve the corruption.`,
+		        value
+		      );
+		    }
+		    return BigInt(value);
+		  }
+
+		  if (typeof value === 'string') {
+		    const text = value.trim();
+		    if (!/^-?\d+$/.test(text)) {
+		      throw new InvalidAmountError(`${label}: "${value}" is not an integer`, value);
+		    }
+		    return BigInt(text);
+		  }
+
+		  throw new InvalidAmountError(
+		    `${label}: expected an integer as bigint, string or number, received ${value === null ? 'null' : typeof value}`,
+		    value
+		  );
+		}
+
+		/**
+		 * Sum chain-reported integers exactly.
+		 *
+		 * @param {Array<object>} items - Objects carrying the field
+		 * @param {string} [field] - Field name (default: 'satoshis')
+		 * @param {string} [label] - Prefix for error messages
+		 * @returns {bigint} Exact total
+		 */
+		function sumProtocolIntegers(items, field = 'satoshis', label = 'utxo.satoshis') {
+		  return (items || []).reduce(
+		    (total, item) => total + toProtocolInteger(item ? item[field] : undefined, label),
+		    0n
+		  );
+		}
+
+		assetAmount = {
+		  PROTOCOL_DECIMALS,
+		  PROTOCOL_SCALE,
+		  MAX_MONEY_RAW,
+		  assetAmountToRaw,
+		  xnaAmountToSats,
+		  formatRawAsDecimal,
+		  rawToDisplayNumber,
+		  rawToDisplayAmount,
+		  toProtocolInteger,
+		  sumProtocolIntegers,
+		  expandScientificNotation,
+		  normalizeDecimalText,
+		  scaleDecimalText
+		};
+		return assetAmount;
+	}
 
 	var amountConverter;
 	var hasRequiredAmountConverter;
@@ -4600,6 +5318,15 @@ var NeuraiAssetsBundle = (function (exports) {
 	function requireAmountConverter () {
 		if (hasRequiredAmountConverter) return amountConverter;
 		hasRequiredAmountConverter = 1;
+		const { assetAmountToRaw } = requireAssetAmount();
+		/**
+		 * @deprecated Use utils.AssetAmount for exact protocol amounts.
+		 * Legacy scaling is 10^units, not the protocol scale of 10^8.
+		 * These methods may round; retained only for backward compatibility.
+		 * Amount Converter
+		 * Converts between user amounts and satoshis (protocol internal format)
+		 */
+
 		class AmountConverter {
 		  /**
 		   * Convert user amount to satoshis
@@ -4622,6 +5349,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    // Convert to satoshis and round to avoid floating point issues
 		    const satoshis = Math.round(amount * multiplier);
 
+		    if (!Number.isSafeInteger(satoshis)) throw new Error('Unsafe raw amount; use assetAmountToRaw with decimal text');
 		    return satoshis;
 		  }
 
@@ -4632,7 +5360,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} User-friendly amount
 		   */
 		  static fromSatoshis(satoshis, units) {
-		    if (typeof satoshis !== 'number' || isNaN(satoshis)) {
+		    if (typeof satoshis !== 'number' || !Number.isSafeInteger(satoshis)) {
 		      throw new Error('Satoshis must be a valid number');
 		    }
 
@@ -4669,7 +5397,10 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} Parsed amount
 		   */
 		  static parse(formattedAmount) {
-		    const num = parseFloat(formattedAmount);
+		    let raw;
+		    try { raw = assetAmountToRaw(formattedAmount); } catch { throw new Error('Invalid number format'); }
+		    if (raw > BigInt(Number.MAX_SAFE_INTEGER) && raw % 100000000n !== 0n) throw new Error('Unsafe display number; retain decimal text');
+		    const num = Number(formattedAmount);
 		    if (isNaN(num)) {
 		      throw new Error('Invalid number format');
 		    }
@@ -4705,7 +5436,7 @@ var NeuraiAssetsBundle = (function (exports) {
 
 		    // Round to units decimal places
 		    const multiplier = Math.pow(10, units);
-		    return Math.round(amount * multiplier) / multiplier;
+		    return this.toSatoshis(amount, units) / multiplier;
 		  }
 		}
 
@@ -4727,8 +5458,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		const { rpcErrorMessage } = requireRpcErrorMessage();
 
 		const {
-		  NETWORKS,
 		  areAddressNetworksCompatible,
+		  detectNetworkFromAddress,
+		  getNetworkConfig,
 		  resolveAddressNetworkFamily
 		} = requireConstants();
 
@@ -4767,32 +5499,15 @@ var NeuraiAssetsBundle = (function (exports) {
 		  /**
 		   * Detect network from address
 		   * @param {string} address - Neurai address
-		   * @returns {string} Network label ('xna', 'xna-test', 'xna-pq', or 'xna-pq-test')
+		   * @returns {string} Network label: `xna` / `xna-test` for Base58 P2PKH,
+		   * `xna-pq` / `xna-pq-test` for every Bech32m AuthScript address (generic
+		   * v1 `nc1p…`, PQ v2 `pq1z…`, ECDSA v3 `nq1r…`)
 		   */
 		  static detectFromAddress(address) {
 		    if (!address || typeof address !== 'string') {
 		      throw new Error('Address must be a non-empty string');
 		    }
-
-		    if (address.startsWith(NETWORKS.MAINNET_PQ.authScriptAddressPrefix)) {
-		      return 'xna-pq';
-		    }
-
-		    if (address.startsWith(NETWORKS.TESTNET_PQ.authScriptAddressPrefix)) {
-		      return 'xna-pq-test';
-		    }
-
-		    // Mainnet addresses start with 'N'
-		    if (address.startsWith(NETWORKS.MAINNET.addressPrefix)) {
-		      return 'xna';
-		    }
-
-		    // Testnet addresses start with 't' (prefix byte 0x7f = 127)
-		    if (address.startsWith(NETWORKS.TESTNET.addressPrefix)) {
-		      return 'xna-test';
-		    }
-
-		    throw new Error(`Cannot detect network from address: ${address}`);
+		    return detectNetworkFromAddress(address);
 		  }
 
 		  /**
@@ -4849,17 +5564,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {object} Network configuration
 		   */
 		  static getNetworkConfig(network) {
-		    if (network === 'xna' || network === 'mainnet') {
-		      return NETWORKS.MAINNET;
-		    } else if (network === 'xna-test' || network === 'testnet') {
-		      return NETWORKS.TESTNET;
-		    } else if (network === 'xna-pq' || network === 'mainnet-pq') {
-		      return NETWORKS.MAINNET_PQ;
-		    } else if (network === 'xna-pq-test' || network === 'testnet-pq') {
-		      return NETWORKS.TESTNET_PQ;
-		    } else {
-		      throw new Error(`Unknown network: ${network}`);
-		    }
+		    return getNetworkConfig(network);
 		  }
 
 		  /**
@@ -4868,7 +5573,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {boolean} True if mainnet
 		   */
 		  static isMainnet(network) {
-		    return network === 'xna' || network === 'mainnet' || network === 'xna-pq' || network === 'mainnet-pq';
+		    try {
+		      return resolveAddressNetworkFamily(network) === 'mainnet';
+		    } catch {
+		      return false;
+		    }
 		  }
 
 		  /**
@@ -4877,11 +5586,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {boolean} True if testnet
 		   */
 		  static isTestnet(network) {
-		    return network === 'xna-test' ||
-		      network === 'testnet' ||
-		      network === 'regtest' ||
-		      network === 'xna-pq-test' ||
-		      network === 'testnet-pq';
+		    try {
+		      return resolveAddressNetworkFamily(network) === 'testnet';
+		    } catch {
+		      return false;
+		    }
 		  }
 		}
 
@@ -5237,438 +5946,300 @@ var NeuraiAssetsBundle = (function (exports) {
 	}
 
 	/**
-	 * Exact amount conversion for the canonical createTransactionBuild contract.
+	 * Fee / size helpers for Neurai transactions.
 	 *
-	 * Everything the chain encodes in a transaction is an integer:
-	 *   - XNA values are 10^8 sats;
-	 *   - asset payload quantities are ALSO 10^8-scaled, independently of the
-	 *     asset's `units`. `units` limits divisibility and presentation, it is
-	 *     never a multiplier (see the node's CheckAmountWithUnits in assets.cpp).
+	 * These constants and classifiers are the same ones exposed by
+	 * `@neuraiproject/neurai-sign-transaction` (`VBYTES`, `isPQAddress`,
+	 * `isPQScript`, `estimateInputVbytes`, `estimateOutputBytes`,
+	 * `estimateTransactionVbytes`). They are inlined here to keep the assets
+	 * package light: depending on the full signer would pull `bitcoinjs-lib`
+	 * and `@noble/post-quantum` into the IIFE / browser bundles, which is far
+	 * more weight than the few constants we actually need for fee estimation.
 	 *
-	 * The display <-> raw conversion is therefore a fixed 10^8 scaling, done
-	 * **through text**: scaling the decimal string keeps every digit the caller
-	 * wrote, and refuses the ones it cannot keep.
-	 *
-	 * The alternative — `BigInt(Math.round(value * 1e8))`, which is what
-	 * `assetUnitsToRaw` in neurai-create-transaction does — is correct for
-	 * ordinary magnitudes. `4.35 * 1e8` is `434999999.99999994`, but `Math.round`
-	 * recovers `435000000`; that example shows binary representation, not a wrong
-	 * result. For a finite, non-negative number it has two silent failure modes:
-	 *
-	 *   - more than eight decimals are rounded away instead of rejected, so an
-	 *     amount can vanish (`1e-9` becomes `0n`) or shift (`1.123456789` becomes
-	 *     `112345679`);
-	 *   - past `Number.MAX_SAFE_INTEGER` a double can no longer represent every
-	 *     integer, so the product may or may not survive — and nothing says which.
-	 *     `184467440.73709551` comes back as `18446744073709552n`, one unit off,
-	 *     while `21000000000` scales to `2100000000000000000n` exactly. The risk
-	 *     is that the two cases are indistinguishable from the outside.
-	 *
-	 * Outside that range its `Number(amount || 0)` also turns `NaN`, `null` and
-	 * `''` into `0n`, accepts negatives, and coerces other types — `true` yields a
-	 * whole unit. Every one of these is reachable with values a wallet can hold,
-	 * and none announces itself. Hence: convert by text, validate, and fail closed
-	 * rather than delegate.
+	 * SOURCE OF TRUTH: `@neuraiproject/neurai-sign-transaction` `src/estimate.ts`.
+	 * Keep these values in sync with the signer's `VBYTES`. Mismatches surface
+	 * immediately as `min relay fee not met` failures from the node.
 	 */
 
-	var assetAmount;
-	var hasRequiredAssetAmount;
+	var feeSizing;
+	var hasRequiredFeeSizing;
 
-	function requireAssetAmount () {
-		if (hasRequiredAssetAmount) return assetAmount;
-		hasRequiredAssetAmount = 1;
-		const { InvalidAmountError, InvalidUnitsError } = requireErrors();
+	function requireFeeSizing () {
+		if (hasRequiredFeeSizing) return feeSizing;
+		hasRequiredFeeSizing = 1;
+		const ct = requireDist_1();
 
-		/** Asset payload and XNA values are both encoded with 8 decimals. */
-		const PROTOCOL_DECIMALS = 8;
-
-		/** 10^8, as a bigint, for callers that need the scale itself. */
-		const PROTOCOL_SCALE = 100000000n;
+		/** Per-component byte sizes used across the Neurai stack for fee estimation. */
+		const VBYTES = Object.freeze({
+		  /** Raw transaction overhead: version (4) + in-count varint (1) + out-count varint (1) + locktime (4). */
+		  baseTxOverheadBytes: 10,
+		  /** Extra weight contributed by the segwit marker + flag bytes when any input is a witness input. */
+		  segwitMarkerVbytes: 1,
+		  /** vbytes for a typical legacy P2PKH input (worst-case scriptSig). */
+		  legacyInputVbytes: 148,
+		  /**
+		   * vbytes for a PQ input: strict PQ witness v2, or generic AuthScript v1 with
+		   * a PQ key and the default OP_TRUE witnessScript.
+		   */
+		  pqInputVbytes: 977,
+		  /** vbytes for a strict ECDSA witness v3 input (worst-case signature). */
+		  ecdsaWitnessInputVbytes: 70,
+		  /** Bytes of a legacy P2PKH output (8-byte value + 1-byte script length + 25-byte scriptPubKey). */
+		  legacyOutputBytes: 34,
+		  /** Bytes of any AuthScript output, OP_1/OP_2/OP_3 (8-byte value + 1-byte script length + 34-byte scriptPubKey). */
+		  witnessOutputBytes: 43,
+		  /** @deprecated Same as `witnessOutputBytes`. */
+		  pqOutputBytes: 43,
+		});
 
 		/**
-		 * Consensus ceiling for any CAmount, asset payloads included:
-		 * `MAX_MONEY = 21000000000 * COIN` in the node's `src/amount.h`, with
-		 * `MoneyRange(v)` requiring `0 <= v <= MAX_MONEY`.
-		 *
-		 * Enforced here rather than left to the callers because it is a property of
-		 * the value, not of the operation: a string is not exempt just because it
-		 * carried its digits faithfully.
+		 * Destination kind of an address: 'p2pkh', 'authscript' (generic v1,
+		 * `nc1p…`), 'pq' (strict v2, `pq1z…`), 'ecdsa' (strict v3, `nq1r…`) or
+		 * 'unknown' when it does not decode.
 		 */
-		const MAX_MONEY_RAW = 2100000000000000000n;
-
-		const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
-		const SCIENTIFIC_DECIMAL = /^(-?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/;
-
-		/**
-		 * Expand a scientific-notation decimal ("1e-7", "2.1e+19") into plain decimal
-		 * text. Returns the input unchanged when it carries no exponent.
-		 *
-		 * @param {string} text - Decimal text, possibly with an exponent
-		 * @returns {string} Plain decimal text
-		 */
-		function expandScientificNotation(text) {
-		  const match = SCIENTIFIC_DECIMAL.exec(text);
-		  if (!match) {
-		    return text;
+		function getAddressKind(address) {
+		  if (typeof address !== 'string' || address.length === 0) return 'unknown';
+		  try {
+		    return ct.decodeAddress(address).type;
+		  } catch {
+		    return 'unknown';
 		  }
+		}
 
-		  const [, sign, intPart, fracPart = '', exponentText] = match;
-		  const digits = intPart + fracPart;
-		  const pointPosition = intPart.length + Number.parseInt(exponentText, 10);
-
-		  let expanded;
-		  if (pointPosition <= 0) {
-		    expanded = `0.${'0'.repeat(-pointPosition)}${digits}`;
-		  } else if (pointPosition >= digits.length) {
-		    expanded = digits + '0'.repeat(pointPosition - digits.length);
-		  } else {
-		    expanded = `${digits.slice(0, pointPosition)}.${digits.slice(pointPosition)}`;
+		/** Destination kind of a hex scriptPubKey, ignoring a trailing asset wrapper. */
+		function getScriptKind(scriptHex) {
+		  if (typeof scriptHex !== 'string' || scriptHex.length < 4 || scriptHex.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(scriptHex)) {
+		    return 'unknown';
 		  }
+		  return ct.classifyScriptPubKey(scriptHex).type;
+		}
 
-		  return sign + expanded;
+		function isWitnessKind(kind) {
+		  return kind === 'authscript' || kind === 'pq' || kind === 'ecdsa';
 		}
 
 		/**
-		 * Normalize a public amount into canonical plain decimal text.
-		 *
-		 * Strings must already be plain decimals: a caller that writes "1e3" is more
-		 * likely to have a bug than to mean 1000, and there is no reason to guess.
-		 * Numbers are accepted through their shortest round-trip representation
-		 * (`String(0.1)` is `"0.1"`, not the exact binary expansion), then expanded,
-		 * which is the only reading under which a literal like `1e-7` is meaningful.
-		 *
-		 * @param {string|number} value - Public amount
-		 * @param {string} label - What is being converted, for the error message
-		 * @returns {string} Plain decimal text
-		 * @throws {InvalidAmountError} If the value cannot be read exactly
+		 * True for the addresses whose spend carries an ML-DSA-44 witness: strict PQ
+		 * v2 (`pq1z…`) and generic AuthScript v1 (`nc1p…`). `nq1…` is ECDSA witness
+		 * v3 and returns false.
 		 */
-		function normalizeDecimalText(value, label) {
-		  if (typeof value === 'bigint') {
-		    throw new InvalidAmountError(
-		      `${label}: a bigint is ambiguous as a display amount (is 5n five tokens ` +
-		      `or five raw units?). Pass a decimal string such as "5", or set the ` +
-		      `*Raw / *Sats field directly when you already hold protocol integers.`,
-		      value
-		    );
-		  }
+		function isPQAddress(address) {
+		  const kind = getAddressKind(address);
+		  return kind === 'pq' || kind === 'authscript';
+		}
 
-		  if (typeof value === 'number') {
-		    if (!Number.isFinite(value)) {
-		      throw new InvalidAmountError(`${label}: ${value} is not a finite number`, value);
-		    }
-		    return expandScientificNotation(String(value));
-		  }
+		/** True for `OP_1` / `OP_2` scriptPubKeys with a 32-byte program (`5120…` / `5220…`). */
+		function isPQScript(scriptHex) {
+		  const kind = getScriptKind(scriptHex);
+		  return kind === 'pq' || kind === 'authscript';
+		}
 
-		  if (typeof value === 'string') {
-		    const text = value.trim();
-		    if (text === '') {
-		      throw new InvalidAmountError(`${label}: empty string is not an amount`, value);
-		    }
-		    if (SCIENTIFIC_DECIMAL.test(text)) {
-		      throw new InvalidAmountError(
-		        `${label}: "${text}" uses exponent notation. Pass a plain decimal ` +
-		        `string (for example "${expandScientificNotation(text)}") so the ` +
-		        `intended value is unambiguous.`,
-		        value
-		      );
-		    }
-		    if (!PLAIN_DECIMAL.test(text)) {
-		      throw new InvalidAmountError(`${label}: "${text}" is not a decimal number`, value);
-		    }
-		    return text;
-		  }
+		function inputVbytesForKind(kind) {
+		  if (kind === 'pq' || kind === 'authscript') return VBYTES.pqInputVbytes;
+		  if (kind === 'ecdsa') return VBYTES.ecdsaWitnessInputVbytes;
+		  return VBYTES.legacyInputVbytes;
+		}
 
-		  throw new InvalidAmountError(
-		    `${label}: expected a decimal string or a number, received ${value === null ? 'null' : typeof value}`,
-		    value
-		  );
+		function inputKind(utxo) {
+		  const script = utxo && utxo.script;
+		  if (typeof script === 'string' && script.length > 0) {
+		    return getScriptKind(script);
+		  }
+		  return getAddressKind(utxo && utxo.address);
 		}
 
 		/**
-		 * Scale plain decimal text by 10^decimals, exactly, using text only.
-		 *
-		 * `rounding: 'ceil'` exists for one purpose: a *threshold* — a fee or a
-		 * funding requirement — computed by float arithmetic upstream, which can
-		 * carry noise digits below the satoshi (`0.031275000000000004`). Rounding it
-		 * up asks for slightly more than needed, which is safe; rounding a value that
-		 * will be *encoded* would silently create money, so the default is to reject.
-		 *
-		 * @param {string} text - Plain decimal text
-		 * @param {number} decimals - Number of decimals of the target scale
-		 * @param {string} label - What is being converted, for the error message
-		 * @param {'exact'|'ceil'} [rounding] - How to treat excess precision
-		 * @returns {bigint} Scaled integer
-		 * @throws {InvalidAmountError} If the value carries more decimals than the scale
+		 * Estimate the vbytes contributed by spending one UTXO. Uses the UTXO's
+		 * `script` if available, otherwise falls back to its `address`. Unknown
+		 * prevouts are treated as legacy.
 		 */
-		function scaleDecimalText(text, decimals, label, rounding = 'exact') {
-		  const negative = text.startsWith('-');
-		  const unsigned = negative ? text.slice(1) : text;
-		  const [intPart, fracPart = ''] = unsigned.split('.');
-
-		  if (fracPart.length > decimals) {
-		    if (rounding !== 'ceil') {
-		      throw new InvalidAmountError(
-		        `${label}: "${text}" has ${fracPart.length} decimals; the protocol ` +
-		        `encodes at most ${decimals}. The extra digits would be silently ` +
-		        `dropped, so this is rejected instead of rounded.`,
-		        text
-		      );
-		    }
-		    if (negative) {
-		      throw new InvalidAmountError(
-		        `${label}: "${text}" is negative; rounding up a negative threshold is not meaningful`,
-		        text
-		      );
-		    }
-		    const kept = BigInt(intPart + fracPart.slice(0, decimals));
-		    const dropped = fracPart.slice(decimals);
-		    return /[1-9]/.test(dropped) ? kept + 1n : kept;
-		  }
-
-		  const scaled = BigInt(intPart + fracPart.padEnd(decimals, '0'));
-		  return negative ? -scaled : scaled;
+		function estimateInputVbytes(utxo) {
+		  return inputVbytesForKind(inputKind(utxo));
 		}
 
 		/**
-		 * Refuse a `number` whose scaled value no longer fits a safe integer.
+		 * Encoders that produce the exact scriptPubKey the node will see.
 		 *
-		 * Above `MAX_SAFE_INTEGER / 1e8` (~90071992.55) a double can no longer name
-		 * every 8-decimal value, so the shortest round-trip form this module reads is
-		 * not necessarily the decimal the caller meant. The two paths then disagree:
+		 * Sizing asset outputs from a hand-written byte formula drifted: the owner
+		 * token a reissue RETURNS is serialized as a transfer (it carries an amount),
+		 * not as the owner payload an issuance CREATES, and the null-asset-data
+		 * outputs of tag/freeze were not counted at all — those outputs are not
+		 * P2PKH-plus-payload, they replace the destination script entirely. The result
+		 * was twelve of eighteen operations budgeting below what the node charges.
 		 *
-		 *   assetAmountToRaw(184467440.73709551)   → 18446744073709550n
-		 *   assetAmountToRaw('184467440.73709551') → 18446744073709551n
-		 *
-		 * because `String(184467440.73709551)` is `'184467440.7370955'` — one digit
-		 * shorter. Neither answer is wrong for the double that arrived; the problem is
-		 * that the intended decimal was already lost at the call site. Asking for a
-		 * string is the only way to get it back, so this fails closed instead of
-		 * picking one. Strings are never restricted.
-		 *
-		 * A number that is itself a safe integer is still accepted, however large it
-		 * scales: it names its value exactly and has no fractional digits to lose, so
-		 * `21000000000` — the documented maximum supply — keeps working. What is
-		 * refused is a number that is neither a safe integer nor small enough for its
-		 * eight decimals to be unambiguous.
-		 *
-		 * @param {string|number} value - The original input
-		 * @param {bigint} raw - Scaled result
-		 * @param {string} text - Normalized decimal text
-		 * @param {string} label - Prefix for error messages
-		 * @throws {InvalidAmountError} If a number cannot carry the value exactly
+		 * Asking the serializer is the only way to keep this from drifting again: the
+		 * numbers below are not a model of the encoding, they ARE the encoding.
 		 */
-		function assertNumberCarriedItExactly(value, raw, text, label) {
-		  if (typeof value !== 'number') {
-		    return;
+		/** Bytes a CompactSize length prefix occupies for `n`. */
+		function compactSizeBytes(n) {
+		  if (n < 253) return 1;
+		  if (n <= 0xffff) return 3;
+		  if (n <= 0xffffffff) return 5;
+		  return 9;
+		}
+
+		/** An IPFS hash of the right LENGTH; only its size matters here. */
+		const IPFS_PLACEHOLDER = 'Qm' + 'a'.repeat(44);
+
+		/**
+		 * The exact scriptPubKey for an asset-bearing output descriptor, or null when
+		 * the descriptor names no asset operation.
+		 *
+		 * Values are placeholders on purpose: every field the amount or the flag lands
+		 * in is fixed-width, so a zero costs the same bytes as the real number. The
+		 * name, the address and the presence of IPFS are the only things that move the
+		 * size, and those come from the descriptor.
+		 *
+		 * @param {object} descriptor - Output descriptor
+		 * @returns {Uint8Array|null} Encoded script, or null
+		 */
+		function assetOutputScript(descriptor) {
+		  const { address, assetName, kind = 'transfer' } = descriptor;
+		  const ipfs = descriptor.hasIpfs ? (descriptor.ipfsHash || IPFS_PLACEHOLDER) : undefined;
+
+		  switch (kind) {
+		    case 'owner':
+		      return ct.encodeOwnerAssetScript(address, assetName);
+		    case 'issue':
+		      return ct.encodeNewAssetScript(address, assetName, 0n, 0, true, ipfs);
+		    case 'reissue':
+		      return ct.encodeReissueAssetScript(address, assetName, 0n, undefined, true, ipfs);
+		    case 'tag':
+		      return ct.encodeNullAssetTagScript(address, assetName, 'tag');
+		    case 'restriction':
+		      return ct.encodeNullAssetRestrictionScript(address, assetName, 1);
+		    case 'globalRestriction':
+		      return ct.encodeGlobalRestrictionScript(assetName, 1);
+		    case 'verifier':
+		      return ct.encodeVerifierStringScript(descriptor.verifierString || '');
+		    case 'transfer':
+		      return ct.encodeAssetTransferScript(address, assetName, 0n);
+		    default:
+		      return null;
 		  }
-		  if (raw <= BigInt(Number.MAX_SAFE_INTEGER) || Number.isSafeInteger(value)) {
-		    return;
-		  }
-		  throw new InvalidAmountError(
-		    `${label}: ${text} scales to ${raw}, past Number.MAX_SAFE_INTEGER, and the ` +
-		    `number that arrived can no longer name every 8-decimal value at that ` +
-		    `magnitude — it may already differ from the amount intended. Pass it as a ` +
-		    `decimal string ("${text}") instead.`,
-		    value
-		  );
 		}
 
 		/**
-		 * Convert a user-facing asset amount into the raw 10^8-scaled integer that
-		 * goes into the asset payload.
+		 * Kinds whose script REPLACES the destination rather than extending it.
 		 *
-		 * @param {string|number} value - Display amount (e.g. "1.25")
-		 * @param {number} [units] - Asset decimal places; when given, divisibility is enforced
-		 * @param {object} [options]
-		 * @param {string} [options.label] - Prefix for error messages
-		 * @returns {bigint} Raw amount, 10^8-scaled
-		 * @throws {InvalidAmountError|InvalidUnitsError} If the amount cannot be encoded
+		 * A tag, a restriction or a verifier string is not "a payment with a payload
+		 * bolted on": there is no P2PKH to pay. Adding a destination's bytes to these
+		 * over-counts; treating them as plain destinations, which is what the builders
+		 * used to do, under-counts by far more.
 		 */
-		function assetAmountToRaw(value, units, options = {}) {
-		  const label = options.label || 'asset amount';
-		  const text = normalizeDecimalText(value, label);
-		  const raw = scaleDecimalText(text, PROTOCOL_DECIMALS, label);
+		const STANDALONE_KINDS = new Set(['tag', 'restriction', 'globalRestriction', 'verifier']);
 
-		  if (raw < 0n) {
-		    throw new InvalidAmountError(`${label}: "${text}" is negative`, value);
+		/**
+		 * Fallback used only when the encoders cannot express a descriptor — an
+		 * address family they do not accept, say. Keeps the previous behaviour rather
+		 * than throwing in the middle of a fee estimate.
+		 */
+		function assetPayloadBytesApprox(descriptor) {
+		  const nameLength = String(descriptor.assetName || '').length;
+		  const kind = descriptor.kind || 'transfer';
+		  let payload = 5 + nameLength;
+		  if (kind === 'issue') payload += 11;
+		  else if (kind === 'reissue') payload += 10;
+		  else if (kind !== 'owner') payload += 8;
+		  if (descriptor.hasIpfs) payload += 34;
+		  return 1 + (payload > 75 ? 2 : 1) + payload + 1;
+		}
+
+		/**
+		 * Bytes an asset payload adds on top of a plain destination output.
+		 *
+		 * Kept for callers that only want the delta. Standalone kinds have no
+		 * destination to add to, so this is not meaningful for them.
+		 *
+		 * @param {object} descriptor - Output descriptor with `assetName` and `kind`
+		 * @returns {number} Extra bytes, or 0 when the output carries no asset payload
+		 */
+		function assetPayloadBytes(descriptor) {
+		  if (!descriptor || typeof descriptor !== 'object' || !descriptor.assetName) {
+		    return 0;
 		  }
-
-		  assertNumberCarriedItExactly(value, raw, text, label);
-
-		  if (raw > MAX_MONEY_RAW) {
-		    throw new InvalidAmountError(
-		      `${label}: "${text}" scales to ${raw}, above the consensus ceiling ` +
-		      `MAX_MONEY (${MAX_MONEY_RAW}, i.e. 21000000000 units). The node rejects ` +
-		      `it with MoneyRange, so it is refused here rather than serialized.`,
-		      value
-		    );
+		  try {
+		    const script = assetOutputScript(descriptor);
+		    if (!script) return 0;
+		    const base = isWitnessKind(getAddressKind(descriptor.address)) ? 34 : 25;
+		    return script.length - base;
+		  } catch {
+		    return assetPayloadBytesApprox(descriptor);
 		  }
+		}
 
-		  if (units !== undefined && units !== null) {
-		    if (!Number.isInteger(units) || units < 0 || units > PROTOCOL_DECIMALS) {
-		      throw new InvalidUnitsError(
-		        `${label}: units must be an integer between 0 and ${PROTOCOL_DECIMALS}, received ${units}`,
-		        units
-		      );
+		/**
+		 * Estimate the bytes contributed by an output.
+		 *
+		 * Accepts an address string, `{ address }`, or an asset-aware descriptor
+		 * `{ address, assetName, kind, hasIpfs }` where `kind` is one of `transfer`
+		 * (default), `owner`, `issue` or `reissue`.
+		 *
+		 * @param {string|object} target - Output descriptor
+		 * @returns {number} Estimated bytes
+		 */
+		function estimateOutputBytes(target) {
+		  if (typeof target !== 'string' && target && (target.assetName || target.kind === 'verifier')) {
+		    try {
+		      const script = assetOutputScript(target);
+		      if (script) {
+		        // value(8) + CompactSize(scriptLen) + script
+		        return 8 + compactSizeBytes(script.length) + script.length;
+		      }
+		    } catch {
+		      // fall through to the approximation
 		    }
-		    const step = 10n ** BigInt(PROTOCOL_DECIMALS - units);
-		    if (raw % step !== 0n) {
-		      throw new InvalidAmountError(
-		        `${label}: "${text}" is not a multiple of the asset's precision ` +
-		        `(units=${units} allows steps of ${formatRawAsDecimal(step)}). The ` +
-		        `node rejects it with CheckAmountWithUnits.`,
-		        value
-		      );
+		    if (STANDALONE_KINDS.has(target.kind)) {
+		      return VBYTES.legacyOutputBytes;
 		    }
+		    const base = isWitnessKind(getAddressKind(target.address)) ? VBYTES.witnessOutputBytes : VBYTES.legacyOutputBytes;
+		    return base + assetPayloadBytesApprox(target);
 		  }
 
-		  return raw;
+		  const address =
+		    typeof target === 'string' ? target : (target && target.address) || '';
+		  return isWitnessKind(getAddressKind(address)) ? VBYTES.witnessOutputBytes : VBYTES.legacyOutputBytes;
 		}
 
 		/**
-		 * Convert a user-facing XNA amount into satoshis, exactly.
-		 *
-		 * @param {string|number} value - Display XNA amount
-		 * @param {object} [options]
-		 * @param {string} [options.label] - Prefix for error messages
-		 * @param {boolean} [options.allowNegative] - Permit negative results
-		 * @param {'exact'|'ceil'} [options.rounding] - Only for thresholds; see scaleDecimalText
-		 * @returns {bigint} Satoshis
-		 * @throws {InvalidAmountError} If the amount cannot be encoded
+		 * Sum the per-input/per-output contributions, plus base overhead and segwit
+		 * marker (added once when any input is a witness input). Inputs may be
+		 * partial UTXO-like objects with `script` and/or `address`. Outputs may be
+		 * address strings or `{ address }` descriptors.
 		 */
-		function xnaAmountToSats(value, options = {}) {
-		  const label = options.label || 'XNA amount';
-		  const text = normalizeDecimalText(value, label);
-		  const sats = scaleDecimalText(text, PROTOCOL_DECIMALS, label, options.rounding);
+		function estimateTransactionVbytes(inputs, outputs) {
+		  let vbytes = VBYTES.baseTxOverheadBytes;
+		  let hasWitnessInput = false;
 
-		  if (sats < 0n && !options.allowNegative) {
-		    throw new InvalidAmountError(`${label}: "${text}" is negative`, value);
+		  for (const inp of inputs) {
+		    const kind = inputKind(inp);
+		    vbytes += inputVbytesForKind(kind);
+		    if (isWitnessKind(kind)) hasWitnessInput = true;
 		  }
 
-		  return sats;
-		}
-
-		/**
-		 * Render a protocol integer back as plain decimal text, exactly.
-		 *
-		 * Used for the RPC/legacy envelopes, which speak display amounts. Text keeps
-		 * values above `Number.MAX_SAFE_INTEGER` intact; `toNumber` is the explicit,
-		 * lossy step for the places that still need a JS number.
-		 *
-		 * @param {bigint} raw - Protocol integer (10^8-scaled)
-		 * @returns {string} Plain decimal text without trailing zeros
-		 */
-		function formatRawAsDecimal(raw) {
-		  const negative = raw < 0n;
-		  const digits = (negative ? -raw : raw).toString().padStart(PROTOCOL_DECIMALS + 1, '0');
-		  const intPart = digits.slice(0, digits.length - PROTOCOL_DECIMALS);
-		  const fracPart = digits.slice(digits.length - PROTOCOL_DECIMALS).replace(/0+$/, '');
-		  const text = fracPart === '' ? intPart : `${intPart}.${fracPart}`;
-		  return negative ? `-${text}` : text;
-		}
-
-		/**
-		 * Render a protocol integer as a JS number for the legacy display envelopes.
-		 *
-		 * Fails closed rather than returning a value the caller cannot trust: a
-		 * quantity whose display form is not exactly representable would otherwise
-		 * travel on as a plausible-looking wrong number.
-		 *
-		 * @param {bigint} raw - Protocol integer (10^8-scaled)
-		 * @param {string} [label] - Prefix for error messages
-		 * @returns {number} Display amount
-		 * @throws {InvalidAmountError} If the display value is not exactly representable
-		 */
-		function rawToDisplayNumber(raw, label = 'amount') {
-		  const text = formatRawAsDecimal(raw);
-		  const asNumber = Number(text);
-		  if (!Number.isFinite(asNumber) || expandScientificNotation(String(asNumber)) !== text) {
-		    throw new InvalidAmountError(
-		      `${label}: ${text} cannot be represented exactly as a JavaScript number. ` +
-		      `Read the raw bigint instead of the display field.`,
-		      text
-		    );
-		  }
-		  return asNumber;
-		}
-
-		/**
-		 * Normalize a chain-reported integer (UTXO `satoshis`, asset balance) to bigint.
-		 *
-		 * A `number` is only accepted when it is a safe integer. An unsafe one is
-		 * rejected rather than converted: `JSON.parse` already destroyed the low bits,
-		 * and `BigInt(9007199254740993)` cannot bring them back — it would just make
-		 * the corruption look deliberate.
-		 *
-		 * @param {bigint|string|number} value - Chain integer
-		 * @param {string} [label] - Prefix for error messages
-		 * @returns {bigint} The same integer, exactly
-		 * @throws {InvalidAmountError} If the value is not an exact integer
-		 */
-		function toProtocolInteger(value, label = 'value') {
-		  if (typeof value === 'bigint') {
-		    return value;
+		  for (const out of outputs) {
+		    vbytes += estimateOutputBytes(out);
 		  }
 
-		  if (typeof value === 'number') {
-		    if (!Number.isInteger(value)) {
-		      throw new InvalidAmountError(`${label}: ${value} is not an integer`, value);
-		    }
-		    if (!Number.isSafeInteger(value)) {
-		      throw new InvalidAmountError(
-		        `${label}: ${value} exceeds Number.MAX_SAFE_INTEGER, so JSON parsing ` +
-		        `already lost digits. Have the RPC transport deliver this field as a ` +
-		        `string or bigint; converting it here would preserve the corruption.`,
-		        value
-		      );
-		    }
-		    return BigInt(value);
-		  }
+		  if (hasWitnessInput) vbytes += VBYTES.segwitMarkerVbytes;
 
-		  if (typeof value === 'string') {
-		    const text = value.trim();
-		    if (!/^-?\d+$/.test(text)) {
-		      throw new InvalidAmountError(`${label}: "${value}" is not an integer`, value);
-		    }
-		    return BigInt(text);
-		  }
-
-		  throw new InvalidAmountError(
-		    `${label}: expected an integer as bigint, string or number, received ${value === null ? 'null' : typeof value}`,
-		    value
-		  );
+		  return vbytes;
 		}
 
-		/**
-		 * Sum chain-reported integers exactly.
-		 *
-		 * @param {Array<object>} items - Objects carrying the field
-		 * @param {string} [field] - Field name (default: 'satoshis')
-		 * @param {string} [label] - Prefix for error messages
-		 * @returns {bigint} Exact total
-		 */
-		function sumProtocolIntegers(items, field = 'satoshis', label = 'utxo.satoshis') {
-		  return (items || []).reduce(
-		    (total, item) => total + toProtocolInteger(item ? item[field] : undefined, label),
-		    0n
-		  );
-		}
-
-		assetAmount = {
-		  PROTOCOL_DECIMALS,
-		  PROTOCOL_SCALE,
-		  MAX_MONEY_RAW,
-		  assetAmountToRaw,
-		  xnaAmountToSats,
-		  formatRawAsDecimal,
-		  rawToDisplayNumber,
-		  toProtocolInteger,
-		  sumProtocolIntegers,
-		  expandScientificNotation,
-		  normalizeDecimalText,
-		  scaleDecimalText
+		feeSizing = {
+		  VBYTES,
+		  compactSizeBytes,
+		  assetOutputScript,
+		  getAddressKind,
+		  getScriptKind,
+		  isPQAddress,
+		  isPQScript,
+		  estimateInputVbytes,
+		  estimateOutputBytes,
+		  assetPayloadBytes,
+		  estimateTransactionVbytes,
 		};
-		return assetAmount;
+		return feeSizing;
 	}
 
 	/**
@@ -5687,13 +6258,15 @@ var NeuraiAssetsBundle = (function (exports) {
 		const NetworkDetector = requireNetworkDetector();
 		const OutputFormatter = requireOutputFormatter();
 		const AssetAmount = requireAssetAmount();
+		const FeeSizing = requireFeeSizing();
 
 		utils$1 = {
 		  AssetNameParser,
 		  AmountConverter,
 		  NetworkDetector,
 		  OutputFormatter,
-		  AssetAmount
+		  AssetAmount,
+		  FeeSizing
 		};
 		return utils$1;
 	}
@@ -5978,276 +6551,23 @@ var NeuraiAssetsBundle = (function (exports) {
 		return OwnerTokenManager_1;
 	}
 
-	/**
-	 * Fee / size helpers for Neurai transactions.
-	 *
-	 * These constants and classifiers are the same ones exposed by
-	 * `@neuraiproject/neurai-sign-transaction` (`VBYTES`, `isPQAddress`,
-	 * `isPQScript`, `estimateInputVbytes`, `estimateOutputBytes`,
-	 * `estimateTransactionVbytes`). They are inlined here to keep the assets
-	 * package light: depending on the full signer would pull `bitcoinjs-lib`
-	 * and `@noble/post-quantum` into the IIFE / browser bundles, which is far
-	 * more weight than the few constants we actually need for fee estimation.
-	 *
-	 * SOURCE OF TRUTH: `@neuraiproject/neurai-sign-transaction` `src/estimate.ts`.
-	 * Keep these values in sync with the signer's `VBYTES`. Mismatches surface
-	 * immediately as `min relay fee not met` failures from the node.
-	 */
-
-	var feeSizing;
-	var hasRequiredFeeSizing;
-
-	function requireFeeSizing () {
-		if (hasRequiredFeeSizing) return feeSizing;
-		hasRequiredFeeSizing = 1;
-		/** Per-component byte sizes used across the Neurai stack for fee estimation. */
-		const VBYTES = Object.freeze({
-		  /** Raw transaction overhead: version (4) + in-count varint (1) + out-count varint (1) + locktime (4). */
-		  baseTxOverheadBytes: 10,
-		  /** Extra weight contributed by the segwit marker + flag bytes when any input is PQ. */
-		  segwitMarkerVbytes: 1,
-		  /** vbytes for a typical legacy P2PKH input (worst-case scriptSig). */
-		  legacyInputVbytes: 148,
-		  /** vbytes for a typical PQ AuthScript input with the default OP_TRUE witnessScript. */
-		  pqInputVbytes: 977,
-		  /** Bytes of a legacy P2PKH output (8-byte value + 1-byte script length + 25-byte scriptPubKey). */
-		  legacyOutputBytes: 34,
-		  /** Bytes of an AuthScript-v1 output (8-byte value + 1-byte script length + 34-byte scriptPubKey). */
-		  pqOutputBytes: 43,
-		});
-
-		/** True for Neurai PQ AuthScript bech32 destinations (`nq1…` mainnet, `tnq1…` testnet). */
-		function isPQAddress(address) {
-		  return (
-		    typeof address === 'string' &&
-		    (address.startsWith('nq1') || address.startsWith('tnq1'))
-		  );
-		}
-
-		/** True for AuthScript-v1 scriptPubKey hex (witness v1, 32-byte program — `5120…`). */
-		function isPQScript(scriptHex) {
-		  if (typeof scriptHex !== 'string' || scriptHex.length < 4) return false;
-		  return scriptHex.toLowerCase().startsWith('5120');
-		}
-
-		/**
-		 * Estimate the vbytes contributed by spending one UTXO. Uses the UTXO's
-		 * `script` if available, otherwise falls back to its `address`. Unknown
-		 * prevouts are treated as legacy.
-		 */
-		function estimateInputVbytes(utxo) {
-		  const script = utxo && utxo.script;
-		  if (typeof script === 'string' && script.length > 0) {
-		    return isPQScript(script) ? VBYTES.pqInputVbytes : VBYTES.legacyInputVbytes;
-		  }
-		  const address = utxo && utxo.address;
-		  if (typeof address === 'string' && isPQAddress(address)) {
-		    return VBYTES.pqInputVbytes;
-		  }
-		  return VBYTES.legacyInputVbytes;
-		}
-
-		/**
-		 * Encoders that produce the exact scriptPubKey the node will see.
-		 *
-		 * Sizing asset outputs from a hand-written byte formula drifted: the owner
-		 * token a reissue RETURNS is serialized as a transfer (it carries an amount),
-		 * not as the owner payload an issuance CREATES, and the null-asset-data
-		 * outputs of tag/freeze were not counted at all — those outputs are not
-		 * P2PKH-plus-payload, they replace the destination script entirely. The result
-		 * was twelve of eighteen operations budgeting below what the node charges.
-		 *
-		 * Asking the serializer is the only way to keep this from drifting again: the
-		 * numbers below are not a model of the encoding, they ARE the encoding.
-		 */
-		const ct = requireDist_1();
-
-		/** Bytes a CompactSize length prefix occupies for `n`. */
-		function compactSizeBytes(n) {
-		  if (n < 253) return 1;
-		  if (n <= 0xffff) return 3;
-		  if (n <= 0xffffffff) return 5;
-		  return 9;
-		}
-
-		/** An IPFS hash of the right LENGTH; only its size matters here. */
-		const IPFS_PLACEHOLDER = 'Qm' + 'a'.repeat(44);
-
-		/**
-		 * The exact scriptPubKey for an asset-bearing output descriptor, or null when
-		 * the descriptor names no asset operation.
-		 *
-		 * Values are placeholders on purpose: every field the amount or the flag lands
-		 * in is fixed-width, so a zero costs the same bytes as the real number. The
-		 * name, the address and the presence of IPFS are the only things that move the
-		 * size, and those come from the descriptor.
-		 *
-		 * @param {object} descriptor - Output descriptor
-		 * @returns {Uint8Array|null} Encoded script, or null
-		 */
-		function assetOutputScript(descriptor) {
-		  const { address, assetName, kind = 'transfer' } = descriptor;
-		  const ipfs = descriptor.hasIpfs ? (descriptor.ipfsHash || IPFS_PLACEHOLDER) : undefined;
-
-		  switch (kind) {
-		    case 'owner':
-		      return ct.encodeOwnerAssetScript(address, assetName);
-		    case 'issue':
-		      return ct.encodeNewAssetScript(address, assetName, 0n, 0, true, ipfs);
-		    case 'reissue':
-		      return ct.encodeReissueAssetScript(address, assetName, 0n, undefined, true, ipfs);
-		    case 'tag':
-		      return ct.encodeNullAssetTagScript(address, assetName, 'tag');
-		    case 'restriction':
-		      return ct.encodeNullAssetRestrictionScript(address, assetName, 1);
-		    case 'globalRestriction':
-		      return ct.encodeGlobalRestrictionScript(assetName, 1);
-		    case 'verifier':
-		      return ct.encodeVerifierStringScript(descriptor.verifierString || '');
-		    case 'transfer':
-		      return ct.encodeAssetTransferScript(address, assetName, 0n);
-		    default:
-		      return null;
-		  }
-		}
-
-		/**
-		 * Kinds whose script REPLACES the destination rather than extending it.
-		 *
-		 * A tag, a restriction or a verifier string is not "a payment with a payload
-		 * bolted on": there is no P2PKH to pay. Adding a destination's bytes to these
-		 * over-counts; treating them as plain destinations, which is what the builders
-		 * used to do, under-counts by far more.
-		 */
-		const STANDALONE_KINDS = new Set(['tag', 'restriction', 'globalRestriction', 'verifier']);
-
-		/**
-		 * Fallback used only when the encoders cannot express a descriptor — an
-		 * address family they do not accept, say. Keeps the previous behaviour rather
-		 * than throwing in the middle of a fee estimate.
-		 */
-		function assetPayloadBytesApprox(descriptor) {
-		  const nameLength = String(descriptor.assetName || '').length;
-		  const kind = descriptor.kind || 'transfer';
-		  let payload = 5 + nameLength;
-		  if (kind === 'issue') payload += 11;
-		  else if (kind === 'reissue') payload += 10;
-		  else if (kind !== 'owner') payload += 8;
-		  if (descriptor.hasIpfs) payload += 34;
-		  return 1 + (payload > 75 ? 2 : 1) + payload + 1;
-		}
-
-		/**
-		 * Bytes an asset payload adds on top of a plain destination output.
-		 *
-		 * Kept for callers that only want the delta. Standalone kinds have no
-		 * destination to add to, so this is not meaningful for them.
-		 *
-		 * @param {object} descriptor - Output descriptor with `assetName` and `kind`
-		 * @returns {number} Extra bytes, or 0 when the output carries no asset payload
-		 */
-		function assetPayloadBytes(descriptor) {
-		  if (!descriptor || typeof descriptor !== 'object' || !descriptor.assetName) {
-		    return 0;
-		  }
-		  try {
-		    const script = assetOutputScript(descriptor);
-		    if (!script) return 0;
-		    const base = isPQAddress(descriptor.address) ? 34 : 25;
-		    return script.length - base;
-		  } catch {
-		    return assetPayloadBytesApprox(descriptor);
-		  }
-		}
-
-		/**
-		 * Estimate the bytes contributed by an output.
-		 *
-		 * Accepts an address string, `{ address }`, or an asset-aware descriptor
-		 * `{ address, assetName, kind, hasIpfs }` where `kind` is one of `transfer`
-		 * (default), `owner`, `issue` or `reissue`.
-		 *
-		 * @param {string|object} target - Output descriptor
-		 * @returns {number} Estimated bytes
-		 */
-		function estimateOutputBytes(target) {
-		  if (typeof target !== 'string' && target && (target.assetName || target.kind === 'verifier')) {
-		    try {
-		      const script = assetOutputScript(target);
-		      if (script) {
-		        // value(8) + CompactSize(scriptLen) + script
-		        return 8 + compactSizeBytes(script.length) + script.length;
-		      }
-		    } catch {
-		      // fall through to the approximation
-		    }
-		    if (STANDALONE_KINDS.has(target.kind)) {
-		      return VBYTES.legacyOutputBytes;
-		    }
-		    const base = isPQAddress(target.address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
-		    return base + assetPayloadBytesApprox(target);
-		  }
-
-		  const address =
-		    typeof target === 'string' ? target : (target && target.address) || '';
-		  return isPQAddress(address) ? VBYTES.pqOutputBytes : VBYTES.legacyOutputBytes;
-		}
-
-		/**
-		 * Sum the per-input/per-output contributions, plus base overhead and segwit
-		 * marker (added once when any input is PQ). Inputs may be partial UTXO-like
-		 * objects with `script` and/or `address`. Outputs may be address strings or
-		 * `{ address }` descriptors.
-		 */
-		function estimateTransactionVbytes(inputs, outputs) {
-		  let vbytes = VBYTES.baseTxOverheadBytes;
-		  let hasPQInput = false;
-
-		  for (const inp of inputs) {
-		    const v = estimateInputVbytes(inp);
-		    vbytes += v;
-		    if (v === VBYTES.pqInputVbytes) hasPQInput = true;
-		  }
-
-		  for (const out of outputs) {
-		    vbytes += estimateOutputBytes(out);
-		  }
-
-		  if (hasPQInput) vbytes += VBYTES.segwitMarkerVbytes;
-
-		  return vbytes;
-		}
-
-		feeSizing = {
-		  VBYTES,
-		  compactSizeBytes,
-		  assetOutputScript,
-		  isPQAddress,
-		  isPQScript,
-		  estimateInputVbytes,
-		  estimateOutputBytes,
-		  assetPayloadBytes,
-		  estimateTransactionVbytes,
-		};
-		return feeSizing;
-	}
-
-	/**
-	 * UTXO Selector
-	 * Selects appropriate UTXOs for asset transactions
-	 *
-	 * Handles selection of:
-	 * - Base currency (XNA) UTXOs for fees and burns
-	 * - Asset UTXOs for transfers and operations
-	 * - Mempool filtering to prevent double-spending
-	 */
-
 	var UTXOSelector_1;
 	var hasRequiredUTXOSelector;
 
 	function requireUTXOSelector () {
 		if (hasRequiredUTXOSelector) return UTXOSelector_1;
 		hasRequiredUTXOSelector = 1;
+		const { rawToDisplayAmount } = requireAssetAmount();
+		/**
+		 * UTXO Selector
+		 * Selects appropriate UTXOs for asset transactions
+		 *
+		 * Handles selection of:
+		 * - Base currency (XNA) UTXOs for fees and burns
+		 * - Asset UTXOs for transfers and operations
+		 * - Mempool filtering to prevent double-spending
+		 */
+
 		const { rpcErrorMessage } = requireRpcErrorMessage();
 		const { InsufficientFundsError } = requireErrors();
 		const { estimateTransactionVbytes } = requireFeeSizing();
@@ -6474,14 +6794,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		      throw new InsufficientFundsError(
 		        `Insufficient XNA balance. Required: ${required} XNA (+ ${(buffer * 100).toFixed(0)}% buffer), ` +
 		        `Available: ${available} XNA`,
-		        Number(required),
-		        Number(available)
+		        rawToDisplayAmount(requiredSats),
+		        rawToDisplayAmount(totalSatoshis)
 		      );
 		    }
 
 		    return {
 		      utxos: selected,
-		      totalAmount: Number(formatRawAsDecimal(totalSatoshis)),
+		      totalAmount: rawToDisplayAmount(totalSatoshis),
 		      totalSats: totalSatoshis
 		    };
 		  }
@@ -6543,14 +6863,14 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const required = formatRawAsDecimal(requiredRaw);
 		      throw new InsufficientFundsError(
 		        `Insufficient ${assetName} balance. Required: ${required}, Available: ${available}`,
-		        Number(required),
-		        Number(available)
+		        rawToDisplayAmount(requiredRaw),
+		        rawToDisplayAmount(totalSatoshis)
 		      );
 		    }
 
 		    return {
 		      utxos: selected,
-		      totalAmount: Number(formatRawAsDecimal(totalSatoshis)),
+		      totalAmount: rawToDisplayAmount(totalSatoshis),
 		      totalRaw: totalSatoshis
 		    };
 		  }
@@ -6617,7 +6937,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {Promise<number>} Total balance
 		   */
 		  async getBalance(addresses, assetName = null) {
-		    return Number(formatRawAsDecimal(await this.getBalanceRaw(addresses, assetName)));
+		    return rawToDisplayAmount(await this.getBalanceRaw(addresses, assetName));
 		  }
 
 		  /**
@@ -6674,7 +6994,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} Estimated fee in XNA
 		   */
 		  estimateFee(inputs, outputs, feeRate = 0.015) {
-		    return Number(formatRawAsDecimal(this.estimateFeeSats(inputs, outputs, feeRate)));
+		    return rawToDisplayAmount(this.estimateFeeSats(inputs, outputs, feeRate));
 		  }
 
 		  /**
@@ -6797,7 +7117,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    const assetOutputs = [];
 
 		    for (const { address, value } of pairs) {
-		      if (typeof value === 'number') {
+		      if ((typeof value === 'number' || typeof value === 'string')) {
 		        xnaOutputs.push({ address, value });
 		      } else if (typeof value === 'object') {
 		        if (value.transfer && this.isOwnerTokenTransfer(value.transfer)) {
@@ -6849,7 +7169,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    for (const [address, value] of entries) {
 		      let category;
 
-		      if (typeof value === 'number') {
+		      if ((typeof value === 'number' || typeof value === 'string')) {
 		        category = 1; // XNA
 		      } else if (value.transfer && this.isOwnerTokenTransfer(value.transfer)) {
 		        category = 2; // Owner token
@@ -6877,7 +7197,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {string} Category name
 		   */
 		  getOutputCategory(value) {
-		    if (typeof value === 'number') {
+		    if ((typeof value === 'number' || typeof value === 'string')) {
 		      return 'XNA';
 		    } else if (value.transfer && this.isOwnerTokenTransfer(value.transfer)) {
 		      return 'OWNER_TOKEN';
@@ -6929,7 +7249,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      const category = this.getOutputCategory(value);
 		      let order;
 
-		      if (typeof value === 'number') {
+		      if ((typeof value === 'number' || typeof value === 'string')) {
 		        order = 1;
 		      } else if (value.transfer && this.isOwnerTokenTransfer(value.transfer)) {
 		        order = 2;
@@ -7980,6 +8300,161 @@ var NeuraiAssetsBundle = (function (exports) {
 	}
 
 	/**
+	 * Asset amounts as `createrawtransaction` must receive them.
+	 *
+	 * Nodes before Neurai-DePIN 9834b03 read every asset amount of
+	 * `createrawtransaction` only from JSON numbers: `asset_quantity` (issue,
+	 * issue_restricted, issue_qualifier, reissue, reissue_restricted),
+	 * `change_quantity` (qualifier and tag operations) and the amounts of
+	 * `transfer` and `transferwithmessage`. A quoted value fails `isNum()` and the
+	 * call is rejected ("missing asset data for key: asset_quantity", "missing or
+	 * invalid quantity"). The builders accept these amounts as decimal strings,
+	 * which keep every digit the caller wrote, and produce some themselves (an
+	 * asset change that no JavaScript number carries exactly), so they are turned
+	 * into JSON numbers here, on the copy of the outputs sent to the node. Newer
+	 * nodes accept both forms. The outputs returned to the caller keep the value
+	 * as it was given.
+	 */
+
+	var rpcAmount;
+	var hasRequiredRpcAmount;
+
+	function requireRpcAmount () {
+		if (hasRequiredRpcAmount) return rpcAmount;
+		hasRequiredRpcAmount = 1;
+		const {
+		  expandScientificNotation,
+		  formatRawAsDecimal,
+		  normalizeDecimalText,
+		  scaleDecimalText
+		} = requireAssetAmount();
+
+		/** Fields the node parses with `isNum()` inside an asset operation object. */
+		const NUMERIC_OPERATION_FIELDS = ['asset_quantity', 'change_quantity'];
+
+		/**
+		 * Operations whose keys are asset names mapped to amounts. `transferwithmessage`
+		 * also carries `message` (a string) and `expire_time` (an integer), which are
+		 * not amounts and are left alone.
+		 */
+		const TRANSFER_OPERATIONS = ['transfer', 'transferwithmessage'];
+		const TRANSFER_NON_AMOUNT_KEYS = ['message', 'expire_time'];
+
+		/** The largest magnitude whose 8-decimal values a double still names exactly. */
+		const MAX_EXACT_FRACTIONAL = Number.MAX_SAFE_INTEGER / 1e8;
+
+		/**
+		 * An exact decimal serialized as a bare JSON number token.
+		 *
+		 * Same shape as `rpcNumber()` from @neuraiproject/neurai-rpc: its
+		 * `stringifyRpcJson` (lossless-json) writes any object flagged
+		 * `isLosslessNumber` through `toString()`. It is defined here instead of
+		 * imported because the bundles inline every dependency and neurai-rpc carries
+		 * its whole RPC reference. With another serializer it stays an object, which
+		 * the node rejects: it can never become a different amount.
+		 */
+		class RpcDecimal {
+		  /**
+		   * @param {string} text - Plain decimal text
+		   */
+		  constructor(text) {
+		    this.isLosslessNumber = true;
+		    this.value = text;
+		  }
+
+		  toString() {
+		    return this.value;
+		  }
+		}
+
+		/**
+		 * Convert an amount into a JSON-number value for `createrawtransaction`.
+		 *
+		 * Numbers pass through, as before. A decimal string becomes a JavaScript
+		 * number when that number writes back the same decimal (every JSON serializer
+		 * handles it), and an {@link RpcDecimal} otherwise, so no digit is rounded.
+		 *
+		 * @param {string|number} value - Display amount
+		 * @param {string} [label] - Field name, for error messages
+		 * @returns {number|RpcDecimal} JSON-number value
+		 * @throws {InvalidAmountError} If a string is not an exact 8-decimal amount
+		 */
+		function toRpcAmount(value, label = 'amount') {
+		  if (typeof value !== 'string') {
+		    return value;
+		  }
+		  const text = formatRawAsDecimal(scaleDecimalText(normalizeDecimalText(value, label), 8, label));
+		  const number = Number(text);
+		  const exact = Number.isFinite(number) &&
+		    expandScientificNotation(String(number)) === text &&
+		    (Number.isInteger(number) ? Number.isSafeInteger(number) : Math.abs(number) <= MAX_EXACT_FRACTIONAL);
+		  return exact ? number : new RpcDecimal(text);
+		}
+
+		function isPlainObject(value) {
+		  return value !== null && typeof value === 'object' && !Array.isArray(value);
+		}
+
+		/**
+		 * Copy of `createrawtransaction` outputs with the asset amounts converted by
+		 * {@link toRpcAmount}: `asset_quantity` and `change_quantity`, and the amounts
+		 * of `transfer` / `transferwithmessage`. XNA amounts and every other field are
+		 * left as they are: the node reads XNA amounts with `AmountFromValue`, which
+		 * also accepts strings.
+		 *
+		 * @param {Array<object>|object} outputs - Outputs as built (array of single-key objects, or one object)
+		 * @returns {Array<object>|object} Outputs to send, same shape
+		 */
+		function prepareOutputsForRpc(outputs) {
+		  const convertPayload = (payload) => {
+		    if (!isPlainObject(payload)) {
+		      return payload;
+		    }
+		    const converted = {};
+		    for (const [operation, params] of Object.entries(payload)) {
+		      if (!isPlainObject(params)) {
+		        converted[operation] = params;
+		        continue;
+		      }
+		      const copy = { ...params };
+		      if (TRANSFER_OPERATIONS.includes(operation)) {
+		        for (const [key, value] of Object.entries(copy)) {
+		          if (!TRANSFER_NON_AMOUNT_KEYS.includes(key) && value !== undefined && value !== null) {
+		            copy[key] = toRpcAmount(value, `${operation} amount of ${key}`);
+		          }
+		        }
+		      } else {
+		        for (const field of NUMERIC_OPERATION_FIELDS) {
+		          if (copy[field] !== undefined && copy[field] !== null) {
+		            copy[field] = toRpcAmount(copy[field], field);
+		          }
+		        }
+		      }
+		      converted[operation] = copy;
+		    }
+		    return converted;
+		  };
+
+		  const convertOutput = (output) => {
+		    const converted = {};
+		    for (const [address, payload] of Object.entries(output)) {
+		      converted[address] = convertPayload(payload);
+		    }
+		    return converted;
+		  };
+
+		  return Array.isArray(outputs) ? outputs.map(convertOutput) : convertOutput(outputs);
+		}
+
+		rpcAmount = {
+		  RpcDecimal,
+		  toRpcAmount,
+		  prepareOutputsForRpc
+		};
+		return rpcAmount;
+	}
+
+	/**
 	 * Base Asset Transaction Builder
 	 * Abstract base class for all transaction builders
 	 *
@@ -8011,9 +8486,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		  xnaAmountToSats,
 		  formatRawAsDecimal,
 		  rawToDisplayNumber,
+		  rawToDisplayAmount,
 		  toProtocolInteger,
 		  sumProtocolIntegers
 		} = requireAssetAmount();
+		const { prepareOutputsForRpc } = requireRpcAmount();
 
 		/** Outputs below this are dust and are dropped instead of created. */
 		const DUST_SATS = 1n;
@@ -8334,10 +8811,12 @@ var NeuraiAssetsBundle = (function (exports) {
 		        vout: input.vout !== undefined ? input.vout : input.outputIndex
 		      }));
 
-		      // Call createrawtransaction
+		      // Call createrawtransaction. Nodes before Neurai-DePIN 9834b03 only
+		      // accept asset amounts as JSON numbers; the caller's outputs keep the
+		      // values as given.
 		      const rawTx = await this.rpc('createrawtransaction', [
 		        formattedInputs,
-		        outputs
+		        prepareOutputsForRpc(outputs)
 		      ]);
 
 		      return rawTx;
@@ -8377,11 +8856,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} Change amount
 		   */
 		  calculateChange(totalInput, totalOutput) {
-		    const change = totalInput - totalOutput;
+		    const change = xnaAmountToSats(totalInput) - xnaAmountToSats(totalOutput);
 		    if (change < 0) {
 		      throw new Error('Insufficient funds: inputs < outputs');
 		    }
-		    return change;
+		    return rawToDisplayAmount(change);
 		  }
 
 		  /**
@@ -8469,8 +8948,8 @@ var NeuraiAssetsBundle = (function (exports) {
 		   *     (e.g. "1" for one token, "1.5" for one and a half tokens).
 		   *   - The lib must NOT pre-multiply by 10^8 or 10^units; the daemon
 		   *     does the 10^8 scaling itself, and any extra factor here lands
-		   *     duplicated and inflates the minted supply (or trips the
-		   *     ParseFixedPoint `exponent >= 18` cap → "Invalid amount (3)").
+		   *     duplicated and inflates the minted supply (or falls outside the
+		   *     range the node's amount parser accepts → "Invalid amount (3)").
 		   *
 		   * History: pre-1.2.2 multiplied by 10^units (correct only for units=0
 		   * assets, inflated everything else by 10^units). v1.2.2 changed to
@@ -8478,11 +8957,15 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * 10^8 — e.g. reissuing 1 token of a units=0 asset minted 100,000,000).
 		   * The right answer is to send the value untouched.
 		   *
+		   * A decimal string is also kept as it is: `buildRawTransaction` turns it
+		   * into the JSON number the node requires (see utils/rpcAmount.js), and the
+		   * outputs returned to the caller keep the string.
+		   *
 		   * The `units` parameter is kept for API compatibility but is unused.
 		   *
-		   * @param {number} amount - User-facing asset amount
+		   * @param {number|string} amount - User-facing asset amount
 		   * @param {number} units - Asset decimal places (unused; kept for API)
-		   * @returns {number} The user-facing amount, ready for the JSON output
+		   * @returns {number|string} The user-facing amount, ready for the JSON output
 		   */
 		  toSatoshis(amount, units) {
 		    return amount;
@@ -8500,7 +8983,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} User-facing asset amount
 		   */
 		  fromSatoshis(satoshis, units) {
-		    return satoshis / 100000000;
+		    return rawToDisplayAmount(toProtocolInteger(satoshis));
 		  }
 
 		  /**
@@ -8525,7 +9008,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      return undefined;
 		    }
 
-		    return Math.round(amount * 100000000);
+		    return xnaAmountToSats(amount);
 		  }
 
 		  /**
@@ -8538,14 +9021,13 @@ var NeuraiAssetsBundle = (function (exports) {
 		   *   1. `params.assetMarker` (explicit caller override — offline builds,
 		   *      tests, or a node this library should not ask);
 		   *   2. `getblockchaininfo.asset_marker` from the connected node;
-		   *   3. `'rvn'` when the node predates the field (a node without it enforces
-		   *      the legacy marker, so that is the right answer, not a guess).
+		   *   3. On mainnet, `'rvn'` when the field is absent. Testnet requires
+		   *      the field or an explicit override.
 		   *
 		   * An RPC *failure* is a different case, and `params.assetMarkerPolicy`
 		   * decides it:
-		   *   - `'legacy-fallback'` (default in 1.x) resolves `'rvn'`, preserving the
-		   *     1.4.x behaviour;
-		   *   - `'strict'` propagates the failure. On a post-NIP-040 chain a build
+		   *   - `'legacy-fallback'` (mainnet default) resolves `'rvn'`;
+		   *   - `'strict'` (testnet default) propagates the failure. On a post-NIP-040 chain a build
 		   *     that guessed `'rvn'` produces a transaction the node rejects with
 		   *     `bad-txns-legacy-asset-marker-after-nip040`, so an online wallet
 		   *     should not treat "the node did not answer" as "the node said rvn".
@@ -8573,7 +9055,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		  assetMarkerPolicy() {
 		    const policy = this.params.assetMarkerPolicy;
 		    if (policy === undefined || policy === null) {
-		      return 'legacy-fallback';
+		      return getNetworkConfig(this.network).baseNetwork === 'xna-test' ? 'strict' : 'legacy-fallback';
 		    }
 		    if (policy !== 'strict' && policy !== 'legacy-fallback') {
 		      throw new Error(
@@ -8611,7 +9093,9 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 		    const marker = info ? info.asset_marker : undefined;
 		    if (marker === undefined || marker === null) {
-		      // A valid answer from a node that predates the field: legacy is correct.
+		      if (getNetworkConfig(this.network).baseNetwork === 'xna-test') {
+		        throw new Error('Testnet node did not report asset_marker; pass params.assetMarker for an offline build');
+		      }
 		      return 'rvn';
 		    }
 		    if (marker !== 'rvn' && marker !== 'xna') {
@@ -8751,7 +9235,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @returns {number} Display amount
 		   */
 		  satsToDisplay(sats) {
-		    return rawToDisplayNumber(sats, 'display amount');
+		    return rawToDisplayAmount(sats);
 		  }
 
 		  /**
@@ -8800,7 +9284,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		    }
 
 		    const burnEntry = entries.find(({ address, value }) => {
-		      return typeof value === 'number' &&
+		      return (typeof value === 'number' || typeof value === 'string') &&
 		        value === burnAmount &&
 		        this.burnManager.isBurnAddress(address);
 		    });
@@ -8815,11 +9299,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * Extract XNA change metadata from outputs
 		   * @param {Array<{address: string, value: unknown}>} entries - Output entries
 		   * @param {string|null} burnAddress - Burn address if present
-		   * @returns {{ changeAddress: string|null, changeAmount: number|null }}
+		   * @returns {{ changeAddress: string|null, changeAmount: number|string|null }}
 		   */
 		  extractChangeMetadata(entries, burnAddress = null) {
 		    const xnaOutputs = entries.filter(({ address, value }) => {
-		      return typeof value === 'number' && address !== burnAddress;
+		      return (typeof value === 'number' || typeof value === 'string') && address !== burnAddress;
 		    });
 
 		    if (xnaOutputs.length !== 1) {
@@ -12157,7 +12641,7 @@ var NeuraiAssetsBundle = (function (exports) {
 		      outputs.push({ [changeAddress]: this.satsToDisplay(xnaChangeSats) });
 		    }
 		    outputs.push({
-		      [holderAddress]: OutputFormatter.formatTransferOutput(assetName, Number(amountRaw))
+		      [holderAddress]: OutputFormatter.formatTransferOutput(assetName, this.satsToDisplay(amountRaw))
 		    });
 		    outputs.push({
 		      [holderAddress]: OutputFormatter.formatFreezeAddressesOutput({
@@ -12311,14 +12795,11 @@ var NeuraiAssetsBundle = (function (exports) {
 		   * @param {string} config.toAddress - Default receiving address
 		   * @param {('rvn'|'xna')} [config.assetMarker] - NIP-040 marker for locally
 		   *   built raw transactions. Omit to use the node's
-		   *   getblockchaininfo.asset_marker (falls back to 'rvn' on nodes that do
-		   *   not report it). Per-operation params.assetMarker overrides this.
+		   *   getblockchaininfo.asset_marker. A missing field fails on testnet and
+		   *   falls back to 'rvn' on mainnet. Per-operation params.assetMarker overrides this.
 		   * @param {('strict'|'legacy-fallback')} [config.assetMarkerPolicy] - What to
-		   *   do when getblockchaininfo FAILS. 'legacy-fallback' (default in 1.x)
-		   *   resolves 'rvn'; 'strict' propagates the error instead, because on a
-		   *   post-NIP-040 chain a guessed 'rvn' builds a transaction the node
-		   *   rejects. A node that simply predates the field still resolves 'rvn'
-		   *   under both policies — that is an answer, not a failure.
+		   *   do when getblockchaininfo fails. Testnet defaults to 'strict'; mainnet
+		   *   defaults to 'legacy-fallback'. An absent field always fails on testnet.
 		   */
 		  constructor(rpc, config = {}) {
 		    if (!rpc || typeof rpc !== 'function') {

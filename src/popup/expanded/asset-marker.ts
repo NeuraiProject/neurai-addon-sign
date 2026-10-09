@@ -1,10 +1,12 @@
 /**
  * NIP-040 marker resolution.
  *
- * Deliberately free of imports: it is loaded straight from source by
- * `node --test`, and it has nothing to do with the formatting helpers in
+ * Loaded straight from source by `node --test`, so it only imports other
+ * import-free modules, and it has nothing to do with the formatting helpers in
  * asset-utils.
  */
+import { isTestnetNetwork } from '../../shared/networks.ts';
+
 /** NIP-040 asset payload marker, as the node reports it. */
 export type AssetMarker = 'rvn' | 'xna';
 
@@ -25,7 +27,10 @@ type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
  * - `rvn` / `xna` → use it;
  * - field absent or null in a VALID reply → `rvn`. That is an answer, not a
  *   guess: a node predating the field is a node that still enforces the legacy
- *   marker;
+ *   marker. Mainnet nodes are such nodes today;
+ * - field absent with `requireField` → throw. The reset testnet switches from
+ *   `rvn` to `xna` at block 10 and every node of that chain publishes the
+ *   field, so a testnet RPC without it is an outdated node, not an answer;
  * - any other value → throw, rather than pick one;
  * - the RPC call itself failing → throw. "The node did not answer" must not
  *   become "the node said rvn": on a post-activation chain that builds a
@@ -33,9 +38,13 @@ type RpcFn = (method: string, params: unknown[]) => Promise<unknown>;
  *   and the user would see a signing failure with no useful cause.
  *
  * @param rpc - RPC function bound to the node the operation targets
+ * @param options.requireField - Reject a reply without the field (testnet)
  * @returns The marker to stamp on every asset output of this operation
  */
-export async function resolveAssetMarker(rpc: RpcFn): Promise<AssetMarker> {
+export async function resolveAssetMarker(
+  rpc: RpcFn,
+  options: { requireField?: boolean } = {}
+): Promise<AssetMarker> {
   let info: { asset_marker?: unknown } | null;
   try {
     info = await rpc('getblockchaininfo', []) as { asset_marker?: unknown } | null;
@@ -51,6 +60,13 @@ export async function resolveAssetMarker(rpc: RpcFn): Promise<AssetMarker> {
 
   const marker = info ? info.asset_marker : undefined;
   if (marker === undefined || marker === null) {
+    if (options.requireField) {
+      throw new Error(
+        'The RPC node did not report getblockchaininfo.asset_marker. Every node of the reset testnet ' +
+        'publishes it (rvn up to block 9, xna from block 10), so this one is outdated. ' +
+        'Set an up-to-date testnet RPC in Settings.'
+      );
+    }
     return 'rvn';
   }
   if (marker !== 'rvn' && marker !== 'xna') {
@@ -82,7 +98,7 @@ export interface AssetMarkerCache {
  * receives the rejection.
  *
  * The cache is keyed by network so switching wallets cannot carry a mainnet
- * answer into a testnet operation.
+ * answer into a testnet operation. Testnet networks require the field.
  *
  * @returns A cache instance; create one per popup session
  */
@@ -94,7 +110,7 @@ export function createAssetMarkerCache(): AssetMarkerCache {
     if (cached) {
       return cached;
     }
-    const promise = resolveAssetMarker(rpc);
+    const promise = resolveAssetMarker(rpc, { requireField: isTestnetNetwork(network) });
     entries.set(network, promise);
     promise.catch(() => {
       if (entries.get(network) === promise) {

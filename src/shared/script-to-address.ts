@@ -9,6 +9,7 @@
 // service-worker contexts).
 
 import type { WalletNetwork } from '../types/index.js';
+import { isTestnetNetwork } from './networks.js';
 
 const BASE58_ALPHABET =
   '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -60,13 +61,10 @@ function isP2PKH(spk: Uint8Array): boolean {
 /**
  * Base58check-encode the given 20-byte PKH for the given network. Uses the
  * same version bytes as `lib/neurai-sign-transaction/src/coins/xna.ts`
- * (mainnet 45 / testnet 127).
+ * (mainnet 53 `N…` / testnet 127 `t…`).
  */
 async function encodeP2PKHAddress(pkh20: Uint8Array, network: WalletNetwork | string): Promise<string> {
-  const versionByte =
-    network === 'xna-test' || network === 'xna-legacy-test' || network === 'xna-pq-test'
-      ? 127
-      : 45;
+  const versionByte = isTestnetNetwork(network) ? 127 : 53;
   const payload = new Uint8Array(1 + 20);
   payload[0] = versionByte;
   payload.set(pkh20, 1);
@@ -82,11 +80,9 @@ async function encodeP2PKHAddress(pkh20: Uint8Array, network: WalletNetwork | st
  * readable address. Returns null when the shape is not supported by this
  * decoder — callers must fall back to showing `scriptHex`.
  *
- * Supported: P2PKH. AuthScript witness v1 (bech32m) is not implemented
- * here and returns null — the popup falls back to showing the scriptHex
- * for unrecognised shapes. Adding bech32m would let us render PQ
- * seller refund addresses (`tnq1p...`) as text; worth it once the DEX
- * routes cancel refunds to AuthScript addresses commonly.
+ * Supported: P2PKH. The AuthScript families (bech32m `tnc1p…`, `tpq1z…`,
+ * `tnq1r…`) are not implemented here and return null — the popup falls back
+ * to showing the scriptHex for unrecognised shapes.
  */
 export async function decodePrefixAddress(
   prefixHex: string,

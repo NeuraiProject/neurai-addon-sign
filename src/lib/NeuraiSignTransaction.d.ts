@@ -3,13 +3,17 @@
 export {};
 
 declare global {
+  /** neurai-key 5 labels; only the chain (mainnet vs `-test`) is used. */
   type NeuraiSignTransactionNetwork =
     | 'xna'
     | 'xna-test'
     | 'xna-legacy'
     | 'xna-legacy-test'
+    | 'xna-old-legacy'
     | 'xna-pq'
-    | 'xna-pq-test';
+    | 'xna-pq-test'
+    | 'xna-authscript'
+    | 'xna-authscript-test';
 
   interface NeuraiSignTransactionUTXO {
     address: string;
@@ -17,9 +21,9 @@ declare global {
     txid: string;
     outputIndex: number;
     script: string;
-    satoshis: number;
+    satoshis: number | bigint | string;
     height?: number;
-    value: number;
+    value: number | bigint | string;
   }
 
   interface NeuraiSignTransactionPQKey {
@@ -44,16 +48,20 @@ declare global {
   interface NeuraiSignTransactionOptions {
     /** Enable debug logging or provide a callback for sign events */
     debug?: boolean | ((event: NeuraiSignTransactionDebugEvent) => void);
+    /** Default hash type of signed inputs: 0x01 (ALL, default) or 0x83 (SINGLE|ANYONECANPAY). */
+    hashType?: number;
+    /** Per-input-index overrides of `hashType`. */
+    inputHashTypes?: Record<number, number>;
   }
 
   interface NeuraiSignTransactionStatic {
     /**
      * Sign a raw transaction locally.
      *
-     * Supports legacy, AuthScript PQ (authType 0x01), and mixed inputs.
-     * For AuthScript inputs the prevout must be OP_1 <32-byte-commitment>.
+     * The input type comes from each prevout script: P2PKH, generic AuthScript
+     * v1 (OP_1), strict PQ v2 (OP_2, PQ key) or strict ECDSA v3 (OP_3, WIF).
      *
-     * @param network       - Network identifier (xna, xna-test, xna-pq, xna-pq-test, etc.)
+     * @param network       - neurai-key 5 label; only its chain is used
      * @param rawTxHex      - Unsigned transaction hex
      * @param utxos         - Array of UTXOs being spent
      * @param privateKeys   - Map of address → WIF string or PQ/AuthScript key object
@@ -67,6 +75,8 @@ declare global {
       privateKeys: Record<string, string | NeuraiSignTransactionPQKey>,
       options?: NeuraiSignTransactionOptions
     ): string;
+
+    SIGN_HASH_TYPES: { ALL: number; SINGLE_ANYONECANPAY: number };
   }
 
   var NeuraiSignTransaction: NeuraiSignTransactionStatic;

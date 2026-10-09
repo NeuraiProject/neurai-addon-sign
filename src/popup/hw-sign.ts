@@ -1,5 +1,6 @@
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { networkLabel } from '../shared/networks.js';
 import { elem, utxoRow } from '../shared/dom.js';
 import type { HwSignPayload } from '../types/index.js';
 
@@ -228,7 +229,7 @@ import type { HwSignPayload } from '../types/index.js';
 
     elements.originValue!.textContent = req.origin || '--';
     elements.addressValue!.textContent = req.address || '--';
-    elements.networkValue!.textContent = req.network || '--';
+    elements.networkValue!.textContent = req.network ? networkLabel(req.network) : '--';
     scheduleWindowResize();
   }
 

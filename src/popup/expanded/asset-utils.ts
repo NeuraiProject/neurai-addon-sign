@@ -1,7 +1,7 @@
 // Pure utilities for inspecting and normalizing asset payloads, verifier expressions,
 // and asset transaction outputs.
 
-import { formatAssetAmount } from './format.js';
+import { formatAssetAmount } from './format.ts';
 
 export function getAssetType(name: string): string {
   if (name.endsWith('!')) return 'owner';
@@ -247,9 +247,9 @@ export function parseUniqueAddresses(rawAddresses: string): string[] {
   )];
 }
 
+/** Any Bech32m AuthScript family: v1 nc1p…, PQ v2 pq1z…, ECDSA v3 nq1r… (and testnet t…). */
 export function isAuthScriptAddress(address: string): boolean {
-  const normalized = String(address || '').trim().toLowerCase();
-  return normalized.startsWith('nq1') || normalized.startsWith('tnq1');
+  return /^t?(nc|pq|nq)1/.test(String(address || '').trim().toLowerCase());
 }
 
 export function normalizeQualifierTags(raw: unknown): string[] {

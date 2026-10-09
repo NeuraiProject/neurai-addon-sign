@@ -36,6 +36,12 @@ declare global {
     /** Override the RPC URL. */
     setURL(url: string): void;
 
+    /**
+     * Genesis block hash the endpoint must serve (null disables the check).
+     * Every call first verifies it once per endpoint with getblockhash(0).
+     */
+    setExpectedGenesis(hash: string | null): void;
+
     /** Fetch address deltas (transaction history entries) for a given asset. */
     getAddressDeltas(address: string, assetName: string): Promise<unknown[]>;
 

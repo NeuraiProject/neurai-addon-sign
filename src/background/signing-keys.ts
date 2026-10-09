@@ -7,6 +7,7 @@
 // `background.ts:540-588`.
 
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { toKeyNetwork } from '../shared/networks.js';
 import type { WalletData, WalletSettings, WalletNetwork } from '../types/index.js';
 
 type PQNetwork = Extract<WalletNetwork, 'xna-pq' | 'xna-pq-test'>;
@@ -39,9 +40,10 @@ export async function resolveWif(
 }
 
 /**
- * Resolve the AuthScript PQ seedKey. Falls back to re-deriving from the
- * mnemonic (and optional passphrase) when the seedKey is not stored
- * directly. Mirrors the flow at `background.ts:540-561`.
+ * Resolve the PQ seedKey. Falls back to re-deriving from the mnemonic (and
+ * optional passphrase) when the seedKey is not stored directly. The seed is
+ * the same for the PQ v2 address and the AuthScript v1 address of older
+ * releases; `network` only selects the chain of the derivation path.
  */
 export async function resolveSeedKey(
   walletData: WalletData,
@@ -78,16 +80,18 @@ export async function resolveSeedKey(
   if (walletData.passphraseEnc) {
     passphrase = (await NEURAI_UTILS.decryptTextWithPin(walletData.passphraseEnc, pin || '')) || '';
   }
-  const pqAddr = NeuraiKey.getPQAddress(network, mnemonic, 0, 0, passphrase || undefined);
+  const pqAddr = NeuraiKey.getPQAddress(toKeyNetwork(network) as NeuraiKeyPQNetwork, mnemonic, 0, 0, passphrase || undefined);
   return pqAddr.seedKey;
 }
 
+/** `legacy` covers every secp256k1 wallet: Legacy P2PKH and ECDSA witness v3. */
 export type WalletSigningKind = 'legacy' | 'pq';
 
 /**
- * Shape of the third argument accepted by `NeuraiSignTransaction.sign(...)`
- * for a single-address wallet. Legacy takes a WIF string; PQ takes an
- * object with the seedKey.
+ * Shape of the fourth argument accepted by `NeuraiSignTransaction.sign(...)`
+ * for a single-address wallet. secp256k1 wallets (Legacy P2PKH and ECDSA
+ * witness v3) take a WIF string; PQ takes an object with the seedKey. The
+ * library picks the input template from each prevout script.
  */
 export type SigningKeyMap = Record<string, string | { seedKey: string }>;
 

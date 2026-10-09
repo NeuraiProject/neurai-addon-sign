@@ -16,7 +16,8 @@ declare global {
     sign(message: string, privateKey: Uint8Array, compressed?: boolean): string;
 
     /**
-     * Verify a signed message (auto-detects legacy vs PQ).
+     * Verify a signed message. Routes on the address type: Base58 → legacy,
+     * nc1p / pq1z → PQ, nq1r → ECDSA witness. Old nq1p / tnq1p strings → false.
      * Note: parameter order is (message, address, signature) — message comes FIRST.
      * @returns true if the signature is valid for the given address
      */
@@ -27,9 +28,19 @@ declare global {
      * @param message    - UTF-8 message text
      * @param privateKey - ML-DSA-44 secret key bytes
      * @param publicKey  - ML-DSA-44 public key bytes (1312 bytes)
+     * @param address    - Signing address. Required for strict PQ v2 (pq1z…),
+     *                     whose signature is bound to the address; must belong
+     *                     to `publicKey`, or this throws.
      * @returns Base64-encoded PQ signature string
      */
-    signPQMessage(message: string, privateKey: Uint8Array, publicKey: Uint8Array): string;
+    signPQMessage(message: string, privateKey: Uint8Array, publicKey: Uint8Array, address?: string): string;
+
+    /**
+     * Sign a message for a strict ECDSA witness v3 address (nq1r… / tnq1r…),
+     * bound to the address like the node's `signmessage`. Throws unless
+     * `address` is the v3 address of the (compressed) key.
+     */
+    signECDSAWitnessMessage(message: string, privateKey: Uint8Array, address: string): string;
 
     /**
      * Verify a PQ (ML-DSA-44) signed message.

@@ -10,6 +10,20 @@ import {
   parseRawTransactionOutputs
 } from '../shared/parse-raw-tx.js';
 import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
+import {
+  isTestnetNetwork,
+  isPQNetwork,
+  toKeyNetwork,
+  networkLabel,
+  expectedGenesis,
+  estimateTxVbytes,
+  prevoutKind,
+  feeSatsForVbytes,
+  dustThresholdSats,
+  obsoleteAddressMessage,
+} from '../shared/networks.js';
+import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
+import { runWalletMigrations } from '../shared/migrations.js';
 import { elem, option } from '../shared/dom.js';
 import {
   formatAmountParts,
@@ -18,6 +32,8 @@ import {
   formatSatoshisToXna,
   xnaToSatoshis,
   satoshisToXna,
+  amountText,
+  requireAmountText,
 } from './expanded/format.js';
 import {
   isLikelyBurnAddress,
@@ -755,12 +771,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function renderWalletInfo() {
     if (!state.wallet) return;
     const network = (state.wallet.network || 'xna') as string;
-    const networkLabels: Record<string, string> = {
-      'xna': 'Mainnet', 'xna-test': 'Testnet',
-      'xna-legacy': 'Mainnet Legacy', 'xna-legacy-test': 'Testnet Legacy',
-      'xna-pq': 'Mainnet AuthScript PQ', 'xna-pq-test': 'Testnet AuthScript PQ'
-    };
-    elements.networkValue.textContent = networkLabels[network] || network;
+    elements.networkValue.textContent = networkLabel(network);
     elements.accountValue.textContent = 'Neurai_' + state.activeAccountId;
     elements.addressValue.textContent = state.wallet.address as string || '--';
     elements.headerSubtitle.classList.toggle('hidden', state.wallet.walletType !== 'hardware');
@@ -1384,13 +1395,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   // Change is always returned to the wallet's own address — Neurai Sign reuses
   // a single address per account, so we never derive a fresh change address.
 
-  // Fee rate fallback (XNA per KB). Mirrors @neuraiproject/neurai-jswallet.
+  // Fee rate fallback (XNA per 1000 vbytes). Mirrors @neuraiproject/neurai-jswallet.
+  // Sizes and dust limits per address family live in shared/networks.ts.
   const SEND_DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
-  const SEND_DUST_SATS = 546n;
-  const SEND_LEGACY_INPUT_VBYTES = 148;
-  const SEND_PQ_INPUT_VBYTES = 976;
-  const SEND_LEGACY_OUTPUT_BYTES = 34;
-  const SEND_PQ_OUTPUT_BYTES = 31;
 
   interface SendUtxo {
     txid: string;
@@ -1404,41 +1411,19 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
   interface SendBuildResult {
     rawTx: string;
-    fee: number;
+    fee: number | string;
     inputs: Array<{ txid: string; vout: number; address: string; satoshis: number; assetName?: string }>;
     outputs: Array<Record<string, number | { transfer: Record<string, number> }>>;
     network: string;
     burnAmount: number;
     burnAddress: string | null;
     changeAddress: string | null;
-    changeAmount: number | null;
+    changeAmount: number | string | null;
     buildStrategy: 'local-builder';
   }
 
-  function isSendPQAddress(address: string): boolean {
-    return address.startsWith('nq1') || address.startsWith('tnq1');
-  }
-
-  function isSendPQUtxo(utxo: SendUtxo): boolean {
-    return typeof utxo.script === 'string' && utxo.script.startsWith('5120');
-  }
-
-  function estimateSendSizeKB(inputs: SendUtxo[], outputAddresses: string[]): number {
-    const hasPQInputs = inputs.some(isSendPQUtxo);
-    const baseSize = hasPQInputs ? 12 : 10;
-    const inputBytes = inputs.reduce(
-      (total, utxo) => total + (isSendPQUtxo(utxo) ? SEND_PQ_INPUT_VBYTES : SEND_LEGACY_INPUT_VBYTES),
-      0
-    );
-    const outputBytes = outputAddresses.reduce(
-      (total, addr) => total + (isSendPQAddress(addr) ? SEND_PQ_OUTPUT_BYTES : SEND_LEGACY_OUTPUT_BYTES),
-      0
-    );
-    return (baseSize + inputBytes + outputBytes) / 1024;
-  }
-
-  function feeSatsFromSendSize(sizeKb: number, feeRateXnaPerKb: number): bigint {
-    return BigInt(Math.round(sizeKb * feeRateXnaPerKb * 1e8));
+  function estimateSendVbytes(inputs: SendUtxo[], outputAddresses: string[]): number {
+    return estimateTxVbytes(inputs.map((utxo) => prevoutKind(utxo.script, utxo.address)), outputAddresses);
   }
 
   async function fetchSendFeeRate(rpc: (method: string, params: unknown[]) => Promise<unknown>): Promise<number> {
@@ -1576,6 +1561,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       for (const r of recipients) {
         if (!r.address) throw new Error('Each recipient needs an address.');
         if (r.address === walletAddress) throw new Error('Cannot send to your own address.');
+        const obsolete = obsoleteAddressMessage(r.address);
+        if (obsolete) throw new Error(obsolete);
         if (!Number.isFinite(r.amount) || r.amount <= 0) {
           throw new Error(`Invalid amount for ${r.address}: must be greater than 0.`);
         }
@@ -1596,9 +1583,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         recipients,
       });
 
-      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
-        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
-        : (state.settings.rpcMainnet || C.RPC_URL);
+      const rpcUrl = rpcUrlFor(network);
 
       setConfirmProgress(prep, 'Signing…');
       const signedHex = await signRawTx(built.rawTx, rpcUrl);
@@ -1677,14 +1662,14 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     // First pass: estimate with 1 input
     let selectedBase = [xnaUtxos[0]];
-    const probeSize = estimateSendSizeKB(selectedBase, [...toAddresses, walletAddress]);
-    let feeSats = feeSatsFromSendSize(probeSize, feeRate);
+    const probeSize = estimateSendVbytes(selectedBase, [...toAddresses, walletAddress]);
+    let feeSats = feeSatsForVbytes(probeSize, feeRate);
 
     // Select UTXOs to cover send + fee
     selectedBase = selectUtxosForSats(xnaUtxos, totalSendSats + feeSats);
     // Recompute fee against final input count
-    const finalSize = estimateSendSizeKB(selectedBase, [...toAddresses, walletAddress]);
-    feeSats = feeSatsFromSendSize(finalSize, feeRate);
+    const finalSize = estimateSendVbytes(selectedBase, [...toAddresses, walletAddress]);
+    feeSats = feeSatsForVbytes(finalSize, feeRate);
 
     if (totalAvailableSats < totalSendSats + feeSats) {
       throw new Error('Insufficient XNA balance to cover amount + fee.');
@@ -1695,12 +1680,14 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (changeSats < 0n) {
       // need more inputs
       selectedBase = selectUtxosForSats(xnaUtxos, totalSendSats + feeSats);
-      const reSize = estimateSendSizeKB(selectedBase, [...toAddresses, walletAddress]);
-      feeSats = feeSatsFromSendSize(reSize, feeRate);
+      const reSize = estimateSendVbytes(selectedBase, [...toAddresses, walletAddress]);
+      feeSats = feeSatsForVbytes(reSize, feeRate);
       changeSats = selectedBase.reduce((a, u) => a + BigInt(u.satoshis), 0n) - totalSendSats - feeSats;
       if (changeSats < 0n) throw new Error('Insufficient XNA balance to cover amount + fee.');
     }
-    if (changeSats > 0n && changeSats < SEND_DUST_SATS) {
+    // The dust limit depends on the family of the change address: 546 sats for
+    // P2PKH, 3060 for PQ, 336 for ECDSA witness.
+    if (changeSats > 0n && changeSats < dustThresholdSats(walletAddress)) {
       feeSats += changeSats;
       changeSats = 0n;
     }
@@ -1708,6 +1695,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const payments: NeuraiCreateTransactionTxPaymentOutput[] = [];
     for (const r of recipients) {
       const valueSats = BigInt(Math.round(r.amount * 1e8));
+      const dust = dustThresholdSats(r.address);
+      if (valueSats < dust) {
+        throw new Error(`Amount for ${r.address} is below the network dust limit for that address type (${formatSatoshisToXna(dust)} XNA).`);
+      }
       payments.push({ address: r.address, valueSats });
       outputs.push({ [r.address]: r.amount });
     }
@@ -1757,9 +1748,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   function applyReaderConfig(network: string) {
-    if (NEURAI_UTILS.isTestnetNetwork(network)) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
-    const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network) ? state.settings.rpcTestnet : state.settings.rpcMainnet;
+    if (isTestnetNetwork(network)) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
+    const rpcUrl = isTestnetNetwork(network) ? state.settings.rpcTestnet : state.settings.rpcMainnet;
     if (rpcUrl) NeuraiReader.setURL(rpcUrl);
+    NeuraiReader.setExpectedGenesis(expectedGenesis(network));
   }
 
   function copyAddress() {
@@ -1941,6 +1933,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   // ── Storage ────────────────────────────────────────────────────────────────
 
   async function loadState() {
+    // Before reading accounts: stored PQ addresses move to the neurai-key 5
+    // formats (shared/migrations.ts). Idempotent and PIN-free.
+    await runWalletMigrations({ accounts: C.ACCOUNTS_KEY, activeWallet: C.STORAGE_KEY })
+      .catch((error) => console.warn('[migrations] stored wallet migration failed', error));
     const result = await chrome.storage.local.get(
       [C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY]
     );
@@ -2595,9 +2591,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     try {
       const wallet = state.wallet || {};
       const network = wallet.network as string || 'xna';
-      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
-        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
-        : (state.settings.rpcMainnet || C.RPC_URL);
+      const rpcUrl = rpcUrlFor(network);
       const metadata = await ensureHardwareSigningMetadata(message);
       const publicKey = metadata.publicKey;
       const derivationPath = metadata.derivationPath;
@@ -2613,7 +2607,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       // PQ (AuthScript / ML-DSA-44) wallets cannot be represented in a PSBT.
       // Sign the raw transaction directly via the device's `sign_tx` action.
-      if (network === 'xna-pq' || network === 'xna-pq-test') {
+      if (isPQNetwork(network)) {
         const feeSatsPq = calculateRawTransactionFeeSats(message.txHex as string, enrichedUtxos);
         const pqDisplay = feeSatsPq !== null
           ? { feeAmount: formatSatoshisToXna(feeSatsPq), baseCurrency: 'XNA' }
@@ -2722,6 +2716,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function fetchRawTxForUtxos(utxos: Array<{ txid: string; vout: number; sequence: number }>, rpcUrl: string) {
     const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
     const rawTxMap: Record<string, string> = {};
+    // Prevouts read from another chain would be signed as if they were ours.
+    await assertChainOf(rpcUrl, (state.wallet?.network as string) || 'xna');
 
     // One getrawtransaction per distinct input, to recover the prevouts the
     // signer needs. These do not depend on each other, so they run together:
@@ -2976,7 +2972,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       if (!params.rpc) {
         throw new Error('An RPC function is required to resolve the NIP-040 asset marker.');
       }
-      assetMarker = await resolveAssetMarker(params.rpc);
+      assetMarker = await resolveAssetMarker(params.rpc, {
+        requireField: isTestnetNetwork((state.wallet?.network as string) || 'xna')
+      });
     }
 
     if (params.localRawBuild) {
@@ -3110,7 +3108,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const operation = findLogicalOutput(entries, 'issue_qualifier');
         if (!operation) throw new Error('Missing issue_qualifier output for local qualifier creation.');
         const payload = operation.payload;
-        const changeQuantity = asOptionalNumberValue(payload.change_quantity);
+        const changeQuantity = amountText(payload.change_quantity) ?? undefined;
         build = {
           operationType,
           params: {
@@ -3216,7 +3214,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const operation = findLogicalOutput(entries, operationType === 'UNTAG_ADDRESSES' ? 'untag_addresses' : 'tag_addresses');
         if (!operation) throw new Error('Missing tag/untag output for local qualifier assignment.');
         const payload = operation.payload;
-        const changeQuantity = asOptionalNumberValue(payload.change_quantity) ?? 0;
+        const changeQuantity = amountText(payload.change_quantity) ?? '0';
         build = {
           operationType,
           params: {
@@ -3282,8 +3280,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         const transfers: NeuraiCreateTransactionTransferOutput[] = [];
         for (const entry of entries) {
           const value = entry.value;
-          if (typeof value === 'number') {
-            payments.push({ address: entry.address, valueSats: NeuraiCreateTransaction.xnaToSatoshis(value) });
+          const xna = amountText(value);
+          if (xna !== null) {
+            payments.push({ address: entry.address, valueSats: NeuraiCreateTransaction.xnaToSatoshis(xna) });
           } else if (value && typeof value === 'object' && !Array.isArray(value)
                      && (value as Record<string, unknown>).transfer) {
             const map = (value as Record<string, unknown>).transfer as Record<string, unknown>;
@@ -3291,7 +3290,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
               transfers.push({
                 address: entry.address,
                 assetName: aName,
-                amountRaw: NeuraiCreateTransaction.assetUnitsToRaw(Number(amt)),
+                amountRaw: NeuraiCreateTransaction.assetUnitsToRaw(requireAmountText(amt, `${aName} amount`)),
               });
             }
           }
@@ -3425,13 +3424,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const adjustedOutputs = cloneAssetOutputs(buildResult.outputs);
     let changeIndex = adjustedOutputs.findIndex((output) => {
       const [address, value] = Object.entries(output)[0] || [];
-      return typeof value === 'number' && address === walletAddress && !isLikelyBurnAddress(address);
+      return amountText(value) !== null && address === walletAddress && !isLikelyBurnAddress(address);
     });
 
     if (changeIndex < 0) {
       changeIndex = adjustedOutputs.findIndex((output) => {
         const [address, value] = Object.entries(output)[0] || [];
-        return typeof value === 'number' && !isLikelyBurnAddress(address);
+        return amountText(value) !== null && !isLikelyBurnAddress(address);
       });
     }
 
@@ -3440,7 +3439,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
 
     const [changeAddress, changeValueRaw] = Object.entries(adjustedOutputs[changeIndex])[0] as [string, unknown];
-    const currentChangeSats = xnaToSatoshis(Number(changeValueRaw || 0));
+    const currentChangeSats = xnaToSatoshis(amountText(changeValueRaw) ?? 0);
     const updatedChangeSats = currentChangeSats - additionalFeeSats;
     if (updatedChangeSats <= 0) {
       throw new Error('Not enough XNA change available to raise the AuthScript relay fee.');
@@ -3569,11 +3568,24 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
   // ── Create Asset ───────────────────────────────────────────────────────────
 
-  function buildRpcFn(network: string): (method: string, params: unknown[]) => Promise<unknown> {
-    const url = NEURAI_UTILS.isTestnetNetwork(network)
+  /** RPC endpoint of a network: the one set in Settings, or the built-in default. */
+  function rpcUrlFor(network: string): string {
+    return isTestnetNetwork(network)
       ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
       : (state.settings.rpcMainnet || C.RPC_URL);
+  }
+
+  /** Resolve when `url` serves the chain of `network` (checked once per endpoint). */
+  function assertChainOf(url: string, network: string): Promise<void> {
+    return assertRpcChain(url, network, (method, params) => jsonRpc(url, method, params, 'neurai-chain-check'));
+  }
+
+  function buildRpcFn(network: string): (method: string, params: unknown[]) => Promise<unknown> {
+    const url = rpcUrlFor(network);
     return async (method: string, params: unknown[]): Promise<unknown> => {
+      // Once per endpoint: refuse a node of another chain (the testnet before
+      // its 2026-09-26 reset answers like the new one) before using its data.
+      await assertChainOf(url, network);
       noteTimingRpc(method);
       const resp = await fetch(url, {
         method: 'POST',
@@ -4018,9 +4030,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
 
     try {
-      const network = wallet.network === 'xna-pq' || wallet.network === 'xna-pq-test'
-        ? wallet.network
-        : 'xna-pq';
+      // The seed is the same for the PQ v2 address and the old v1 one; the
+      // label only picks the chain of the derivation path.
+      const network = toKeyNetwork(isPQNetwork(wallet.network as string) ? wallet.network as string : 'xna-pq') as NeuraiKeyPQNetwork;
       const pqAddr = NeuraiKey.getPQAddress(network, mnemonic, 0, 0, passphrase || undefined);
       return pqAddr.seedKey;
     } catch (_) {
@@ -4166,13 +4178,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       setConfirmProgress(prep, 'Signing…');
 
       // Sign the raw transaction
-      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
-        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
-        : (state.settings.rpcMainnet || C.RPC_URL);
+      const rpcUrl = rpcUrlFor(network);
 
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
       markPhase('sign');
-      if (network === 'xna-pq' || network === 'xna-pq-test') {
+      if (isPQNetwork(network)) {
         const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'create-asset');
         result = adjusted.buildResult;
         signedHex = adjusted.signedHex;
@@ -4305,12 +4315,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       let badgeLabel = 'Asset';
       let valueStr = '';
 
-      if (typeof value === 'number') {
+      const xnaText = amountText(value);
+      if (xnaText !== null) {
         // XNA output — determine if burn, change-to-self or recipient
-        const isBurn = /^N[bB]/.test(addr) || addr.includes('BURN') ||
-          // known burn address pattern: NbURN...
-          /^Nb/.test(addr);
-        if (isBurn) {
+        if (isLikelyBurnAddress(addr)) {
           badgeClass = 'ca-output-badge--burn';
           badgeLabel = 'Burn';
         } else if (walletAddress && addr === walletAddress) {
@@ -4320,7 +4328,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           badgeClass = 'ca-output-badge--change';
           badgeLabel = 'Send';
         }
-        valueStr = `${value} XNA`;
+        valueStr = `${xnaText} XNA`;
       } else if (typeof value === 'object' && value !== null) {
         const v = value as Record<string, unknown>;
         if (v.transfer) {
@@ -4372,7 +4380,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       feeRow.replaceChildren(
         elem('span', { class: 'ca-output-badge', style: 'background:rgba(148,163,184,.12);color:var(--text-muted)' }, 'Fee'),
         elem('span', { class: 'ca-output-addr' }, 'Miner fee (estimated)'),
-        elem('span', { class: 'ca-output-value' }, buildResult.fee.toFixed(8) + ' XNA')
+        elem('span', { class: 'ca-output-value' }, Number(buildResult.fee).toFixed(8) + ' XNA')
       );
       list.appendChild(feeRow);
     }
@@ -4438,6 +4446,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         }
       };
 
+      await assertChainOf(pending.rpcUrl, (state.wallet?.network as string) || 'xna');
       const broadcastResp = await fetch(pending.rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4633,7 +4642,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       // PQ (AuthScript / ML-DSA-44) wallets cannot be represented in a PSBT.
       // Sign the raw transaction directly via the device's `sign_tx` action.
-      if (wallet.network === 'xna-pq' || wallet.network === 'xna-pq-test') {
+      if (isPQNetwork(wallet.network as string)) {
         const feeSatsPq = calculateRawTransactionFeeSats(rawTx, enrichedUtxos);
         const pqDisplay = feeSatsPq !== null
           ? { feeAmount: formatSatoshisToXna(feeSatsPq), baseCurrency: 'XNA' }
@@ -4679,7 +4688,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       // Software wallet: sign locally via @neuraiproject/neurai-sign-transaction.
       // The RPC is only used to resolve prevouts (getrawtransaction), never to sign.
       const network = (wallet.network as string) || 'xna';
-      const isAuthScriptPQWallet = network === 'xna-pq' || network === 'xna-pq-test';
+      const isAuthScriptPQWallet = isPQNetwork(network);
 
       // Resolve key material (same for legacy and PQ; differs only in shape).
       let privateKeys: Record<string, string | { seedKey: string }>;
@@ -4741,10 +4750,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
           });
         }
         return NeuraiSignTransaction.sign(
-          network as NeuraiSignTransactionNetwork,
+          toKeyNetwork(network) as NeuraiSignTransactionNetwork,
           rawTx,
           signTxUtxos,
-          privateKeys
+          privateKeys,
+          // The library logs every step (sighashes included) unless told not to.
+          { debug: false }
         );
       } catch (error) {
         if (isAuthScriptPQWallet) {
@@ -5211,13 +5222,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         throw new Error('Unknown configure type: ' + type);
       }
 
-      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
-        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
-        : (state.settings.rpcMainnet || C.RPC_URL);
+      const rpcUrl = rpcUrlFor(network);
 
       setConfirmProgress(prep, 'Signing…');
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
-      if (network === 'xna-pq' || network === 'xna-pq-test') {
+      if (isPQNetwork(network)) {
         setConfirmProgress(prep, 'Checking the relay fee…');
         const adjusted = await ensureAuthScriptAssetRelayFee(result, signedHex, address, rpcUrl, rpc, 'configure-asset');
         result = adjusted.buildResult;
@@ -5282,14 +5291,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       setConfirmProgress(prep, 'Selecting inputs and estimating the fee…');
       let result = await run(neuraiAssets);
 
-      const rpcUrl = NEURAI_UTILS.isTestnetNetwork(network)
-        ? (state.settings.rpcTestnet || C.RPC_URL_TESTNET)
-        : (state.settings.rpcMainnet || C.RPC_URL);
+      const rpcUrl = rpcUrlFor(network);
 
       setConfirmProgress(prep, 'Signing…');
       let signedHex = await signRawTx(result.rawTx, rpcUrl);
 
-      if (network === 'xna-pq' || network === 'xna-pq-test') {
+      if (isPQNetwork(network)) {
         setConfirmProgress(prep, 'Checking the relay fee…');
         const adjusted = await ensureAuthScriptAssetRelayFee(
           result, signedHex, address, rpcUrl, rpc, 'depin');

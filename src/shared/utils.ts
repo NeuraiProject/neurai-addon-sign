@@ -1,6 +1,7 @@
 // Neurai Wallet — Shared Utilities
 
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
+import { isTestnetNetwork, isLegacyNetwork } from './networks.js';
 
 const SECRET_V1              = 1 as const;
 const SECRET_KDF_ITERATIONS  = 210000;
@@ -118,17 +119,22 @@ function applyTheme(settings: Partial<WalletSettings>): void {
   document.documentElement.setAttribute('data-theme', theme);
 }
 
-function isTestnetNetwork(network: string): boolean {
-  return network === 'xna-test' || network === 'xna-legacy-test' || network === 'xna-pq-test';
-}
-
 function toHardwareNetwork(network: string): 'Neurai' | 'NeuraiTest' {
   return isTestnetNetwork(network) ? 'NeuraiTest' : 'Neurai';
 }
 
+/**
+ * neurai-sign-esp32 network for a wallet label. The ESP32 library kept the
+ * pre-neurai-key-5 meanings (`xna` = Legacy coin 1900, `xna-legacy` = coin 0,
+ * `xna-pq` = AuthScript v1), which are also the extension's, so Legacy labels
+ * pass through. The device holds Legacy or PQ keys only.
+ */
 function toEsp32NetworkType(network: string): NeuraiSignESP32NetworkType {
   if (network === 'xna-legacy' || network === 'xna-legacy-test') {
     return network;
+  }
+  if (!isLegacyNetwork(network) && network !== 'xna-pq' && network !== 'xna-pq-test') {
+    throw new Error(`Hardware wallets do not support ${network} accounts`);
   }
   return isTestnetNetwork(network) ? 'xna-test' : 'xna';
 }

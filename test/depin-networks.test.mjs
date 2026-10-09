@@ -14,6 +14,7 @@ import { supportsDepin, DEPIN_NETWORKS } from '../src/popup/expanded/depin-netwo
 test('testnet supports DEPIN, in every variant', () => {
   assert.equal(supportsDepin('xna-test'), true);
   assert.equal(supportsDepin('xna-legacy-test'), true);
+  assert.equal(supportsDepin('xna-ecdsa-test'), true);
   assert.equal(supportsDepin('xna-pq-test'), true);
 });
 
@@ -21,6 +22,7 @@ test('mainnet does not, nor its PQ variant', () => {
   assert.equal(supportsDepin('xna'), false);
   assert.equal(supportsDepin('xna-pq'), false);
   assert.equal(supportsDepin('xna-legacy'), false);
+  assert.equal(supportsDepin('xna-ecdsa'), false);
 });
 
 test('an unknown network does not offer DEPIN', () => {

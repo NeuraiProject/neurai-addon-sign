@@ -13,7 +13,10 @@
     "outDir": "dist/extension",
     "strict": true,
     // Avoids errors from pre-compiled @neuraiproject bundles and @types conflicts
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    // Lets modules that `node --test` loads from source import each other by
+    // their .ts name; tsc rewrites those specifiers to .js on emit.
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

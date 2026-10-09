@@ -2,11 +2,18 @@
 
 // ── Primitives ────────────────────────────────────────────────────────────────
 
+/**
+ * Network label stored per account and reported to dApps. NOT a neurai-key 5
+ * label: map it with toKeyNetwork() (src/shared/networks.ts) before calling a
+ * library. See that file for what each label derives.
+ */
 export type WalletNetwork =
   | 'xna'
   | 'xna-test'
   | 'xna-legacy'
   | 'xna-legacy-test'
+  | 'xna-ecdsa'
+  | 'xna-ecdsa-test'
   | 'xna-pq'
   | 'xna-pq-test';
 export type WalletType   = 'software' | 'hardware';
@@ -70,9 +77,9 @@ export interface WalletData {
   privateKey?: string;
   /** AES-GCM encrypted WIF private key — present when PIN is configured */
   privateKeyEnc?: EncryptedSecret;
-  /** AuthScript PQ seed key (32-byte hex) — only present for AuthScript PQ wallets without PIN */
+  /** PQ seed key (32-byte hex) — only present for PQ wallets without PIN */
   seedKey?: string;
-  /** AES-GCM encrypted AuthScript PQ seed key — present for AuthScript PQ wallets with PIN */
+  /** AES-GCM encrypted PQ seed key — present for PQ wallets with PIN */
   seedKeyEnc?: EncryptedSecret;
   /** Unencrypted mnemonic — only present when PIN is not configured */
   mnemonic?: string;

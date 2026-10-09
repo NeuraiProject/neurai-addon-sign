@@ -1,5 +1,6 @@
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
+import { networkLabel } from '../shared/networks.js';
 import { utxoRow } from '../shared/dom.js';
 import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js';
 
@@ -303,7 +304,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
 
     elements.originValue!.textContent = request.origin || '--';
     elements.addressValue!.textContent = request.address || '--';
-    elements.networkValue!.textContent = request.network || '--';
+    elements.networkValue!.textContent = request.network ? networkLabel(request.network) : '--';
     elements.messageValue!.textContent = request.message || '--';
     elements.pinBlock!.classList.toggle('hidden', !pinRequired);
 

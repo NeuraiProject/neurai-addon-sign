@@ -44,6 +44,18 @@ var NeuraiScriptsBundle = (function (exports) {
         return true;
     }
 
+    /** Exact monetary primitives. This module has no runtime dependencies. */
+    /** Normalize a raw integer without preserving an already rounded number. */
+    function toRawInteger(value, label = 'amount') {
+        if (typeof value === 'bigint')
+            return value;
+        if (typeof value === 'number' && Number.isSafeInteger(value))
+            return BigInt(value);
+        if (typeof value === 'string' && /^-?\d+$/.test(value) && value.length <= 100)
+            return BigInt(value);
+        throw new Error(`${label}: expected an exact integer; use bigint or an integer string for large values`);
+    }
+
     /**
      * Opcode constants for Neurai Script.
      *
@@ -232,20 +244,27 @@ var NeuraiScriptsBundle = (function (exports) {
     // Native Merkle inclusion verifier. Consumes (leaf, scheme_id, proof,
     // root) and pushes a boolean. Flag off → bad-opcode.
     const OP_CHECKMERKLEINCLUSION = 0xc1;
+    // NIP-041: (outputIndex -- witnessVersion || 32-byte program).
+    const OP_OUTPUTAUTHDEST = 0xc2;
+    // NIP-018: verifies an AuthScript proof and returns a boolean.
+    const OP_ZKVERIFY = 0xc3;
+    // NIP-043: spent-input field introspection, distinct from reference inputs.
+    const OP_INPUTFIELD = 0xc4;
     // ---------- Byte manipulation (DePIN-Test) ----------
     const OP_CAT = 0x7e;
     const OP_SPLIT = 0xb7;
     const OP_REVERSEBYTES = 0xbc;
     // ---------- Selectors for OP_TXFIELD / OP_REFINPUTFIELD ----------
-    // Both opcodes share the same selector table (OP_TXFIELD on the spent UTXO,
-    // OP_REFINPUTFIELD on an output referenced via vrefin). Valid: 0x01..0x03.
+    // OP_TXFIELD, OP_INPUTFIELD and OP_REFINPUTFIELD share selectors 0x01..0x03.
+    // NIP-041 adds 0x04 for a strict 33-byte AuthScript destination.
     const TXFIELD_VALUE = 0x01;
     const TXFIELD_AUTHSCRIPT_COMMITMENT = 0x02;
     const TXFIELD_SCRIPTPUBKEY = 0x03;
+    const TXFIELD_AUTHDEST = 0x04;
     // ---------- Bitmask selectors for OP_TXHASH ----------
-    // The selector is a single byte where each bit selects which transaction
-    // field to include in the double-SHA256. Selector 0x00 is invalid; any
-    // non-zero combination is valid. 0xff = all eight fields.
+    // NIP-042 requires a two-byte little-endian selector, even for low masks.
+    // Bits 0..8 select fields for the tagged NeuraiTxHash digest. Valid masks
+    // are 0x001..0x1ff; zero and all higher bits are rejected by consensus.
     const TXHASH_VERSION = 0x01;
     const TXHASH_LOCKTIME = 0x02;
     const TXHASH_INPUT_PREVOUTS = 0x04;
@@ -254,12 +273,11 @@ var NeuraiScriptsBundle = (function (exports) {
     const TXHASH_CURRENT_PREVOUT = 0x20;
     const TXHASH_CURRENT_SEQUENCE = 0x40;
     const TXHASH_CURRENT_INDEX = 0x80;
-    const TXHASH_ALL = 0xff;
+    const TXHASH_REFINPUTS = 0x100;
+    const TXHASH_ALL = 0x1ff;
     // ---------- Selectors for OP_OUTPUTASSETFIELD / OP_INPUTASSETFIELD / OP_REFINPUTASSETFIELD ----------
-    // All three opcodes share the same selector table. Valid range: 0x01..0x07.
-    // Selector 0x05 is the boolean "has IPFS" flag; 0x06 is the IPFS hash
-    // payload; 0x07 is the asset operation type. (This matches the asset-op
-    // encoding in `src/assets/assets.cpp` and the NIP spec §3.1.)
+    // All three opcodes share this selector table. 0x08 is gated by NIP-043
+    // and extracts the optional transfer message from a strict asset wrapper.
     const ASSETFIELD_NAME = 0x01;
     const ASSETFIELD_AMOUNT = 0x02;
     const ASSETFIELD_UNITS = 0x03;
@@ -267,12 +285,20 @@ var NeuraiScriptsBundle = (function (exports) {
     const ASSETFIELD_HAS_IPFS = 0x05;
     const ASSETFIELD_IPFS_HASH = 0x06;
     const ASSETFIELD_TYPE = 0x07;
+    const ASSETFIELD_MESSAGE = 0x08;
+    // NIP-031/043 Merkle inclusion scheme identifiers.
+    const MERKLE_SCHEME_BITCOIN_NEURAI = 0x01;
+    const MERKLE_SCHEME_SHA256_PLAIN = 0x02;
+    const MERKLE_SCHEME_KECCAK256_PLAIN = 0x03;
+    const MERKLE_SCHEME_BLAKE2B_PLAIN = 0x04;
+    const MERKLE_SCHEME_POSEIDON_BN254 = 0x05;
 
     var opcodes = /*#__PURE__*/Object.freeze({
         __proto__: null,
         ASSETFIELD_AMOUNT: ASSETFIELD_AMOUNT,
         ASSETFIELD_HAS_IPFS: ASSETFIELD_HAS_IPFS,
         ASSETFIELD_IPFS_HASH: ASSETFIELD_IPFS_HASH,
+        ASSETFIELD_MESSAGE: ASSETFIELD_MESSAGE,
         ASSETFIELD_NAME: ASSETFIELD_NAME,
         ASSETFIELD_REISSUABLE: ASSETFIELD_REISSUABLE,
         ASSETFIELD_TYPE: ASSETFIELD_TYPE,
@@ -280,6 +306,11 @@ var NeuraiScriptsBundle = (function (exports) {
         CHAINCONTEXT_CHAIN_ID: CHAINCONTEXT_CHAIN_ID,
         CHAINCONTEXT_HEIGHT: CHAINCONTEXT_HEIGHT,
         CHAINCONTEXT_MTP: CHAINCONTEXT_MTP,
+        MERKLE_SCHEME_BITCOIN_NEURAI: MERKLE_SCHEME_BITCOIN_NEURAI,
+        MERKLE_SCHEME_BLAKE2B_PLAIN: MERKLE_SCHEME_BLAKE2B_PLAIN,
+        MERKLE_SCHEME_KECCAK256_PLAIN: MERKLE_SCHEME_KECCAK256_PLAIN,
+        MERKLE_SCHEME_POSEIDON_BN254: MERKLE_SCHEME_POSEIDON_BN254,
+        MERKLE_SCHEME_SHA256_PLAIN: MERKLE_SCHEME_SHA256_PLAIN,
         OP_0: OP_0,
         OP_0NOTEQUAL: OP_0NOTEQUAL,
         OP_1: OP_1,
@@ -345,6 +376,7 @@ var NeuraiScriptsBundle = (function (exports) {
         OP_IFDUP: OP_IFDUP,
         OP_INPUTASSETFIELD: OP_INPUTASSETFIELD,
         OP_INPUTCOUNT: OP_INPUTCOUNT,
+        OP_INPUTFIELD: OP_INPUTFIELD,
         OP_INPUTVALUE: OP_INPUTVALUE,
         OP_KECCAK256: OP_KECCAK256,
         OP_LESSTHAN: OP_LESSTHAN,
@@ -366,6 +398,7 @@ var NeuraiScriptsBundle = (function (exports) {
         OP_NUMNOTEQUAL: OP_NUMNOTEQUAL,
         OP_OUTPUTASSETFIELD: OP_OUTPUTASSETFIELD,
         OP_OUTPUTAUTHCOMMITMENT: OP_OUTPUTAUTHCOMMITMENT,
+        OP_OUTPUTAUTHDEST: OP_OUTPUTAUTHDEST,
         OP_OUTPUTCOUNT: OP_OUTPUTCOUNT,
         OP_OUTPUTSCRIPT: OP_OUTPUTSCRIPT,
         OP_OUTPUTVALUE: OP_OUTPUTVALUE,
@@ -401,6 +434,8 @@ var NeuraiScriptsBundle = (function (exports) {
         OP_VERIFY: OP_VERIFY,
         OP_WITHIN: OP_WITHIN,
         OP_XNA_ASSET: OP_XNA_ASSET,
+        OP_ZKVERIFY: OP_ZKVERIFY,
+        TXFIELD_AUTHDEST: TXFIELD_AUTHDEST,
         TXFIELD_AUTHSCRIPT_COMMITMENT: TXFIELD_AUTHSCRIPT_COMMITMENT,
         TXFIELD_SCRIPTPUBKEY: TXFIELD_SCRIPTPUBKEY,
         TXFIELD_VALUE: TXFIELD_VALUE,
@@ -412,15 +447,10 @@ var NeuraiScriptsBundle = (function (exports) {
         TXHASH_INPUT_SEQUENCES: TXHASH_INPUT_SEQUENCES,
         TXHASH_LOCKTIME: TXHASH_LOCKTIME,
         TXHASH_OUTPUTS: TXHASH_OUTPUTS,
+        TXHASH_REFINPUTS: TXHASH_REFINPUTS,
         TXHASH_VERSION: TXHASH_VERSION
     });
 
-    /**
-     * Low-level Script assembler. Emits the exact byte layout expected by the
-     * Neurai interpreter: pushdata prefixes follow the same rules as Bitcoin
-     * (direct push for 1..75 bytes, OP_PUSHDATA1/2/4 otherwise), and integers
-     * are minimally-encoded as CScriptNum.
-     */
     /**
      * Minimal CScriptNum encoding (Bitcoin consensus rules).
      *
@@ -430,7 +460,7 @@ var NeuraiScriptsBundle = (function (exports) {
      * - otherwise: sign-magnitude little-endian, with a sign bit on the last byte
      */
     function encodeScriptNum(value) {
-        let n = typeof value === 'bigint' ? value : BigInt(value);
+        let n = toRawInteger(value, 'ScriptNum');
         if (n === 0n)
             return new Uint8Array();
         const negative = n < 0n;
@@ -484,7 +514,7 @@ var NeuraiScriptsBundle = (function (exports) {
      * when available to match how the node's own templates look on the wire.
      */
     function pushInt(value) {
-        const n = typeof value === 'bigint' ? value : BigInt(value);
+        const n = toRawInteger(value, 'ScriptNum');
         if (n === -1n)
             return Uint8Array.of(OP_1NEGATE);
         if (n === 0n)
@@ -574,10 +604,17 @@ var NeuraiScriptsBundle = (function (exports) {
     }
 
     /**
-     * AuthScript (witness v1) scriptPubKey + witness-stack builders.
+     * AuthScript scriptPubKey + witness-stack builders.
      *
-     * AuthScript outputs encode a 32-byte commitment in a witness v1 program:
-     *   scriptPubKey = OP_1 0x20 <32-byte program>
+     * AuthScript outputs encode a 32-byte commitment in a witness program:
+     *   scriptPubKey = OP_n 0x20 <32-byte program>
+     *
+     *   OP_1  generic AuthScript v1 (nc1p… / tnc1p…): any auth type, any witnessScript
+     *   OP_2  strict PQ v2 (pq1z… / tpq1z…): auth type 0x01, witnessScript OP_TRUE
+     *   OP_3  strict ECDSA v3 (nq1r… / tnq1r…): auth type 0x02, witnessScript OP_TRUE
+     *
+     * The witness version is also the first byte of the commitment preimage:
+     *   tagged_hash("NeuraiAuthScript", version || auth_descriptor || SHA256(witnessScript))
      *
      * The program is `HASH160`/`SHA256` over a descriptor that depends on the
      * `auth_type` byte carried as the first witness-stack element at spend time.
@@ -604,11 +641,24 @@ var NeuraiScriptsBundle = (function (exports) {
     const AUTHSCRIPT_REF = 0x03;
     /** Cap for PQ signature / pubkey pushes under NIP-018 (3072 B). */
     const MAX_PQ_PUSH = 3072;
-    function encodeAuthScriptScriptPubKey(program) {
+    const WITNESS_VERSION_OPCODE = {
+        1: OP_1,
+        2: OP_2,
+        3: OP_3
+    };
+    /**
+     * `OP_n 0x20 <program>` for witness version `n`. Defaults to the generic
+     * AuthScript v1 (`OP_1`), which is what every covenant commits to.
+     */
+    function encodeAuthScriptScriptPubKey(program, witnessVersion = 1) {
         if (!(program instanceof Uint8Array) || program.length !== 32) {
             throw new Error('AuthScript program must be a 32-byte Uint8Array');
         }
-        return concatBytes(Uint8Array.of(OP_1, 0x20), program);
+        const opcode = WITNESS_VERSION_OPCODE[witnessVersion];
+        if (opcode === undefined) {
+            throw new Error(`AuthScript witness version must be 1, 2 or 3, got ${String(witnessVersion)}`);
+        }
+        return concatBytes(Uint8Array.of(opcode, 0x20), program);
     }
     function assertWitnessScript(ws) {
         if (!(ws instanceof Uint8Array) || ws.length === 0) {
@@ -679,6 +729,45 @@ var NeuraiScriptsBundle = (function (exports) {
             ...(input.args ?? []),
             input.witnessScript
         ];
+    }
+    /** Length of the versioned ML-DSA-44 pubkey the node expects (0x05 prefix + 1312 B). */
+    const STRICT_PQ_PUBKEY_LENGTH = 1313;
+    /** Version prefix of an ML-DSA-44 pubkey on the witness stack. */
+    const PQ_PUBKEY_PREFIX = 0x05;
+    /**
+     * Witness stack for spending a strict PQ witness v2 output (`pq1z…`):
+     * exactly `[0x01, sig, pubKey, OP_TRUE]`. The node rejects any other
+     * shape (extra arguments, another witnessScript) for the strict families.
+     */
+    function buildStrictWitnessPQ(input) {
+        if (!(input.signature instanceof Uint8Array) || input.signature.length === 0) {
+            throw new Error('signature must be a non-empty Uint8Array');
+        }
+        if (input.signature.length > MAX_PQ_PUSH) {
+            throw new Error(`signature of ${input.signature.length} bytes exceeds MAX_PQ_SCRIPT_ELEMENT_SIZE (${MAX_PQ_PUSH})`);
+        }
+        if (!(input.pubKey instanceof Uint8Array) ||
+            input.pubKey.length !== STRICT_PQ_PUBKEY_LENGTH ||
+            input.pubKey[0] !== PQ_PUBKEY_PREFIX) {
+            throw new Error(`pubKey must be the ${STRICT_PQ_PUBKEY_LENGTH}-byte versioned ML-DSA-44 key (0x05 prefix)`);
+        }
+        return [Uint8Array.of(AUTHSCRIPT_PQ), input.signature, input.pubKey, Uint8Array.of(OP_TRUE)];
+    }
+    /**
+     * Witness stack for spending a strict ECDSA witness v3 output (`nq1r…`):
+     * exactly `[0x02, sig, pubKey33, OP_TRUE]`. The node rejects uncompressed
+     * keys for this family.
+     */
+    function buildStrictWitnessECDSA(input) {
+        if (!(input.signature instanceof Uint8Array) || input.signature.length === 0) {
+            throw new Error('signature must be a non-empty Uint8Array');
+        }
+        if (!(input.pubKey instanceof Uint8Array) ||
+            input.pubKey.length !== 33 ||
+            (input.pubKey[0] !== 0x02 && input.pubKey[0] !== 0x03)) {
+            throw new Error('pubKey must be a compressed (33B) secp256k1 key for strict ECDSA witness v3');
+        }
+        return [Uint8Array.of(AUTHSCRIPT_LEGACY), input.signature, input.pubKey, Uint8Array.of(OP_TRUE)];
     }
     /**
      * Build the witness stack for a NoAuth AuthScript spend. The spend is gated
@@ -800,6 +889,8 @@ var NeuraiScriptsBundle = (function (exports) {
         }
         return concatBytes(Uint8Array.of(OP_HASH160, 0x14), redeemScriptHash160, Uint8Array.of(OP_EQUAL));
     }
+
+    /** Exact monetary primitives. This module has no runtime dependencies. */
 
     // base-x encoding / decoding
     // Copyright (c) 2018 base-x contributors
@@ -1516,37 +1607,96 @@ var NeuraiScriptsBundle = (function (exports) {
 
     const LEGACY_MAINNET_PREFIX = 53;
     const LEGACY_TESTNET_PREFIX = 127;
-    const PQ_MAINNET_HRP = 'nq';
-    const PQ_TESTNET_HRP = 'tnq';
-    function inferNetworkFromAddress(address) {
-        const normalized = resolveAddressInput(address).toLowerCase();
-        if (normalized.startsWith(PQ_MAINNET_HRP + '1'))
-            return 'xna-pq';
-        if (normalized.startsWith(PQ_TESTNET_HRP + '1'))
-            return 'xna-pq-test';
-        if (normalized.startsWith('n'))
-            return 'xna';
-        if (normalized.startsWith('t'))
-            return 'xna-test';
-        throw new Error(`Unsupported Neurai address: ${address}`);
+    const WITNESS_FAMILIES = [
+        {
+            type: 'authscript',
+            witnessVersion: 1,
+            hrp: { mainnet: 'nc', testnet: 'tnc' },
+            network: { mainnet: 'xna-authscript', testnet: 'xna-authscript-test' }
+        },
+        {
+            type: 'pq',
+            witnessVersion: 2,
+            hrp: { mainnet: 'pq', testnet: 'tpq' },
+            network: { mainnet: 'xna-pq', testnet: 'xna-pq-test' }
+        },
+        {
+            type: 'ecdsa',
+            witnessVersion: 3,
+            hrp: { mainnet: 'nq', testnet: 'tnq' },
+            network: { mainnet: 'xna', testnet: 'xna-test' }
+        }
+    ];
+    /** The family that owns `hrp` (lowercase), with the chain it encodes. */
+    function witnessFamilyByHrp(hrp) {
+        for (const family of WITNESS_FAMILIES) {
+            if (family.hrp.mainnet === hrp)
+                return { family, chain: 'mainnet' };
+            if (family.hrp.testnet === hrp)
+                return { family, chain: 'testnet' };
+        }
+        return undefined;
+    }
+    /** The family encoded by `witnessVersion`, or undefined for any other version. */
+    function witnessFamilyByVersion(witnessVersion) {
+        return WITNESS_FAMILIES.find((family) => family.witnessVersion === witnessVersion);
     }
 
-    function decodeAddress(address) {
-        const normalized = resolveAddressInput(address);
-        const lowered = normalized.toLowerCase();
-        if (!normalized)
-            throw new Error('Address is required');
-        if (lowered.startsWith(PQ_MAINNET_HRP + '1') || lowered.startsWith(PQ_TESTNET_HRP + '1')) {
-            const decoded = distExports.bech32m.decode(normalized);
-            const version = decoded.words[0];
-            const program = Uint8Array.from(distExports.bech32m.fromWords(decoded.words.slice(1)));
-            if (version !== 1 || program.length !== 32) {
-                throw new Error(`Unsupported AuthScript address program for ${address}`);
-            }
-            const network = lowered.startsWith(PQ_TESTNET_HRP + '1') ? 'xna-pq-test' : 'xna-pq';
-            return { address: normalized, type: 'authscript', network, program, commitment: program };
+    // Longest Bech32m string the node's decoder accepts (bech32.cpp).
+    const BECH32M_MAX_LENGTH = 90;
+    const AUTHSCRIPT_PROGRAM_LENGTH = 32;
+    function tryBech32mDecode(address) {
+        try {
+            const { prefix, words } = distExports.bech32m.decode(address, BECH32M_MAX_LENGTH);
+            return { hrp: prefix.toLowerCase(), words };
         }
-        const payload = Uint8Array.from(bs58check.decode(normalized));
+        catch {
+            return null;
+        }
+    }
+    function decodeWitnessAddress(address, parts) {
+        const owner = witnessFamilyByHrp(parts.hrp);
+        if (!owner) {
+            throw new Error(`Unsupported Bech32m prefix "${parts.hrp}" for ${address}`);
+        }
+        if (parts.words.length === 0) {
+            throw new Error(`Empty witness program in ${address}`);
+        }
+        const version = parts.words[0];
+        const { family, chain } = owner;
+        if (version !== family.witnessVersion) {
+            const actual = witnessFamilyByVersion(version);
+            const hint = actual
+                ? `; witness v${version} addresses use the "${actual.hrp[chain]}" prefix`
+                : '';
+            const legacyHint = family.type === 'ecdsa' && version === 1
+                ? ' Generic AuthScript v1 addresses are now encoded as nc1p… / tnc1p… ' +
+                    '(same scriptPubKey): regenerate the address (neurai-key xna-authscript networks).'
+                : '';
+            throw new Error(`Address ${address}: the "${parts.hrp}" prefix only encodes witness v${family.witnessVersion}, ` +
+                `not v${version}${hint}.${legacyHint}`);
+        }
+        let program;
+        try {
+            program = Uint8Array.from(distExports.bech32m.fromWords(parts.words.slice(1)));
+        }
+        catch {
+            throw new Error(`Invalid witness program padding in ${address}`);
+        }
+        if (program.length !== AUTHSCRIPT_PROGRAM_LENGTH) {
+            throw new Error(`Unsupported AuthScript program length ${program.length} for ${address} (expected ${AUTHSCRIPT_PROGRAM_LENGTH})`);
+        }
+        return {
+            address,
+            type: family.type,
+            witnessVersion: family.witnessVersion,
+            network: family.network[chain],
+            program,
+            commitment: program
+        };
+    }
+    function decodeLegacyAddress(address) {
+        const payload = Uint8Array.from(bs58check.decode(address));
         if (payload.length !== 21) {
             throw new Error(`Unsupported legacy address payload length for ${address}`);
         }
@@ -1555,12 +1705,50 @@ var NeuraiScriptsBundle = (function (exports) {
             throw new Error(`Unsupported legacy address prefix ${prefix} for ${address}`);
         }
         return {
-            address: normalized,
+            address,
             type: 'p2pkh',
-            network: inferNetworkFromAddress(normalized),
+            network: prefix === LEGACY_MAINNET_PREFIX ? 'xna-legacy' : 'xna-legacy-test',
             program: payload.slice(1),
             hash: payload.slice(1)
         };
+    }
+    /**
+     * Decode a Neurai address the way the node does (base58.cpp
+     * `DecodeDestination`): Bech32m first, Base58Check otherwise.
+     *
+     * - Base58 P2PKH → `type: 'p2pkh'`, network `xna-legacy` / `xna-legacy-test`
+     *   (an `xna-old-legacy` address is indistinguishable and reports
+     *   `xna-legacy`).
+     * - Bech32m → `authscript` (v1, `nc`/`tnc`), `pq` (v2, `pq`/`tpq`) or
+     *   `ecdsa` (v3, `nq`/`tnq`), with `witnessVersion` and the 32-byte
+     *   commitment. Any other HRP/version pair is rejected, including the old
+     *   `nq1p…` / `tnq1p…` encoding of generic AuthScript v1.
+     *
+     * The decoder does not know whether a witness family is active on the
+     * target chain: before activation the node refuses v2/v3 addresses and a
+     * witness output is anyone-can-spend.
+     */
+    function decodeAddress(address) {
+        const normalized = resolveAddressInput(address);
+        if (!normalized)
+            throw new Error('Address is required');
+        const bech32mParts = tryBech32mDecode(normalized);
+        if (bech32mParts) {
+            return decodeWitnessAddress(normalized, bech32mParts);
+        }
+        try {
+            return decodeLegacyAddress(normalized);
+        }
+        catch (legacyError) {
+            // Not Base58 either. When the string carries a known Bech32m prefix the
+            // Bech32m failure (bad checksum, mixed case…) is the useful diagnosis.
+            const separator = normalized.lastIndexOf('1');
+            const hrp = separator > 0 ? normalized.slice(0, separator).toLowerCase() : '';
+            if (witnessFamilyByHrp(hrp)) {
+                throw new Error(`Invalid Bech32m address ${normalized} (checksum, case or character error)`);
+            }
+            throw legacyError;
+        }
     }
 
     /**
@@ -1569,9 +1757,12 @@ var NeuraiScriptsBundle = (function (exports) {
      * scriptPubKey bytes a covenant needs to hardcode. The actual
      * scriptPubKey encoders live in `./standard/*`; this module delegates.
      *
-     * Two destination types are supported for the payment output (output[0]):
-     *   - Legacy P2PKH (base58check)
-     *   - AuthScript witness v1 (bech32m)
+     * Every Neurai destination type is supported for the payment output
+     * (output[0]):
+     *   - Legacy P2PKH (base58check)                     → `76a914<20>88ac`
+     *   - Generic AuthScript witness v1 (nc1p… / tnc1p…) → `5120<32>`
+     *   - Strict PQ witness v2 (pq1z… / tpq1z…)          → `5220<32>`
+     *   - Strict ECDSA witness v3 (nq1r… / tnq1r…)       → `5320<32>`
      */
     /**
      * Resolve any accepted seller address string into its scriptPubKey.
@@ -1588,11 +1779,14 @@ var NeuraiScriptsBundle = (function (exports) {
                 hash
             };
         }
-        if (decoded.type === 'authscript') {
+        if (decoded.type === 'authscript' || decoded.type === 'pq' || decoded.type === 'ecdsa') {
+            // The witness version is part of the destination: a pq1z… / nq1r…
+            // payment must be hardcoded with OP_2 / OP_3, never with OP_1.
             const program = Uint8Array.from(decoded.program);
             return {
-                kind: 'authscript',
-                bytes: encodeAuthScriptScriptPubKey(program),
+                kind: decoded.type,
+                witnessVersion: decoded.witnessVersion,
+                bytes: encodeAuthScriptScriptPubKey(program, decoded.witnessVersion),
                 hash: program
             };
         }
@@ -1607,8 +1801,8 @@ var NeuraiScriptsBundle = (function (exports) {
      *     <prefix scriptPubKey bytes> OP_XNA_ASSET <pushdata(payload)> OP_DROP
      *
      * where `prefix` is the recipient's standard script (typically a P2PKH, an
-     * AuthScript witness v1, or a bare covenant such as the partial-fill sell
-     * order), and `payload` serializes a `CAssetTransfer`:
+     * AuthScript `OP_1`/`OP_2`/`OP_3` witness program, or a bare covenant such
+     * as the partial-fill sell order), and `payload` serializes a `CAssetTransfer`:
      *
      *     payload = marker ("rvn" 0x72 0x76 0x6e | "xna" 0x78 0x6e 0x61)
      *             || type_marker (0x74 transfer)
@@ -1929,16 +2123,9 @@ var NeuraiScriptsBundle = (function (exports) {
         return decodeScriptNum(data, label);
     }
     /**
-     * Read a 1-byte selector as an UNSIGNED 8-bit integer (0..255). Accepts
-     * two on-wire encodings, because old vs new covenant builders differ:
-     *   - `OP_1..OP_16` shorthand (single opcode) → values 1..16.
-     *   - `0x01 <byte>` raw 1-byte push → any value 1..255.
-     *
-     * Values 0x80..0xff MUST use the raw-push form; the CScriptNum encoding
-     * would need a 0x00 padding byte and become 2 bytes on-stack, which
-     * consensus `OP_TXHASH` rejects. The builder in `script-pq.ts` emits the
-     * raw-push form unconditionally; the parser stays lenient so covenants
-     * built by older tools (using OP_N for small values) still round-trip.
+     * Read a one-byte unsigned selector. This accepts OP_1..OP_16 shorthand
+     * and a raw one-byte push for scripts that permit either form. NIP-042
+     * TXHASH masks use a separate strict two-byte parser.
      */
     function readPushUint8(c, label) {
         if (c.pos >= c.bytes.length) {
@@ -2257,7 +2444,7 @@ var NeuraiScriptsBundle = (function (exports) {
      * `./script.ts` for the three-branch layout description.
      */
     const ASSET_NAME_MAX = 32;
-    const DEFAULT_PQ_TXHASH_SELECTOR = 0xff;
+    const DEFAULT_PQ_TXHASH_SELECTOR = 0x1ff;
     function assertCommitment(commitment) {
         if (!(commitment instanceof Uint8Array) || commitment.length !== 32) {
             throw new Error('pubKeyCommitment must be a 32-byte Uint8Array (SHA256 of pubKey)');
@@ -2286,11 +2473,11 @@ var NeuraiScriptsBundle = (function (exports) {
         }
     }
     function assertSelector(selector) {
-        if (!Number.isInteger(selector) || selector < 0 || selector > 0xff) {
-            throw new Error('txHashSelector must be a single byte (0x00..0xff)');
+        if (!Number.isInteger(selector) || selector < 0 || selector > 0x1ff) {
+            throw new Error('txHashSelector must be in the NIP-042 range (0x001..0x1ff)');
         }
         if (selector === 0) {
-            throw new Error('txHashSelector 0x00 is rejected by OP_TXHASH');
+            throw new Error('txHashSelector 0x000 is rejected by OP_TXHASH');
         }
     }
     /**
@@ -2310,16 +2497,14 @@ var NeuraiScriptsBundle = (function (exports) {
         // scriptSig: <sigPQ> <pubKeyPQ> <1>
         // After OP_IF consumes the flag: [ sig, pubKey ]
         //
-        // The selector MUST be pushed as a raw 1-byte element — consensus rejects
-        // any stack item of size ≠ 1. Using `pushInt(selector)` would work for
-        // 1..127 but emit a 2-byte CScriptNum for 0x80..0xff (sign-disambiguation
-        // pad), which makes OP_TXHASH fail with SCRIPT_ERR_TXHASH.
+        // NIP-042 consumes exactly two raw little-endian bytes. CScriptNum and
+        // OP_N encodings are invalid even when they represent the same mask.
         b.op(OP_IF)
             .op(OP_DUP) // [ sig, pubKey, pubKey ]
             .op(OP_SHA256) // [ sig, pubKey, H(pubKey) ]
             .pushBytes(pubKeyCommitment) // [ sig, pubKey, H(pubKey), commitment ]
             .op(OP_EQUALVERIFY) // [ sig, pubKey ]
-            .pushBytes(Uint8Array.of(txHashSelector)) // [ sig, pubKey, selector ]
+            .pushBytes(Uint8Array.of(txHashSelector & 0xff, txHashSelector >> 8)) // [ sig, pubKey, selector ]
             .op(OP_TXHASH) // [ sig, pubKey, txHash ]
             .op(OP_SWAP) // [ sig, txHash, pubKey ]
             .op(OP_CHECKSIGFROMSTACK) // [ 1 | 0 ]
@@ -2831,9 +3016,13 @@ var NeuraiScriptsBundle = (function (exports) {
             throw new Error(`parse-pq: pubKeyCommitment must be 32 bytes, got ${pubKeyCommitment.length}`);
         }
         expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (cancel)');
-        const txHashSelector = readPushUint8(c, 'txHashSelector');
-        if (txHashSelector < 1) {
-            throw new Error(`parse-pq: txHashSelector 0x00 is rejected by OP_TXHASH`);
+        const selectorBytes = readPush(c, 'txHashSelector');
+        if (selectorBytes.length !== 2) {
+            throw new Error(`parse-pq: txHashSelector must be a two-byte LE push, got ${selectorBytes.length} bytes`);
+        }
+        const txHashSelector = selectorBytes[0] | (selectorBytes[1] << 8);
+        if (txHashSelector === 0 || txHashSelector > 0x1ff) {
+            throw new Error(`parse-pq: txHashSelector 0x${txHashSelector.toString(16)} is rejected by OP_TXHASH`);
         }
         expectByte(c, OP_TXHASH, 'OP_TXHASH');
         expectByte(c, OP_SWAP, 'OP_SWAP');
@@ -2958,6 +3147,8 @@ var NeuraiScriptsBundle = (function (exports) {
         DEFAULT_PQ_TXHASH_SELECTOR: DEFAULT_PQ_TXHASH_SELECTOR,
         MULTISIG_MAX_PUBKEYS: MULTISIG_MAX_PUBKEYS,
         NULLDATA_STANDARD_MAX_SIZE: NULLDATA_STANDARD_MAX_SIZE,
+        PQ_PUBKEY_PREFIX: PQ_PUBKEY_PREFIX,
+        STRICT_PQ_PUBKEY_LENGTH: STRICT_PQ_PUBKEY_LENGTH,
         ScriptBuilder: ScriptBuilder,
         buildAuthScriptWitnessLegacy: buildAuthScriptWitnessLegacy,
         buildAuthScriptWitnessNoAuth: buildAuthScriptWitnessNoAuth,
@@ -2976,6 +3167,8 @@ var NeuraiScriptsBundle = (function (exports) {
         buildPartialFillScriptHex: buildPartialFillScriptHex,
         buildPartialFillScriptPQ: buildPartialFillScriptPQ,
         buildPartialFillScriptPQHex: buildPartialFillScriptPQHex,
+        buildStrictWitnessECDSA: buildStrictWitnessECDSA,
+        buildStrictWitnessPQ: buildStrictWitnessPQ,
         bytesEqual: bytesEqual,
         bytesToHex: bytesToHex,
         concatBytes: concatBytes,

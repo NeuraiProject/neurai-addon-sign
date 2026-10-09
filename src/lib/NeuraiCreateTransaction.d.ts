@@ -56,8 +56,9 @@ declare global {
   }
 
   interface NeuraiCreateTransactionStatic {
-    xnaToSatoshis(amount: number): bigint;
-    assetUnitsToRaw(amount: number): bigint;
+    /** Exact: throws on more than 8 decimals, float artifacts, empty or negative input. */
+    xnaToSatoshis(amount: number | string): bigint;
+    assetUnitsToRaw(amount: number | string): bigint;
     inferNetworkFromAnyAddress(address: string): string;
     getBurnAddressForOperation(network: string, operation: string): string;
     createFromOperation(build: {

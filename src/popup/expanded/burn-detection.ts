@@ -1,6 +1,8 @@
 // Helpers for detecting burn outputs and burn addresses produced by asset operations.
 // Relies on the NeuraiCreateTransaction global loaded via classic <script> in expanded.html.
 
+import { amountText } from './format.ts';
+
 // Every operation that pays a fee to a per-network burn address. Used to build
 // the exact set of consensus burn addresses for a given network.
 const BURN_OPERATION_TYPES = [
@@ -79,17 +81,20 @@ export function findXnaEnvelope(
   const expectedBurnAddress = findExpectedBurnAddress(entries, operationType);
 
   for (const entry of entries) {
-    if (typeof entry.value !== 'number') continue;
+    // An XNA output: a number, or decimal text when the amount does not fit a
+    // double exactly (neurai-assets >= 1.6.1). Asset payloads are objects.
+    const xna = amountText(entry.value);
+    if (xna === null) continue;
     const isBurn = (expectedBurnAddress && entry.address === expectedBurnAddress)
                    || isLikelyBurnAddress(entry.address);
     if (isBurn && burnAddress === undefined) {     // first (exact) burn only; never overwrite
       burnAddress = entry.address;
-      burnAmountSats = NeuraiCreateTransaction.xnaToSatoshis(Number(entry.value || 0));
+      burnAmountSats = NeuraiCreateTransaction.xnaToSatoshis(xna);
       continue;
     }
     if (!isBurn && xnaChangeAddress === undefined) {
       xnaChangeAddress = entry.address;
-      xnaChangeSats = NeuraiCreateTransaction.xnaToSatoshis(Number(entry.value || 0));
+      xnaChangeSats = NeuraiCreateTransaction.xnaToSatoshis(xna);
     }
   }
 

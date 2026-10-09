@@ -22,15 +22,15 @@ export const NEURAI_CONSTANTS = Object.freeze({
   RPC_URL:         'https://rpc-depin.neurai.org/rpc',
   // The testnet node running DEPIN protocol 2, chosen explicitly.
   //
-  // Checked on 2026-08-28: the previous one (rpc-testnet.neurai.org) also
-  // publishes `asset_marker: 'xna'` and also answers the DEPIN RPCs, so there
-  // was nothing broken about it. What did not publish the field was an
-  // outdated local node, not that endpoint.
+  // The testnet was reset on 2026-09-26 (genesis 0000008b…a021). Checked on
+  // 2026-10-09: this endpoint and rpc-testnet.neurai.org both serve the new
+  // chain and publish `asset_marker`. Every RPC call first checks the genesis
+  // (shared/chain-identity.ts), so a URL left pointing at a node of the old
+  // chain fails with a clear error instead of showing its data.
   //
-  // The requirement is real though: without `asset_marker` the NIP-040 policy
-  // resolves the legacy `rvn` marker, which testnet rejects from block 303000
-  // with bad-txns-legacy-asset-marker-after-nip040. Any RPC configured here
-  // must publish it.
+  // Any RPC configured here must publish `asset_marker`: the reset testnet
+  // stamps `rvn` up to block 9 and `xna` from block 10, and a testnet reply
+  // without the field is rejected rather than read as `rvn`.
   RPC_URL_TESTNET: 'https://rpc-testnet-depin.neurai.org/rpc',
 
   // ── Default block explorer URLs (URL templates with {txid} placeholder) ───

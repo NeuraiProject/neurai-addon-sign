@@ -13,6 +13,11 @@ declare global {
      * paths must use the same value.
      */
     assetMarker?: NeuraiCreateTransactionAssetMarker;
+    /**
+     * What to do when `getblockchaininfo` cannot be read and no `assetMarker`
+     * was given. Since 1.8.0 testnet defaults to 'strict' (throw).
+     */
+    assetMarkerPolicy?: 'strict' | 'legacy-fallback';
   }
 
   type NeuraiAssetsOperationType =
@@ -39,7 +44,8 @@ declare global {
     txid: string;
     vout: number;
     address: string;
-    satoshis: number;
+    /** Passed through from the RPC; exact amounts may arrive as text or bigint. */
+    satoshis: number | string | bigint;
     assetName?: string;
   }
 
@@ -48,15 +54,19 @@ declare global {
     params: Record<string, unknown>;
   }
 
+  /**
+   * Since 1.6.1 XNA amounts are numbers only when they round-trip exactly;
+   * otherwise they are decimal text.
+   */
   interface NeuraiAssetsBuildResult {
     rawTx: string;
-    fee: number;
-    burnAmount: number;
+    fee: number | string;
+    burnAmount: number | string;
     network: string;
     buildStrategy: NeuraiAssetsBuildStrategy;
     burnAddress: string | null;
     changeAddress: string | null;
-    changeAmount: number | null;
+    changeAmount: number | string | null;
     inputs: NeuraiAssetsBuildInput[];
     outputs: Array<Record<string, unknown>>;
     utxos?: unknown[];

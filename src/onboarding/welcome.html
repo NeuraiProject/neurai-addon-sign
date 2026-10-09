@@ -164,12 +164,15 @@
         <label for="importNetwork">Network</label>
         <select class="form-select" id="importNetwork">
           <option value="xna">Neurai Mainnet (XNA)</option>
-          <!-- Removed at load by pruneUnavailableNetworks() in welcome.ts:
-               AuthScript PQ is not active on mainnet. Kept here so this list
-               stays the intended final set; re-enable from UNAVAILABLE_NETWORKS. -->
-          <option value="xna-pq">Neurai Mainnet AuthScript PQ</option>
-          <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
-          <option value="xna-pq-test">Neurai Testnet AuthScript PQ</option>
+          <!-- Removed at load by pruneUnavailableNetworks() in welcome.ts: the
+               witness families are not active on mainnet. Kept here so this list
+               stays the intended final set; re-enable from UNAVAILABLE_NETWORKS
+               in shared/networks.ts. -->
+          <option value="xna-ecdsa">Neurai Mainnet ECDSA witness (nq1r…)</option>
+          <option value="xna-pq">Neurai Mainnet Post-Quantum (pq1z…)</option>
+          <option value="xna-test">Neurai Testnet Legacy (t…)</option>
+          <option value="xna-ecdsa-test">Neurai Testnet ECDSA witness (tnq1r…)</option>
+          <option value="xna-pq-test">Neurai Testnet Post-Quantum (tpq1z…)</option>
         </select>
       </div>
 
@@ -207,12 +210,15 @@
         <label for="generateNetwork">Network</label>
         <select class="form-select" id="generateNetwork">
           <option value="xna">Neurai Mainnet (XNA)</option>
-          <!-- Removed at load by pruneUnavailableNetworks() in welcome.ts:
-               AuthScript PQ is not active on mainnet. Kept here so this list
-               stays the intended final set; re-enable from UNAVAILABLE_NETWORKS. -->
-          <option value="xna-pq">Neurai Mainnet AuthScript PQ</option>
-          <option value="xna-test">Neurai Testnet (XNA-TEST)</option>
-          <option value="xna-pq-test">Neurai Testnet AuthScript PQ</option>
+          <!-- Removed at load by pruneUnavailableNetworks() in welcome.ts: the
+               witness families are not active on mainnet. Kept here so this list
+               stays the intended final set; re-enable from UNAVAILABLE_NETWORKS
+               in shared/networks.ts. -->
+          <option value="xna-ecdsa">Neurai Mainnet ECDSA witness (nq1r…)</option>
+          <option value="xna-pq">Neurai Mainnet Post-Quantum (pq1z…)</option>
+          <option value="xna-test">Neurai Testnet Legacy (t…)</option>
+          <option value="xna-ecdsa-test">Neurai Testnet ECDSA witness (tnq1r…)</option>
+          <option value="xna-pq-test">Neurai Testnet Post-Quantum (tpq1z…)</option>
         </select>
       </div>
 

@@ -1,6 +1,64 @@
 var NeuraiCreateTransactionBundle = (function (exports) {
     'use strict';
 
+    /** Exact monetary primitives. This module has no runtime dependencies. */
+    const SATS_PER_XNA = 100000000n;
+    const MAX_MONEY = 2100000000000000000n;
+    /** Normalize a raw integer without preserving an already rounded number. */
+    function toRawInteger(value, label = 'amount') {
+        if (typeof value === 'bigint')
+            return value;
+        if (typeof value === 'number' && Number.isSafeInteger(value))
+            return BigInt(value);
+        if (typeof value === 'string' && /^-?\d+$/.test(value) && value.length <= 100)
+            return BigInt(value);
+        throw new Error(`${label}: expected an exact integer; use bigint or an integer string for large values`);
+    }
+    function assertMoneyRange(value, label = 'amount') {
+        const raw = toRawInteger(value, label);
+        if (raw < 0n || raw > MAX_MONEY)
+            throw new Error(`${label} outside Neurai monetary range`);
+        return raw;
+    }
+    /** Parse decimal units exactly, including scientific notation, with at most 8 decimals. */
+    function decimalToSatoshis(value) {
+        if (typeof value !== 'string' && typeof value !== 'number')
+            throw new Error('Expected decimal string or number');
+        if (typeof value === 'number' && !Number.isFinite(value))
+            throw new Error('Amount must be finite');
+        const text = String(value);
+        if (text.length > 100)
+            throw new Error('Amount too long');
+        const match = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(text);
+        if (!match)
+            throw new Error('Invalid decimal amount');
+        const exponent = Number(match[4] ?? 0);
+        if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 100)
+            throw new Error('Invalid decimal exponent');
+        const fraction = match[3] ?? '';
+        const shift = 8 + exponent - fraction.length;
+        let raw = BigInt(match[2] + fraction);
+        if (shift >= 0)
+            raw *= 10n ** BigInt(shift);
+        else {
+            const divisor = 10n ** BigInt(-shift);
+            if (raw % divisor !== 0n)
+                throw new Error('Amount has more than 8 decimals');
+            raw /= divisor;
+        }
+        if (typeof value === 'number' && raw > BigInt(Number.MAX_SAFE_INTEGER) && !Number.isSafeInteger(value)) {
+            throw new Error('Large fractional amounts must be supplied as decimal strings');
+        }
+        return match[1] ? -raw : raw;
+    }
+    /** Format signed raw units without converting to floating point. */
+    function satoshisToDecimal(value) {
+        const raw = toRawInteger(value);
+        const abs = raw < 0n ? -raw : raw;
+        const fraction = (abs % SATS_PER_XNA).toString().padStart(8, '0').replace(/0+$/, '');
+        return `${raw < 0n ? '-' : ''}${abs / SATS_PER_XNA}${fraction ? '.' + fraction : ''}`;
+    }
+
     function ensureHex(hex, label = 'hex') {
         const normalized = String(hex || '').trim().toLowerCase();
         if (!/^[0-9a-f]*$/.test(normalized) || normalized.length % 2 !== 0) {
@@ -49,7 +107,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return out;
     }
     function u64LE(value) {
-        const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+        const bigintValue = toRawInteger(value);
         if (bigintValue < 0n || bigintValue > 0xffffffffffffffffn) {
             throw new Error(`uint64 out of range: ${bigintValue}`);
         }
@@ -62,7 +120,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return out;
     }
     function i64LE(value) {
-        const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+        const bigintValue = toRawInteger(value);
         if (bigintValue < -0x8000000000000000n || bigintValue > 0x7fffffffffffffffn) {
             throw new Error(`int64 out of range: ${bigintValue}`);
         }
@@ -72,7 +130,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return out;
     }
     function compactSize(value) {
-        const bigintValue = typeof value === 'bigint' ? value : BigInt(value);
+        const bigintValue = toRawInteger(value);
         if (bigintValue < 0n)
             throw new Error('CompactSize cannot encode negative numbers');
         if (bigintValue < 253n) {
@@ -873,20 +931,65 @@ var NeuraiCreateTransactionBundle = (function (exports) {
 
     const LEGACY_MAINNET_PREFIX = 53;
     const LEGACY_TESTNET_PREFIX = 127;
-    const PQ_MAINNET_HRP = 'nq';
-    const PQ_TESTNET_HRP = 'tnq';
     const OP_XNA_ASSET = 0xc0;
     const OP_DROP = 0x75;
     const OP_1 = 0x51;
     const OP_RESERVED = 0x50;
+    const WITNESS_FAMILIES = [
+        {
+            type: 'authscript',
+            witnessVersion: 1,
+            hrp: { mainnet: 'nc', testnet: 'tnc' },
+            network: { mainnet: 'xna-authscript', testnet: 'xna-authscript-test' }
+        },
+        {
+            type: 'pq',
+            witnessVersion: 2,
+            hrp: { mainnet: 'pq', testnet: 'tpq' },
+            network: { mainnet: 'xna-pq', testnet: 'xna-pq-test' }
+        },
+        {
+            type: 'ecdsa',
+            witnessVersion: 3,
+            hrp: { mainnet: 'nq', testnet: 'tnq' },
+            network: { mainnet: 'xna', testnet: 'xna-test' }
+        }
+    ];
+    const AUTHSCRIPT_MAINNET_HRP = 'nc';
+    const AUTHSCRIPT_TESTNET_HRP = 'tnc';
+    const PQ_MAINNET_HRP = 'pq';
+    const PQ_TESTNET_HRP = 'tpq';
+    const ECDSA_MAINNET_HRP = 'nq';
+    const ECDSA_TESTNET_HRP = 'tnq';
+    /** The family that owns `hrp` (lowercase), with the chain it encodes. */
+    function witnessFamilyByHrp(hrp) {
+        for (const family of WITNESS_FAMILIES) {
+            if (family.hrp.mainnet === hrp)
+                return { family, chain: 'mainnet' };
+            if (family.hrp.testnet === hrp)
+                return { family, chain: 'testnet' };
+        }
+        return undefined;
+    }
+    /** The family encoded by `witnessVersion`, or undefined for any other version. */
+    function witnessFamilyByVersion(witnessVersion) {
+        return WITNESS_FAMILIES.find((family) => family.witnessVersion === witnessVersion);
+    }
+    /** `OP_1`, `OP_2` or `OP_3`: the scriptPubKey opcode of a witness version. */
+    function witnessVersionOpcode(witnessVersion) {
+        if (!witnessFamilyByVersion(witnessVersion)) {
+            throw new Error(`Unsupported AuthScript witness version: ${String(witnessVersion)} (expected 1, 2 or 3)`);
+        }
+        return OP_1 - 1 + witnessVersion;
+    }
     /**
      * NIP-040 asset payload marker.
      *
      * Every transfer / new / owner / reissue payload opens with a 3-byte marker
      * followed by the type byte. The marker is consensus: blocks below the NIP-040
      * activation height of a network only accept `rvn` on new asset outputs and
-     * blocks at or above it only accept `xna` (mainnet: not scheduled; testnet:
-     * 303000; regtest: 1). This library does NOT know chain state and never
+     * blocks at or above it only accept `xna` (mainnet: not scheduled; reset testnet:
+     * 10; regtest: 1). This library does NOT know chain state and never
      * infers the marker from a network or an address: the caller passes the
      * value reported by the node for the next block
      * (`getblockchaininfo.asset_marker`, node commit 347362b) — or, when building
@@ -929,35 +1032,62 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         const [a, b, c] = ASSET_MARKER_BYTES[resolveAssetMarker(marker)];
         return Uint8Array.of(a, b, c, typeByte);
     }
-    function inferNetworkFromAddress(address) {
-        const normalized = resolveAddressInput(address).toLowerCase();
-        if (normalized.startsWith(PQ_MAINNET_HRP + '1'))
-            return 'xna-pq';
-        if (normalized.startsWith(PQ_TESTNET_HRP + '1'))
-            return 'xna-pq-test';
-        if (normalized.startsWith('n'))
-            return 'xna';
-        if (normalized.startsWith('t'))
-            return 'xna-test';
-        throw new Error(`Unsupported Neurai address: ${address}`);
-    }
 
-    function decodeAddress(address) {
-        const normalized = resolveAddressInput(address);
-        const lowered = normalized.toLowerCase();
-        if (!normalized)
-            throw new Error('Address is required');
-        if (lowered.startsWith(PQ_MAINNET_HRP + '1') || lowered.startsWith(PQ_TESTNET_HRP + '1')) {
-            const decoded = distExports.bech32m.decode(normalized);
-            const version = decoded.words[0];
-            const program = Uint8Array.from(distExports.bech32m.fromWords(decoded.words.slice(1)));
-            if (version !== 1 || program.length !== 32) {
-                throw new Error(`Unsupported AuthScript address program for ${address}`);
-            }
-            const network = lowered.startsWith(PQ_TESTNET_HRP + '1') ? 'xna-pq-test' : 'xna-pq';
-            return { address: normalized, type: 'authscript', network, program, commitment: program };
+    // Longest Bech32m string the node's decoder accepts (bech32.cpp).
+    const BECH32M_MAX_LENGTH = 90;
+    const AUTHSCRIPT_PROGRAM_LENGTH = 32;
+    function tryBech32mDecode(address) {
+        try {
+            const { prefix, words } = distExports.bech32m.decode(address, BECH32M_MAX_LENGTH);
+            return { hrp: prefix.toLowerCase(), words };
         }
-        const payload = Uint8Array.from(bs58check.decode(normalized));
+        catch {
+            return null;
+        }
+    }
+    function decodeWitnessAddress(address, parts) {
+        const owner = witnessFamilyByHrp(parts.hrp);
+        if (!owner) {
+            throw new Error(`Unsupported Bech32m prefix "${parts.hrp}" for ${address}`);
+        }
+        if (parts.words.length === 0) {
+            throw new Error(`Empty witness program in ${address}`);
+        }
+        const version = parts.words[0];
+        const { family, chain } = owner;
+        if (version !== family.witnessVersion) {
+            const actual = witnessFamilyByVersion(version);
+            const hint = actual
+                ? `; witness v${version} addresses use the "${actual.hrp[chain]}" prefix`
+                : '';
+            const legacyHint = family.type === 'ecdsa' && version === 1
+                ? ' Generic AuthScript v1 addresses are now encoded as nc1p… / tnc1p… ' +
+                    '(same scriptPubKey): regenerate the address (neurai-key xna-authscript networks).'
+                : '';
+            throw new Error(`Address ${address}: the "${parts.hrp}" prefix only encodes witness v${family.witnessVersion}, ` +
+                `not v${version}${hint}.${legacyHint}`);
+        }
+        let program;
+        try {
+            program = Uint8Array.from(distExports.bech32m.fromWords(parts.words.slice(1)));
+        }
+        catch {
+            throw new Error(`Invalid witness program padding in ${address}`);
+        }
+        if (program.length !== AUTHSCRIPT_PROGRAM_LENGTH) {
+            throw new Error(`Unsupported AuthScript program length ${program.length} for ${address} (expected ${AUTHSCRIPT_PROGRAM_LENGTH})`);
+        }
+        return {
+            address,
+            type: family.type,
+            witnessVersion: family.witnessVersion,
+            network: family.network[chain],
+            program,
+            commitment: program
+        };
+    }
+    function decodeLegacyAddress(address) {
+        const payload = Uint8Array.from(bs58check.decode(address));
         if (payload.length !== 21) {
             throw new Error(`Unsupported legacy address payload length for ${address}`);
         }
@@ -966,44 +1096,135 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             throw new Error(`Unsupported legacy address prefix ${prefix} for ${address}`);
         }
         return {
-            address: normalized,
+            address,
             type: 'p2pkh',
-            network: inferNetworkFromAddress(normalized),
+            network: prefix === LEGACY_MAINNET_PREFIX ? 'xna-legacy' : 'xna-legacy-test',
             program: payload.slice(1),
             hash: payload.slice(1)
         };
     }
+    /**
+     * Decode a Neurai address the way the node does (base58.cpp
+     * `DecodeDestination`): Bech32m first, Base58Check otherwise.
+     *
+     * - Base58 P2PKH → `type: 'p2pkh'`, network `xna-legacy` / `xna-legacy-test`
+     *   (an `xna-old-legacy` address is indistinguishable and reports
+     *   `xna-legacy`).
+     * - Bech32m → `authscript` (v1, `nc`/`tnc`), `pq` (v2, `pq`/`tpq`) or
+     *   `ecdsa` (v3, `nq`/`tnq`), with `witnessVersion` and the 32-byte
+     *   commitment. Any other HRP/version pair is rejected, including the old
+     *   `nq1p…` / `tnq1p…` encoding of generic AuthScript v1.
+     *
+     * The decoder does not know whether a witness family is active on the
+     * target chain: before activation the node refuses v2/v3 addresses and a
+     * witness output is anyone-can-spend.
+     */
+    function decodeAddress(address) {
+        const normalized = resolveAddressInput(address);
+        if (!normalized)
+            throw new Error('Address is required');
+        const bech32mParts = tryBech32mDecode(normalized);
+        if (bech32mParts) {
+            return decodeWitnessAddress(normalized, bech32mParts);
+        }
+        try {
+            return decodeLegacyAddress(normalized);
+        }
+        catch (legacyError) {
+            // Not Base58 either. When the string carries a known Bech32m prefix the
+            // Bech32m failure (bad checksum, mixed case…) is the useful diagnosis.
+            const separator = normalized.lastIndexOf('1');
+            const hrp = separator > 0 ? normalized.slice(0, separator).toLowerCase() : '';
+            if (witnessFamilyByHrp(hrp)) {
+                throw new Error(`Invalid Bech32m address ${normalized} (checksum, case or character error)`);
+            }
+            throw legacyError;
+        }
+    }
+    /** Chain-family label of an address: see `decodeAddress`. */
+    function inferNetworkFromAddress(address) {
+        return decodeAddress(address).network;
+    }
+    /** True for the Bech32m (AuthScript v1, PQ v2, ECDSA v3) destinations. */
+    function isWitnessDestination(destination) {
+        return destination.type !== 'p2pkh';
+    }
+    /** `OP_n 0x20 <32-byte commitment>` for witness version `n` (1, 2 or 3). */
+    function encodeWitnessProgramScript(witnessVersion, commitment) {
+        const bytes = typeof commitment === 'string' ? hexToBytes(commitment) : commitment;
+        if (bytes.length !== AUTHSCRIPT_PROGRAM_LENGTH) {
+            throw new Error(`AuthScript commitment must be ${AUTHSCRIPT_PROGRAM_LENGTH} bytes, got ${bytes.length}`);
+        }
+        return concatBytes(Uint8Array.of(witnessVersionOpcode(witnessVersion)), pushData(bytes));
+    }
     function encodeP2PKHScript(address) {
         const destination = decodeAddress(address);
         if (destination.type !== 'p2pkh') {
-            throw new Error(`Address ${address} is not legacy P2PKH`);
+            throw new Error(`Address ${resolveAddressInput(address)} is not legacy P2PKH`);
         }
         return Uint8Array.of(0x76, 0xa9, 0x14, ...destination.hash, 0x88, 0xac);
     }
+    /**
+     * scriptPubKey of an AuthScript destination of any witness version:
+     * `OP_1` (generic v1), `OP_2` (PQ) or `OP_3` (ECDSA) followed by the
+     * 32-byte commitment.
+     */
     function encodeAuthScriptDestinationScript(address) {
         const destination = decodeAddress(address);
-        if (destination.type !== 'authscript') {
-            throw new Error(`Address ${address} is not AuthScript witness v1`);
+        if (!isWitnessDestination(destination)) {
+            throw new Error(`Address ${resolveAddressInput(address)} is not an AuthScript (witness v1, v2 or v3) address`);
         }
-        return concatBytes(Uint8Array.of(OP_1), pushData(destination.commitment));
+        return encodeWitnessProgramScript(destination.witnessVersion, destination.commitment);
     }
     function encodeDestinationScript(address) {
         const destination = decodeAddress(address);
-        return destination.type === 'authscript'
-            ? encodeAuthScriptDestinationScript(address)
+        return isWitnessDestination(destination)
+            ? encodeWitnessProgramScript(destination.witnessVersion, destination.commitment)
             : encodeP2PKHScript(address);
     }
     function encodeNullAssetDestinationScript(address, mode = 'strict') {
         const destination = decodeAddress(address);
-        if (destination.type === 'authscript') {
+        if (isWitnessDestination(destination)) {
             if (mode === 'hash20') {
                 throw new Error('hash20 null-asset mode is not supported for AuthScript destinations');
             }
-            return concatBytes(Uint8Array.of(OP_XNA_ASSET, OP_1), pushData(destination.commitment));
+            return concatBytes(Uint8Array.of(OP_XNA_ASSET, witnessVersionOpcode(destination.witnessVersion)), pushData(destination.commitment));
         }
         return concatBytes(Uint8Array.of(OP_XNA_ASSET), pushData(destination.hash));
     }
+    /**
+     * @deprecated The name predates the PQ witness v2 family: it encodes every
+     * AuthScript witness version. Use `encodeAuthScriptDestinationScript`.
+     */
     const encodePQWitnessScript = encodeAuthScriptDestinationScript;
+    /**
+     * Classify a scriptPubKey by its destination prefix, ignoring any trailing
+     * asset wrapper: `76a914<20>88ac…` is P2PKH, `5120<32>…`, `5220<32>…` and
+     * `5320<32>…` are AuthScript v1 (generic), v2 (PQ) and v3 (ECDSA).
+     */
+    function classifyScriptPubKey(script) {
+        const bytes = typeof script === 'string' ? hexToBytes(script) : script;
+        if (bytes.length >= 25 &&
+            bytes[0] === 0x76 &&
+            bytes[1] === 0xa9 &&
+            bytes[2] === 0x14 &&
+            bytes[23] === 0x88 &&
+            bytes[24] === 0xac) {
+            return { type: 'p2pkh', program: bytes.slice(3, 23), hasSuffix: bytes.length > 25 };
+        }
+        if (bytes.length >= 34 && bytes[1] === 0x20) {
+            const family = witnessFamilyByVersion(bytes[0] - (OP_1 - 1));
+            if (family) {
+                return {
+                    type: family.type,
+                    witnessVersion: family.witnessVersion,
+                    program: bytes.slice(2, 34),
+                    hasSuffix: bytes.length > 34
+                };
+            }
+        }
+        return { type: 'unknown', hasSuffix: false };
+    }
 
     const OWNER_ASSET_AMOUNT = 100000000n;
     const UNIQUE_ASSET_AMOUNT = 100000000n;
@@ -1066,10 +1287,13 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     const NETWORK_FAMILY = {
         'xna': 'mainnet',
         'xna-legacy': 'mainnet',
+        'xna-old-legacy': 'mainnet',
         'xna-pq': 'mainnet',
+        'xna-authscript': 'mainnet',
         'xna-test': 'testnet',
         'xna-legacy-test': 'testnet',
-        'xna-pq-test': 'testnet'
+        'xna-pq-test': 'testnet',
+        'xna-authscript-test': 'testnet'
     };
     /**
      * Resolve a network to its chain family, rejecting anything unrecognised.
@@ -1116,8 +1340,13 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return BURN_COSTS_XNA[operation] * multiplier;
     }
     function getBurnAmountSats(operation, multiplier = 1) {
-        return BigInt(Math.round(getBurnAmountXna(operation, multiplier) * 1e8));
+        return assertMoneyRange(decimalToSatoshis(BURN_COSTS_XNA[operation]) * assertMoneyRange(toRawInteger(multiplier, 'burn multiplier')));
     }
+    /**
+     * Network label of an address, from its encoding (see `decodeAddress`):
+     * `xna-legacy[-test]` for Base58, `xna-authscript[-test]` for `nc1`/`tnc1`,
+     * `xna-pq[-test]` for `pq1`/`tpq1` and `xna[-test]` for `nq1`/`tnq1`.
+     */
     function inferNetworkFromAnyAddress(address) {
         return inferNetworkFromAddress(address);
     }
@@ -1179,7 +1408,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     }
 
     function xnaToSatoshis(amount) {
-        return BigInt(Math.round(Number(amount || 0) * 1e8));
+        return assertMoneyRange(decimalToSatoshis(amount));
     }
     function assetUnitsToRaw(amount) {
         return xnaToSatoshis(amount);
@@ -1188,12 +1417,12 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         const payload = [
             assetPayloadPrefix(options?.assetMarker, 'transfer'),
             serializeString(assetName),
-            u64LE(amountRaw)
+            u64LE(assertMoneyRange(amountRaw))
         ];
         const encodedMessage = encodeAssetDataReference(message);
         if (encodedMessage.length > 0) {
             payload.push(encodedMessage);
-            if (expireTime !== undefined && BigInt(expireTime) !== 0n) {
+            if (expireTime !== undefined && toRawInteger(expireTime) !== 0n) {
                 payload.push(i64LE(expireTime));
             }
         }
@@ -1218,11 +1447,15 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     }
     /**
      * True when `script` is exactly the 34-byte AuthScript form
-     * `OP_1 0x20 <32-byte commitment>`. Consensus only recognises the asset
-     * wrapper when OP_XNA_ASSET sits at byte 34 after this exact prefix.
+     * `OP_n 0x20 <32-byte commitment>`, with `OP_1` (generic v1), `OP_2` (PQ)
+     * or `OP_3` (ECDSA). Consensus only recognises the asset wrapper when
+     * OP_XNA_ASSET sits at byte 34 after this exact prefix; `OP_2` / `OP_3`
+     * only where the strict AuthScript families are active.
      */
     function isAuthScriptScript(script) {
-        return script.length === 34 && script[0] === 0x51 && script[1] === 0x20;
+        return (script.length === 34 &&
+            (script[0] === 0x51 || script[0] === 0x52 || script[0] === 0x53) &&
+            script[1] === 0x20);
     }
     /**
      * Like `encodeAssetTransferScript` but takes a raw scriptPubKey instead of
@@ -1230,7 +1463,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
      * scriptPubKey bytes.
      *
      * The recipient script must be exactly P2PKH (25 bytes) or AuthScript
-     * `OP_1 <32B>` (34 bytes): the node's OP_XNA_ASSET placement rules only
+     * `OP_n <32B>` (34 bytes, n = 1, 2 or 3): the node's OP_XNA_ASSET placement rules only
      * accept the asset wrapper right after one of those two prefixes, on every
      * network, so appending it to any other script (a bare covenant, P2SH, …)
      * produces a consensus-invalid output. To pay assets into an arbitrary
@@ -1253,14 +1486,14 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         if (!isP2pkhScript(spkBytes) && !isAuthScriptScript(spkBytes)) {
             throw new Error('asset transfers to arbitrary scripts are rejected by consensus ' +
                 '(OP_XNA_ASSET placement rules): the recipient scriptPubKey must be ' +
-                'exactly P2PKH (25 bytes) or AuthScript OP_1 <32B> (34 bytes); ' +
+                'exactly P2PKH (25 bytes) or AuthScript OP_1/OP_2/OP_3 <32B> (34 bytes); ' +
                 'commit the script into an AuthScript destination instead');
         }
         return concatBytes(spkBytes, Uint8Array.of(OP_XNA_ASSET), pushData(encodeAssetTransferPayload(assetName, amountRaw, message, expireTime, options)), Uint8Array.of(OP_DROP));
     }
     function encodeNewAssetPayload(assetName, quantityRaw, units = 0, reissuable = true, ipfsHash, options) {
         const encodedIpfs = encodeAssetDataReference(ipfsHash);
-        return concatBytes(assetPayloadPrefix(options?.assetMarker, 'new'), serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(units & 0xff, reissuable ? 1 : 0, encodedIpfs.length > 0 ? 1 : 0), encodedIpfs);
+        return concatBytes(assetPayloadPrefix(options?.assetMarker, 'new'), serializeString(assetName), u64LE(assertMoneyRange(quantityRaw)), Uint8Array.of(units & 0xff, reissuable ? 1 : 0, encodedIpfs.length > 0 ? 1 : 0), encodedIpfs);
     }
     function encodeNewAssetScript(address, assetName, quantityRaw, units = 0, reissuable = true, ipfsHash, options) {
         return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeNewAssetPayload(assetName, quantityRaw, units, reissuable, ipfsHash, options)), Uint8Array.of(OP_DROP));
@@ -1304,7 +1537,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return resolved & 0xff;
     }
     function encodeReissueAssetPayload(assetName, quantityRaw, units, reissuable = true, ipfsHash, options) {
-        return concatBytes(assetPayloadPrefix(options?.assetMarker, 'reissue'), serializeString(assetName), u64LE(quantityRaw), Uint8Array.of(reissueUnitsByte(units), reissuable ? 1 : 0), encodeAssetDataReference(ipfsHash));
+        return concatBytes(assetPayloadPrefix(options?.assetMarker, 'reissue'), serializeString(assetName), u64LE(assertMoneyRange(quantityRaw)), Uint8Array.of(reissueUnitsByte(units), reissuable ? 1 : 0), encodeAssetDataReference(ipfsHash));
     }
     function encodeReissueAssetScript(address, assetName, quantityRaw, units, reissuable = true, ipfsHash, options) {
         return concatBytes(encodeDestinationScript(address), Uint8Array.of(OP_XNA_ASSET), pushData(encodeReissueAssetPayload(assetName, quantityRaw, units, reissuable, ipfsHash, options)), Uint8Array.of(OP_DROP));
@@ -1333,7 +1566,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     }
     function createXnaOutput(address, valueSats) {
         return {
-            valueSats: typeof valueSats === 'bigint' ? valueSats : BigInt(valueSats),
+            valueSats: assertMoneyRange(valueSats),
             scriptPubKeyHex: bytesToHex(encodeDestinationScript(address))
         };
     }
@@ -1429,6 +1662,10 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         return concatBytes(u64LE(output.valueSats), compactSize(scriptPubKey.length), scriptPubKey);
     }
     function createUnsignedTransaction(tx) {
+        let total = 0n;
+        for (const output of tx.outputs)
+            total += assertMoneyRange(output.valueSats, 'output');
+        assertMoneyRange(total, 'total outputs');
         const version = tx.version ?? 2;
         const locktime = tx.locktime ?? 0;
         const inputs = tx.inputs.map(serializeInput);
@@ -1449,10 +1686,10 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         };
     }
     function appendXnaEnvelope(outputs, burnAddress, burnAmountSats, changeAddress, changeSats) {
-        if (burnAddress && burnAmountSats !== undefined && BigInt(burnAmountSats) > 0n) {
+        if (burnAddress && burnAmountSats !== undefined && toRawInteger(burnAmountSats) > 0n) {
             outputs.push(createXnaOutput(burnAddress, burnAmountSats));
         }
-        if (changeAddress && changeSats !== undefined && BigInt(changeSats) > 0n) {
+        if (changeAddress && changeSats !== undefined && toRawInteger(changeSats) > 0n) {
             outputs.push(createXnaOutput(changeAddress, changeSats));
         }
     }
@@ -1570,7 +1807,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     function createIssueDepinTransaction(params) {
         assertDepinAssetName(params.assetName);
         assertDepinNetwork(params.network);
-        if (BigInt(params.quantityRaw) <= 0n) {
+        if (toRawInteger(params.quantityRaw) <= 0n) {
             throw new Error('DEPIN issue quantity must be positive');
         }
         if (params.reissuable !== undefined && typeof params.reissuable !== 'boolean') {
@@ -1607,7 +1844,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
             if (transfer.assetName !== assetName) {
                 throw new Error(`DEPIN transfers must all move the same asset (got ${transfer.assetName} and ${assetName}); build one transaction per DEPIN asset`);
             }
-            if (BigInt(transfer.amountRaw) <= 0n) {
+            if (toRawInteger(transfer.amountRaw) <= 0n) {
                 throw new Error(`DEPIN transfer amount must be positive: ${assetName}`);
             }
         }
@@ -1625,7 +1862,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
     function createDepinSelfRevokeTransaction(params) {
         assertDepinAssetName(params.assetName);
         assertDepinNetwork(params.network);
-        if (BigInt(params.amountRaw) <= 0n) {
+        if (toRawInteger(params.amountRaw) <= 0n) {
             throw new Error('DEPIN self-revoke amount must be positive');
         }
         // Exact consensus pattern: one self-transfer of "&X" back to the holder plus
@@ -2583,17 +2820,28 @@ var NeuraiCreateTransactionBundle = (function (exports) {
 
     var NeuraiCreateTransaction = /*#__PURE__*/Object.freeze({
         __proto__: null,
+        AUTHSCRIPT_MAINNET_HRP: AUTHSCRIPT_MAINNET_HRP,
+        AUTHSCRIPT_TESTNET_HRP: AUTHSCRIPT_TESTNET_HRP,
         DEFAULT_ASSET_MARKER: DEFAULT_ASSET_MARKER,
         DEPIN_MAX_NAME_LENGTH: DEPIN_MAX_NAME_LENGTH,
+        ECDSA_MAINNET_HRP: ECDSA_MAINNET_HRP,
+        ECDSA_TESTNET_HRP: ECDSA_TESTNET_HRP,
+        MAX_MONEY: MAX_MONEY,
         OWNER_ASSET_AMOUNT: OWNER_ASSET_AMOUNT,
+        PQ_MAINNET_HRP: PQ_MAINNET_HRP,
+        PQ_TESTNET_HRP: PQ_TESTNET_HRP,
         REGTEST_GLOBAL_BURN_ADDRESS: REGTEST_GLOBAL_BURN_ADDRESS,
+        SATS_PER_XNA: SATS_PER_XNA,
         UNIQUE_ASSETS_REISSUABLE: UNIQUE_ASSETS_REISSUABLE,
         UNIQUE_ASSET_AMOUNT: UNIQUE_ASSET_AMOUNT,
         UNIQUE_ASSET_UNITS: UNIQUE_ASSET_UNITS,
+        WITNESS_FAMILIES: WITNESS_FAMILIES,
         assertDepinAssetName: assertDepinAssetName,
         assertDepinNetwork: assertDepinNetwork,
+        assertMoneyRange: assertMoneyRange,
         assetPayloadPrefix: assetPayloadPrefix,
         assetUnitsToRaw: assetUnitsToRaw,
+        classifyScriptPubKey: classifyScriptPubKey,
         computeTxid: computeTxid,
         computeWtxid: computeWtxid,
         createAssetTransferOutput: createAssetTransferOutput,
@@ -2626,6 +2874,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         createUnsignedTransaction: createUnsignedTransaction,
         createVerifierStringOutput: createVerifierStringOutput,
         createXnaOutput: createXnaOutput,
+        decimalToSatoshis: decimalToSatoshis,
         decodeAddress: decodeAddress,
         decodeAssetDataReferenceHex: decodeAssetDataReferenceHex,
         encodeAssetDataReference: encodeAssetDataReference,
@@ -2650,6 +2899,7 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         encodeReissueAssetScript: encodeReissueAssetScript,
         encodeVerifierStringPayload: encodeVerifierStringPayload,
         encodeVerifierStringScript: encodeVerifierStringScript,
+        encodeWitnessProgramScript: encodeWitnessProgramScript,
         estimateTransactionSize: estimateTransactionSize,
         formatAssetDataReferenceHex: formatAssetDataReferenceHex,
         getBurnAddressForOperation: getBurnAddressForOperation,
@@ -2664,13 +2914,16 @@ var NeuraiCreateTransactionBundle = (function (exports) {
         isEncodedAssetDataReferenceHex: isEncodedAssetDataReferenceHex,
         isRawAssetDataReferenceHex: isRawAssetDataReferenceHex,
         isTxidAssetReference: isTxidAssetReference,
+        isWitnessDestination: isWitnessDestination,
         normalizeVerifierString: normalizeVerifierString,
         parseTransaction: parseTransaction,
         resolveAddressInput: resolveAddressInput,
         resolveAssetMarker: resolveAssetMarker,
+        satoshisToDecimal: satoshisToDecimal,
         serializeInput: serializeInput,
         serializeOutput: serializeOutput,
         serializeTransaction: serializeTransaction,
+        toRawInteger: toRawInteger,
         xnaToSatoshis: xnaToSatoshis
     });
 

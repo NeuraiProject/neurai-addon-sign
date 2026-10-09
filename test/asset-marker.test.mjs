@@ -161,3 +161,25 @@ test('warm leaves the value ready: a later resolve does not query again', async 
   assert.equal(await cache.resolve('xna-test', rpc), 'xna');
   assert.equal(calls.length, 1);
 });
+
+// --- Reset testnet -----------------------------------------------------------
+//
+// The reset testnet stamps rvn up to block 9 and xna from block 10, and every
+// node of that chain publishes the field. A testnet reply without it comes from
+// an outdated node, so it must not become rvn.
+
+test('a testnet reply without the field is rejected, not read as rvn', async () => {
+  await assert.rejects(
+    () => resolveAssetMarker(rpcReturning({ chain: 'test' }), { requireField: true }),
+    /did not report getblockchaininfo.asset_marker/
+  );
+  assert.equal(await resolveAssetMarker(rpcReturning({ asset_marker: 'rvn' }), { requireField: true }), 'rvn');
+});
+
+test('the cache requires the field on testnet networks only', async () => {
+  const cache = createAssetMarkerCache();
+  for (const network of ['xna-test', 'xna-legacy-test', 'xna-ecdsa-test', 'xna-pq-test']) {
+    await assert.rejects(() => cache.resolve(network, markerRpc(null).rpc), /asset_marker/, network);
+  }
+  assert.equal(await cache.resolve('xna', markerRpc(null).rpc), 'rvn');
+});

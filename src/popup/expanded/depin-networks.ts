@@ -7,8 +7,11 @@
  *
  * Deliberately a list and not a probe against the node: today the answer is
  * fixed and known, and a list has no failure modes. **The day DEPIN activates
- * on mainnet, this is the only thing to touch** — add `'xna'` (and `'xna-pq'`
- * if the PQ variant lands at the same time).
+ * on mainnet, this is the only thing to touch** — add `'xna'` (and the
+ * witness families once they are active there too).
+ *
+ * DEPIN assets can sit on any address family. What is P2PKH-only on the node
+ * is DEPIN messaging (challenge and message pool), which this tab does not do.
  *
  * No imports and no DOM: `node --test` loads it as is.
  */
@@ -17,6 +20,7 @@
 export const DEPIN_NETWORKS: readonly string[] = [
   'xna-test',
   'xna-legacy-test',
+  'xna-ecdsa-test',
   'xna-pq-test'
 ];
 

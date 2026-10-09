@@ -10,8 +10,19 @@ const NeuraiReader = (function() {
 
     let rpcUrl = URL_MAINNET;
 
+    // Genesis block the endpoint must serve, or null to skip the check. The
+    // testnet was reset on 2026-09-26 with the same chain name, ports and
+    // address prefixes, so a node of the previous chain answers like the new
+    // one; only getblockhash(0) tells them apart. Checked once per endpoint.
+    let expectedGenesis = null;
+    const verifiedGenesis = new Map();
+
     function setURL(url) {
         rpcUrl = url;
+    }
+
+    function setExpectedGenesis(hash) {
+        expectedGenesis = hash ? String(hash).toLowerCase() : null;
     }
 
     function setMainnet() {
@@ -22,8 +33,8 @@ const NeuraiReader = (function() {
         rpcUrl = URL_TESTNET;
     }
 
-    async function rpc(method, params = []) {
-        const response = await fetch(rpcUrl, {
+    async function rawRpc(url, method, params) {
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -41,6 +52,33 @@ const NeuraiReader = (function() {
             throw new Error(data.error.message);
         }
         return data.result;
+    }
+
+    function assertGenesis(url) {
+        if (!expectedGenesis) return Promise.resolve();
+        const key = expectedGenesis + ' ' + url;
+        let check = verifiedGenesis.get(key);
+        if (!check) {
+            const expected = expectedGenesis;
+            check = rawRpc(url, 'getblockhash', [0]).then(function (genesis) {
+                const actual = String(genesis || '').toLowerCase();
+                if (actual !== expected) {
+                    throw new Error('The RPC server ' + url + ' serves another chain (genesis ' +
+                        (actual || 'unknown') + ', expected ' + expected + '). Check the RPC URL in Settings.');
+                }
+            });
+            verifiedGenesis.set(key, check);
+            check.catch(function () {
+                if (verifiedGenesis.get(key) === check) verifiedGenesis.delete(key);
+            });
+        }
+        return check;
+    }
+
+    async function rpc(method, params = []) {
+        const url = rpcUrl;
+        await assertGenesis(url);
+        return rawRpc(url, method, params);
     }
 
     // Get balance in XNA (native coin)
@@ -175,6 +213,7 @@ const NeuraiReader = (function() {
 
     return {
         setURL,
+        setExpectedGenesis,
         setMainnet,
         setTestnet,
         getNeuraiBalance,

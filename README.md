@@ -17,7 +17,7 @@ A browser extension for managing Neurai (XNA) keys and securely signing messages
 
 ### Prerequisites
 
-*   Node.js (v16 or higher recommended)
+*   Node.js 22.18 or higher (the tests load the TypeScript sources directly)
 *   npm
 
 ### Setup
@@ -98,6 +98,31 @@ const pubKey = await window.neuraiWallet.getPublicKey();
 ```
 
 All async methods have a 30-second timeout.
+
+## Networks and address types
+
+Each account stores a network label, which `getInfo().network` returns. The labels predate `@neuraiproject/neurai-key` 5, which reuses some of them for other address types, so the extension maps them before every library call (`src/shared/networks.ts`):
+
+| Label | Network | Address type | Example | neurai-key 5 label |
+|---|---|---|---|---|
+| `xna` | Mainnet | Legacy, `m/44'/1900'` | `N…` | `xna-legacy` |
+| `xna-legacy` | Mainnet | Legacy, coin type 0 `m/44'/0'` | `N…` | `xna-old-legacy` |
+| `xna-test` | Testnet | Legacy, `m/44'/1'` | `t…` | `xna-legacy-test` |
+| `xna-ecdsa-test` | Testnet | ECDSA witness v3, `m/84'/1'` | `tnq1r…` | `xna-test` |
+| `xna-pq-test` | Testnet | Post-quantum witness v2 (ML-DSA-44) | `tpq1z…` | `xna-pq-test` |
+
+`xna-ecdsa` and `xna-pq` exist but are not offered for new accounts: the witness families are not active on mainnet. On the testnet, every family is active from block 10.
+
+Message signatures follow the node's `signmessage` for each type. ECDSA witness and post-quantum v2 signatures are bound to the address, so a signature made for one address type does not verify for another.
+
+### Testnet reset (2026-09-26)
+
+The testnet was restarted from a new genesis block, `0000008b384aeffecdab182575dc4e86c9f07f90318c65088532660ed9a8a021`. Funds, transactions and assets of the previous testnet do not exist on the new one.
+
+*   **RPC check.** Before using an RPC endpoint, the extension checks its genesis block with `getblockhash(0)`. A node of another chain, including the testnet before the reset, is refused with an error that names the RPC URL to fix in Settings.
+*   **Asset marker.** Asset outputs use the marker that the node reports in `getblockchaininfo.asset_marker`: `rvn` up to block 9 and `xna` from block 10. A testnet RPC that does not report it is refused.
+*   **Existing accounts.** Legacy accounts keep their addresses. A software testnet PQ account used the AuthScript v1 address of earlier releases (`tnq1p…`), which current nodes reject. On first load, the extension changes it to the witness v2 address of the same key (`tpq1z…`). The stored keys still sign, and no PIN is needed for this change. A hardware PQ account keeps the v1 family that the device signs, written as `tnc1p…`.
+*   **Recipients.** Send refuses an address in the old `nq1p…` / `tnq1p…` form and asks for the current address. The same destination is now written `nc1p…` / `tnc1p…`.
 
 ## Related Packages
 

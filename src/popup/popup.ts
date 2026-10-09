@@ -8,6 +8,9 @@ import {
   parseRawTransactionOutputs
 } from '../shared/parse-raw-tx.js';
 import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
+import { isTestnetNetwork, isPQNetwork, networkLabel, expectedGenesis } from '../shared/networks.js';
+import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
+import { runWalletMigrations } from '../shared/migrations.js';
 import { elem, option } from '../shared/dom.js';
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
@@ -552,13 +555,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       : 'Back up wallet secrets';
     updateAccountLabels();
 
-    const isTestnet = NEURAI_UTILS.isTestnetNetwork(state.network);
-    const networkLabels: Record<string, string> = {
-      'xna': 'Mainnet', 'xna-test': 'Testnet',
-      'xna-legacy': 'Mainnet Legacy', 'xna-legacy-test': 'Testnet Legacy',
-      'xna-pq': 'Mainnet PQ', 'xna-pq-test': 'Testnet PQ'
-    };
-    elements.networkBadge.querySelector('span:last-child')!.textContent = networkLabels[state.network] || state.network;
+    const isTestnet = isTestnetNetwork(state.network);
+    elements.networkBadge.querySelector('span:last-child')!.textContent = networkLabel(state.network);
 
     if (isTestnet) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     applyReaderRpcForCurrentContext();
@@ -703,6 +701,10 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   // ── Storage ───────────────────────────────────────────────────────────────
 
   async function loadWalletData() {
+    // Before reading accounts: stored PQ addresses move to the neurai-key 5
+    // formats (shared/migrations.ts). Idempotent and PIN-free.
+    await runWalletMigrations({ accounts: C.ACCOUNTS_KEY, activeWallet: C.STORAGE_KEY })
+      .catch((error) => console.warn('[migrations] stored wallet migration failed', error));
     const result = await chrome.storage.local.get([C.STORAGE_KEY, C.ACCOUNTS_KEY, C.ACTIVE_ACCOUNT_KEY]);
     const legacyWallet = result[C.STORAGE_KEY] || null;
     state.accounts = normalizeAccounts(result[C.ACCOUNTS_KEY]);
@@ -1700,16 +1702,18 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
   function getRpcUrlForNetwork(network: string) {
     const s = state.settings || C.DEFAULT_SETTINGS;
-    return NEURAI_UTILS.isTestnetNetwork(network)
+    return isTestnetNetwork(network)
       ? (s.rpcTestnet as string || NeuraiReader.URL_TESTNET)
       : (s.rpcMainnet as string || NeuraiReader.URL_MAINNET);
   }
 
   function applyReaderRpcForCurrentContext() {
     const network = hasActiveWallet() ? state.network : (((elements as Record<string, HTMLElement | null>).network && (elements as unknown as Record<string, HTMLInputElement | null>).network?.value) || 'xna');
-    if (NEURAI_UTILS.isTestnetNetwork(network)) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
+    if (isTestnetNetwork(network)) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     const url = getRpcUrlForNetwork(network);
     if (url) NeuraiReader.setURL(url);
+    // Refuse a node of another chain, such as the testnet before its reset.
+    NeuraiReader.setExpectedGenesis(expectedGenesis(network));
   }
 
   // ── Background message listener ───────────────────────────────────────────
@@ -1785,7 +1789,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
       // PQ (AuthScript / ML-DSA-44) wallets cannot be represented in a PSBT.
       // Sign the raw transaction directly via the device's `sign_tx` action.
-      if (state.network === 'xna-pq' || state.network === 'xna-pq-test') {
+      if (isPQNetwork(state.network)) {
         const feeSatsPq = calculateRawTransactionFeeSats(message.txHex as string, enrichedUtxos);
         const pqDisplay = feeSatsPq !== null
           ? { feeAmount: formatSatoshisToXna(feeSatsPq), baseCurrency: 'XNA' }
@@ -1903,6 +1907,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   async function fetchRawTxForUtxos(utxos: { txid: string; vout: number; sequence: number }[], rpcUrl: string) {
     const txids = [...new Set(utxos.map(u => u.txid).filter(Boolean))];
     const rawTxMap: Record<string, string> = {};
+    // Prevouts read from another chain would be signed as if they were ours.
+    await assertRpcChain(rpcUrl, state.network, (method, params) => jsonRpc(rpcUrl, method, params, 'hw-chain-check'));
     for (const txid of txids) {
       try {
         const resp = await fetch(rpcUrl, {

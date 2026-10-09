@@ -3,6 +3,14 @@
 import { NEURAI_CONSTANTS } from '../shared/constants.js';
 import { NEURAI_UTILS } from '../shared/utils.js';
 import { elem } from '../shared/dom.js';
+import {
+  isNetworkAvailable,
+  isPQNetwork,
+  isLegacyNetwork,
+  isEcdsaNetwork,
+  toKeyNetwork
+} from '../shared/networks.js';
+import { runWalletMigrations } from '../shared/migrations.js';
 import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
 (function () {
@@ -132,24 +140,13 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
   // ── State ──────────────────────────────────────────────────────────────────
 
-  /**
-   * Networks the wallet can represent but that are not usable yet, so they are
-   * not offered when creating or importing.
-   *
-   * AuthScript PQ exists on the DePIN-Test branch and works on testnet; mainnet
-   * has not activated it. Offering it there let a user create a wallet whose
-   * addresses no mainnet node will accept — a dead end that only shows itself
-   * after the seed phrase has been written down.
-   *
-   * TO RE-ENABLE: delete the entry. That is the whole change — the options stay
-   * in welcome.html and are removed from the DOM at load, so nothing else has
-   * to be edited, and the markup keeps documenting the intended final set.
-   */
-  const UNAVAILABLE_NETWORKS: readonly string[] = ['xna-pq'];
-
-  function isNetworkAvailable(network: string): boolean {
-    return !UNAVAILABLE_NETWORKS.includes(network);
-  }
+  // Networks the wallet can represent but that are not usable yet are not
+  // offered when creating or importing: UNAVAILABLE_NETWORKS in
+  // shared/networks.ts. The witness families (ECDSA v3, PQ v2) are active on
+  // the reset testnet from block 10 but not on mainnet, where a wallet of
+  // theirs would be a dead end that only shows itself after the seed phrase
+  // has been written down. TO RE-ENABLE one: delete it there. The options stay
+  // in welcome.html and are removed from the DOM at load.
 
   /**
    * Drop the unavailable options from every network selector, and make sure
@@ -169,12 +166,41 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     }
   }
 
-  function isPQNetwork(network: string): network is NeuraiKeyPQNetwork {
-    return network === 'xna-pq' || network === 'xna-pq-test';
-  }
-
-  function isLegacyNetwork(network: string): network is NeuraiKeyNetwork {
-    return network === 'xna' || network === 'xna-test' || network === 'xna-legacy' || network === 'xna-legacy-test';
+  /**
+   * Derive account 0, address 0 of `network` from a mnemonic. The account
+   * keeps the extension's label; the library gets its neurai-key 5 label.
+   */
+  function deriveSoftwareWallet(network: string, mnemonic: string, passphrase: string | null): WalletResult {
+    if (isPQNetwork(network)) {
+      var pqAddr = NeuraiKey.getPQAddress(toKeyNetwork(network) as NeuraiKeyPQNetwork, mnemonic, 0, 0, passphrase || undefined);
+      return {
+        address: pqAddr.address,
+        publicKey: pqAddr.publicKey,
+        privateKey: null,
+        seedKey: pqAddr.seedKey,
+        mnemonic: mnemonic,
+        passphrase: passphrase,
+        network: network,
+        walletType: 'software'
+      };
+    }
+    if (isLegacyNetwork(network) || isEcdsaNetwork(network)) {
+      // Legacy P2PKH (m/44') or ECDSA witness v3 (m/84'): both secp256k1,
+      // both stored as a WIF.
+      var derived = NeuraiKey.getAddressPair(toKeyNetwork(network) as NeuraiKeyNetwork, mnemonic, 0, 0, passphrase || undefined);
+      var addressData = derived.external;
+      return {
+        address: addressData.address,
+        publicKey: addressData.publicKey,
+        privateKey: addressData.WIF,
+        seedKey: null,
+        mnemonic: mnemonic,
+        passphrase: passphrase,
+        network: network,
+        walletType: 'software'
+      };
+    }
+    throw new Error('Unsupported network: ' + network);
   }
 
   function generateMnemonicForWordCount(wordCount: '12' | '24') {
@@ -447,34 +473,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       }
       var passphrase = el.importPassphrase!.value || null;
 
-      if (isPQNetwork(network)) {
-        var pqAddr = NeuraiKey.getPQAddress(network, seedRaw, 0, 0, passphrase || undefined);
-        walletResult = {
-          address: pqAddr.address,
-          publicKey: pqAddr.publicKey,
-          privateKey: null,
-          seedKey: pqAddr.seedKey,
-          mnemonic: seedRaw,
-          passphrase: passphrase,
-          network: network,
-          walletType: 'software'
-        };
-      } else if (isLegacyNetwork(network)) {
-        var derived = NeuraiKey.getAddressPair(network, seedRaw, 0, 0, passphrase || undefined);
-        var addressData = derived.external;
-        walletResult = {
-          address: addressData.address,
-          publicKey: addressData.publicKey,
-          privateKey: addressData.WIF,
-          seedKey: null,
-          mnemonic: seedRaw,
-          passphrase: passphrase,
-          network: network,
-          walletType: 'software'
-        };
-      } else {
-        throw new Error('Unsupported network: ' + network);
-      }
+      walletResult = deriveSoftwareWallet(network, seedRaw, passphrase);
 
       await saveWallet();
       hideLoading();
@@ -504,34 +503,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
       generatedMnemonic = generateMnemonicForWordCount(el.generateWordCount!.value === '24' ? '24' : '12');
 
-      if (isPQNetwork(network)) {
-        var pqAddr = NeuraiKey.getPQAddress(network, generatedMnemonic, 0, 0, passphrase || undefined);
-        walletResult = {
-          address: pqAddr.address,
-          publicKey: pqAddr.publicKey,
-          privateKey: null,
-          seedKey: pqAddr.seedKey,
-          mnemonic: generatedMnemonic,
-          passphrase: passphrase,
-          network: network,
-          walletType: 'software'
-        };
-      } else if (isLegacyNetwork(network)) {
-        var derived = NeuraiKey.getAddressPair(network, generatedMnemonic, 0, 0, passphrase || undefined);
-        var addressData = derived.external;
-        walletResult = {
-          address: addressData.address,
-          publicKey: addressData.publicKey,
-          privateKey: addressData.WIF,
-          seedKey: null,
-          mnemonic: generatedMnemonic,
-          passphrase: passphrase,
-          network: network,
-          walletType: 'software'
-        };
-      } else {
-        throw new Error('Unsupported network: ' + network);
-      }
+      walletResult = deriveSoftwareWallet(network, generatedMnemonic, passphrase);
 
       hideLoading();
       showMnemonicBackup(generatedMnemonic, passphrase);
@@ -1078,6 +1050,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   // ── Init ───────────────────────────────────────────────────────────────────
 
   async function init() {
+    // The accounts read here are written back when a new one is added, so
+    // they must already be in the neurai-key 5 formats (shared/migrations.ts).
+    await runWalletMigrations({ accounts: C.ACCOUNTS_KEY, activeWallet: C.STORAGE_KEY })
+      .catch((error) => console.warn('[migrations] stored wallet migration failed', error));
     const result = await chrome.storage.local.get([C.ACCOUNTS_KEY, C.SETTINGS_KEY, C.UNLOCK_UNTIL_KEY]);
 
     existingAccounts = (result[C.ACCOUNTS_KEY] || null) as AccountsRecord | null;
