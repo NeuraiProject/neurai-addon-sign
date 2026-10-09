@@ -16,7 +16,8 @@ export type WalletNetwork =
   | 'xna-ecdsa-test'
   | 'xna-pq'
   | 'xna-pq-test';
-export type WalletType   = 'software' | 'hardware';
+/** `connect`: NeuraiWallet (mobile) paired over Neurai Connect; it holds the keys and signs. */
+export type WalletType   = 'software' | 'hardware' | 'connect';
 export type Theme        = 'dark' | 'light' | 'system';
 export type SighashType  = 'ALL' | 'NONE' | 'SINGLE' | 'ALL|ANYONECANPAY' | 'NONE|ANYONECANPAY' | 'SINGLE|ANYONECANPAY';
 
@@ -95,6 +96,12 @@ export interface WalletData {
   hardwareMasterFingerprint?: string | null;
   /** Only present for hardware wallets */
   hardwareDerivationPath?: string | null;
+  /** Neurai Connect accounts: topic of the session with NeuraiWallet */
+  connectSessionTopic?: string | null;
+  /** Neurai Connect accounts: CAIP-2 chain of the session */
+  connectChainId?: string | null;
+  /** Neurai Connect accounts: name the wallet app reported */
+  connectPeerName?: string | null;
   history?: HistoryEntry[];
 }
 
@@ -224,6 +231,25 @@ export interface HwSignPayload {
   derivationPath?: string | null;
 }
 
+/** Payload stored for a pending Neurai Connect message signature */
+export interface ConnectSignPayload {
+  type: 'message';
+  origin: string;
+  address: string;
+  network: WalletNetwork | string;
+  message: string;
+  sessionTopic: string;
+  chainId: string;
+  peerName: string | null;
+}
+
+export interface PendingConnectSignRequest {
+  payload: ConnectSignPayload;
+  resolve: (result: HwSignResult) => void;
+  timeout: ReturnType<typeof setTimeout>;
+  windowId: number | null;
+}
+
 /** Successful result of a hardware-wallet message signature */
 export interface HwMessageSignResult {
   success: true;
@@ -282,6 +308,8 @@ export interface HwConnectionStatusMsg    { type: 'HW_CONNECTION_STATUS' }
 export interface SignRequestDecisionMsg   { type: 'SIGN_REQUEST_DECISION';   requestId: string; approved: boolean; pin?: string }
 export interface HwSignResultMsg          { type: 'HW_SIGN_RESULT';          requestId: string; error?: string; signature?: string; address?: string; signedTxHex?: string; complete?: boolean }
 export interface HwExecuteSignRequestMsg  { type: 'HW_EXECUTE_SIGN_REQUEST'; requestId: string }
+export interface ConnectGetSignRequestMsg { type: 'CONNECT_GET_SIGN_REQUEST'; requestId: string }
+export interface ConnectSignResultMsg     { type: 'CONNECT_SIGN_RESULT';     requestId: string; error?: string; signature?: string; address?: string }
 export interface VerifyOwnershipMsg       { type: 'VERIFY_OWNERSHIP';        address: string; message: string; signature: string }
 export interface WalletUpdatedMsg         { type: 'WALLET_UPDATED' }
 export interface SettingsUpdatedMsg       { type: 'SETTINGS_UPDATED' }
@@ -300,6 +328,8 @@ export type BackgroundMessage =
   | SignRequestDecisionMsg
   | HwSignResultMsg
   | HwExecuteSignRequestMsg
+  | ConnectGetSignRequestMsg
+  | ConnectSignResultMsg
   | VerifyOwnershipMsg
   | WalletUpdatedMsg
   | SettingsUpdatedMsg
@@ -312,6 +342,7 @@ export interface ErrorResponse          { error: string }
 export interface WalletInfoResponse     { hasWallet: boolean; address: string | null; publicKey: string | null; walletType: WalletType; network: WalletNetwork }
 export interface GetSignRequestResponse { success: true; request: SignApprovalPayload; pinRequired: boolean }
 export interface HwGetSignRequestResponse { success: true; request: HwSignPayload }
+export interface ConnectGetSignRequestResponse { success: true; request: ConnectSignPayload }
 export interface GetSessionPinResponse  { success: true; pin: string }
 export interface VerifyOwnershipResponse { valid: boolean }
 export interface HwConnectionStatusResponse { success: true; connected: boolean }
@@ -324,6 +355,7 @@ export type BackgroundResponse =
   | WalletInfoResponse
   | GetSignRequestResponse
   | HwGetSignRequestResponse
+  | ConnectGetSignRequestResponse
   | GetSessionPinResponse
   | VerifyOwnershipResponse
   | HwConnectionStatusResponse

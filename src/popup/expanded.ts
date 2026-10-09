@@ -24,6 +24,7 @@ import {
 } from '../shared/networks.js';
 import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
 import { runWalletMigrations } from '../shared/migrations.js';
+import { clearConnectStorage, closeConnectClient, getConnectClient, readStoredConnectSession } from '../shared/neurai-connect.js';
 import { elem, option } from '../shared/dom.js';
 import {
   formatAmountParts,
@@ -303,6 +304,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     // loaded wallet goes through — boot, unlock, import — and the DEPIN tab
     // starts hidden waiting to learn which network we are on.
     updateDepinTabVisibility();
+    updateTransactionTabsVisibility();
+    renderConnectCard();
     touchUnlockSession(true);
     startAutoRefresh();
 
@@ -485,9 +488,11 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
   function syncPinSettingsUI() {
     if (elements.openBackupBtn) {
-      const isHardware = state.wallet?.walletType === 'hardware';
-      elements.openBackupBtn.disabled = !!isHardware;
-      elements.openBackupBtn.title = isHardware ? 'Hardware wallet secrets stay on the device' : '';
+      const walletType = state.wallet?.walletType;
+      elements.openBackupBtn.disabled = walletType === 'hardware' || walletType === 'connect';
+      elements.openBackupBtn.title = walletType === 'hardware'
+        ? 'Hardware wallet secrets stay on the device'
+        : walletType === 'connect' ? 'The keys of this account stay in NeuraiWallet' : '';
     }
   }
 
@@ -638,6 +643,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function openBackupModal() {
     if (state.wallet?.walletType === 'hardware') {
       setSettingsFeedback('Hardware wallet secrets stay on the device.', 'error');
+      return;
+    }
+    if (state.wallet?.walletType === 'connect') {
+      setSettingsFeedback('The keys of this account stay in NeuraiWallet.', 'error');
       return;
     }
     if (!elements.backupModal) return;
@@ -1123,8 +1132,54 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /** The tab only exists where the node supports DEPIN. */
+  /** NeuraiWallet over Neurai Connect: it signs messages, not transactions (yet). */
+  function isConnectAccount(): boolean {
+    return (state.wallet as Record<string, unknown> | null)?.walletType === 'connect';
+  }
+
+  /**
+   * Send and Assets build transactions the account would have to sign. A
+   * Neurai Connect account cannot, so the tabs are hidden rather than offered
+   * and failing at the signing step.
+   */
+  function updateTransactionTabsVisibility(): void {
+    const hide = isConnectAccount();
+    const tabs = elements.portfolioViewTabs;
+    let activeHidden = false;
+    tabs?.querySelectorAll('.portfolio-view-tab').forEach((btn) => {
+      const view = (btn as HTMLElement).dataset.view;
+      if (view !== 'send' && view !== 'assets') return;
+      btn.classList.toggle('hidden', hide);
+      if (hide && btn.classList.contains('active')) activeHidden = true;
+    });
+    if (activeHidden) switchPortfolioView('balance');
+  }
+
+  /** The NeuraiWallet card: wallet name and when the session ends. */
+  function renderConnectCard(): void {
+    const card = elements.connectCard;
+    if (!card) return;
+    const wallet = state.wallet as Record<string, unknown> | null;
+    if (!isConnectAccount() || !wallet) {
+      card.classList.add('hidden');
+      return;
+    }
+    card.classList.remove('hidden');
+    elements.connectPeerValue!.textContent = (wallet.connectPeerName as string) || 'NeuraiWallet';
+    elements.connectSessionValue!.textContent = 'Session: checking…';
+    readStoredConnectSession(C.CONNECT_STORAGE_PREFIX, String(wallet.connectSessionTopic || ''))
+      .then((session) => {
+        if (!isConnectAccount()) return;
+        const expiresAt = session ? session.expiry * 1000 : 0;
+        elements.connectSessionValue!.textContent = expiresAt > Date.now()
+          ? 'Session active until ' + new Date(expiresAt).toLocaleString()
+          : 'Session ended: the next signature request shows a QR code to reconnect';
+      })
+      .catch(() => { elements.connectSessionValue!.textContent = 'Session: unknown'; });
+  }
+
   function updateDepinTabVisibility(): void {
-    const available = supportsDepin(depinNetwork());
+    const available = supportsDepin(depinNetwork()) && !isConnectAccount();
     elements.depinViewTab?.classList.toggle('hidden', !available);
     if (!available && elements.depinViewTab?.classList.contains('active')) {
       switchPortfolioView('balance');
@@ -1770,7 +1825,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       entry.seedKeyEnc ||
       entry.mnemonic ||
       entry.mnemonicEnc ||
-      (entry.walletType === 'hardware' && entry.address && entry.publicKey)
+      (entry.walletType === 'hardware' && entry.address && entry.publicKey) ||
+      (entry.walletType === 'connect' && entry.address && entry.connectSessionTopic)
     ));
   }
 
@@ -2084,7 +2140,24 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
   }
 
+  /**
+   * End every Neurai Connect session on the relay (best effort, bounded) and
+   * drop their records, so NeuraiWallet does not keep listing them.
+   */
+  async function forgetConnectSessions() {
+    try {
+      const disconnectAll = (async () => {
+        const client = await getConnectClient(C.RELAY_URL, C.CONNECT_STORAGE_PREFIX);
+        await Promise.all(client.sessions().map((session) => client.disconnect(session.topic).catch(() => { })));
+      })();
+      await Promise.race([disconnectAll, new Promise((resolve) => setTimeout(resolve, 3000))]);
+    } catch (_) { /* the records are dropped anyway */ }
+    await closeConnectClient();
+    await clearConnectStorage(C.CONNECT_STORAGE_PREFIX);
+  }
+
   async function resetAddonData() {
+    await forgetConnectSessions();
     state.accounts = createDefaultAccounts();
     state.activeAccountId = '1';
     state.wallet = null;
@@ -2233,6 +2306,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         hardwareFirmwareVersion: entry!.hardwareFirmwareVersion || null,
         hardwareDerivationPath: entry!.hardwareDerivationPath || null,
         hardwareMasterFingerprint: entry!.hardwareMasterFingerprint || null,
+        connectSessionTopic: entry!.connectSessionTopic || null,
+        connectChainId: entry!.connectChainId || null,
+        connectPeerName: entry!.connectPeerName || null,
         network: entry!.network || 'xna',
         history: Array.isArray(entry!.history) ? entry!.history : []
       };
@@ -4628,6 +4704,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
   async function signRawTx(rawTx: string, rpcUrl: string): Promise<string> {
     const wallet = state.wallet as Record<string, unknown>;
+    if (wallet.walletType === 'connect') {
+      throw new Error('This account is held by NeuraiWallet, which cannot sign transactions over Neurai Connect yet.');
+    }
     if (wallet.walletType === 'hardware') {
       if (!hwDevice || !hwDevice.connected) {
         throw new Error('Hardware wallet not connected. Reconnect it from the wallet view.');

@@ -13,7 +13,8 @@
 // packaged bytes are the product, so a stale bundle must stop the build, not
 // produce a warning nobody reads.
 //
-// NeuraiReader.js is the one exception: it is maintained locally, not copied.
+// NeuraiConnect.js is built here with esbuild (see neurai-connect-bundle.js);
+// NeuraiReader.js is maintained locally, not copied.
 
 const fs = require('fs');
 const path = require('path');
@@ -60,6 +61,15 @@ async function main() {
     const size = (fs.statSync(destination).size / 1024).toFixed(1);
     console.log(`  ${fileName} (${size} KB) <- @neuraiproject/${pkgName}@${packageVersion(pkgName)}`);
   }
+
+  // Neurai Connect ships no global bundle: build one from the installed packages.
+  const connect = require('./neurai-connect-bundle.js');
+  const connectBytes = await connect.buildNeuraiConnectBundle();
+  fs.writeFileSync(path.join(DEST, connect.FILE_NAME), connectBytes);
+  console.log(
+    `  ${connect.FILE_NAME} (${(connectBytes.length / 1024).toFixed(1)} KB) <- built from ` +
+    connect.PACKAGES.map((name) => `${name}@${connect.installedVersion(name)}`).join(', ')
+  );
 
   // Maintained locally (pure fetch, no npm bundle), but still mandatory.
   const readerPath = path.join(DEST, 'NeuraiReader.js');

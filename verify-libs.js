@@ -79,10 +79,40 @@ for (const [fileName, pkgName, globalFile] of BUNDLES) {
   console.log(`  ${fileName} == @neuraiproject/${pkgName}@${version}`);
 }
 
-if (problems.length > 0) {
-  console.error('\nsrc/lib/ is not in sync with the declared dependencies:\n');
-  for (const problem of problems) console.error(`  - ${problem}`);
-  process.exit(1);
+async function verifyConnectBundle() {
+  const connect = require('./neurai-connect-bundle.js');
+  const shipped = path.join(DEST, connect.FILE_NAME);
+  const declared = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).dependencies;
+  for (const name of connect.PACKAGES) {
+    if (!declared[name]) problems.push(`${name}: not declared in package.json dependencies`);
+    if (!fs.existsSync(path.join(ROOT, 'node_modules', name, 'package.json'))) {
+      problems.push(`${connect.FILE_NAME}: ${name} is not installed`);
+      return;
+    }
+  }
+  if (!fs.existsSync(shipped)) { problems.push(`${connect.FILE_NAME}: missing from src/lib/`); return; }
+  const rebuilt = await connect.buildNeuraiConnectBundle();
+  if (!fs.readFileSync(shipped).equals(rebuilt)) {
+    problems.push(`${connect.FILE_NAME}: shipped bundle differs from a rebuild of the installed packages. Run "npm run sync-libs".`);
+    return;
+  }
+  console.log(`  ${connect.FILE_NAME} == built from ` +
+    connect.PACKAGES.map((name) => `${name}@${connect.installedVersion(name)}`).join(', '));
 }
 
-console.log('\nAll shipped bundles match their installed packages.');
+async function finish() {
+  await verifyConnectBundle();
+
+  if (problems.length > 0) {
+    console.error('\nsrc/lib/ is not in sync with the declared dependencies:\n');
+    for (const problem of problems) console.error(`  - ${problem}`);
+    process.exit(1);
+  }
+
+  console.log('\nAll shipped bundles match their installed packages.');
+}
+
+finish().catch((err) => {
+  console.error('verify-libs failed:', err);
+  process.exit(1);
+});

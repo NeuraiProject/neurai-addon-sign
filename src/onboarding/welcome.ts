@@ -11,6 +11,18 @@ import {
   toKeyNetwork
 } from '../shared/networks.js';
 import { runWalletMigrations } from '../shared/migrations.js';
+import {
+  CONNECT_METHODS,
+  connectChainFor,
+  closeConnectClient,
+  describeConnectError,
+  getConnectClient,
+  networkForConnectAddress,
+  sessionAddresses,
+  type ConnectAddressEntry
+} from '../shared/neurai-connect.js';
+import { renderQr } from '../shared/qr.js';
+import { networkLabel } from '../shared/networks.js';
 import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
 (function () {
@@ -40,6 +52,8 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     step4Hardware: document.getElementById('step4Hardware'),
     step4HardwareDetected: document.getElementById('step4HardwareDetected'),
     step4HardwareInfo: document.getElementById('step4HardwareInfo'),
+    step4Connect: document.getElementById('step4Connect'),
+    step4ConnectReview: document.getElementById('step4ConnectReview'),
     step4Backup: document.getElementById('step4Backup'),
     step5: document.getElementById('step5'),
     // Step 1
@@ -58,6 +72,23 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     methodImport: document.getElementById('methodImport'),
     methodGenerate: document.getElementById('methodGenerate'),
     methodHardware: document.getElementById('methodHardware'),
+    methodConnect: document.getElementById('methodConnect'),
+    // Step 4d - Neurai Connect
+    connectNetwork: document.getElementById('connectNetwork') as HTMLSelectElement | null,
+    connectQrBox: document.getElementById('connectQrBox'),
+    connectQrCanvas: document.getElementById('connectQrCanvas') as HTMLCanvasElement | null,
+    connectStatus: document.getElementById('connectStatus'),
+    connectCopyBtn: document.getElementById('connectCopyBtn'),
+    connectError: document.getElementById('connectError'),
+    connectBackBtn: document.getElementById('connectBackBtn'),
+    connectStartBtn: document.getElementById('connectStartBtn') as HTMLButtonElement | null,
+    connectInfoWallet: document.getElementById('connectInfoWallet'),
+    connectInfoNetwork: document.getElementById('connectInfoNetwork'),
+    connectInfoExpiry: document.getElementById('connectInfoExpiry'),
+    connectAddress: document.getElementById('connectAddress') as HTMLSelectElement | null,
+    connectReviewError: document.getElementById('connectReviewError'),
+    connectReviewBackBtn: document.getElementById('connectReviewBackBtn'),
+    connectAddBtn: document.getElementById('connectAddBtn') as HTMLButtonElement | null,
     // Step 4a - Import
     importNetwork: document.getElementById('importNetwork') as HTMLSelectElement | null,
     importSeed: document.getElementById('importSeed') as HTMLTextAreaElement | null,
@@ -217,12 +248,15 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     mnemonic: string | null;
     passphrase: string | null;
     network: string;
-    walletType: 'software' | 'hardware';
+    walletType: 'software' | 'hardware' | 'connect';
     hardwareDeviceName?: string | null;
     hardwareDeviceNetwork?: string | null;
     hardwareFirmwareVersion?: string | null;
     hardwareDerivationPath?: string | null;
     hardwareMasterFingerprint?: string | null;
+    connectSessionTopic?: string | null;
+    connectChainId?: string | null;
+    connectPeerName?: string | null;
   }
 
   var currentStep = 1;
@@ -230,7 +264,12 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
   var existingPinHash = '';
   var existingAccounts: AccountsRecord | null = null;
   var existingSettings: WalletSettings | null = null;
-  var method = ''; // 'import' | 'generate' | 'hardware'
+  var method = ''; // 'import' | 'generate' | 'hardware' | 'connect'
+  // Neurai Connect: the pairing in progress (aborted on Back) and the settled
+  // session waiting for the user to pick an address.
+  var connectAbort: AbortController | null = null;
+  var connectUri = '';
+  var connectPending: { session: NeuraiConnectSession; chainId: string; addresses: ConnectAddressEntry[] } | null = null;
   var generatedMnemonic = '';
   var walletResult: WalletResult | null = null;
   var canReuseSessionPin = false;
@@ -298,6 +337,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     el.step1, el.step2, el.step3,
     el.step4Import, el.step4Generate, el.step4Hardware,
     el.step4HardwareDetected, el.step4HardwareInfo,
+    el.step4Connect, el.step4ConnectReview,
     el.step4HwSetup, el.step4HwCreate, el.step4HwRecover, el.step4HwProvision,
     el.step4Backup,
     el.step5
@@ -314,7 +354,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
         if (method === 'import') return el.step4Import;
         if (method === 'generate') return el.step4Generate;
         if (method === 'hardware') return el.step4Hardware;
+        if (method === 'connect') return el.step4Connect;
         return el.step4Import;
+      case 46: return el.step4ConnectReview;
       case 6: return el.step4HardwareDetected;
       case 7: return el.step4HardwareInfo;
       case 41: return el.step4HwSetup;
@@ -362,8 +404,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       };
       displayStep = hwMap[stepNum] || stepNum;
     } else {
-      // Visual progress: 1=welcome, 2=PIN(or skip), 3=method, 4=form, 5=success
-      displayStep = stepNum === 45 ? 4 : stepNum;
+      // Visual progress: 1=welcome, 2=PIN(or skip), 3=method, 4=form, 5=success.
+      // The backup screen (45) and the Neurai Connect review (46) are part of 4.
+      displayStep = stepNum === 45 || stepNum === 46 ? 4 : stepNum;
     }
 
     var dots = el.progressBar!.querySelectorAll('.progress-dot');
@@ -861,6 +904,150 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     }
   }
 
+  // ── Neurai Connect (NeuraiWallet on the phone) ───────────────────────────────
+
+  function resetConnectUi() {
+    if (connectAbort) connectAbort.abort();
+    if (!connectPending) void closeConnectClient();
+    connectAbort = null;
+    connectUri = '';
+    connectPending = null;
+    el.connectQrBox!.classList.add('hidden');
+    el.connectError!.textContent = '';
+    el.connectReviewError!.textContent = '';
+    el.connectStartBtn!.disabled = false;
+    el.connectStartBtn!.textContent = 'Show QR code';
+    el.connectNetwork!.disabled = false;
+  }
+
+  /** Forget a session the user approved but decided not to add. */
+  function dropPendingConnectSession() {
+    var pending = connectPending;
+    connectPending = null;
+    if (!pending) return;
+    getConnectClient(C.RELAY_URL, C.CONNECT_STORAGE_PREFIX)
+      .then(function (client) { return client.disconnect(pending!.session.topic); })
+      .catch(function () { })
+      .then(function () { return closeConnectClient(); });
+  }
+
+  // Phase 1: show the pairing QR code and wait for NeuraiWallet to approve
+  // the session. The wallet decides which addresses it shares.
+  async function handleConnectStart() {
+    if (connectAbort) connectAbort.abort();
+    var abort = new AbortController();
+    connectAbort = abort;
+    connectPending = null;
+    el.connectError!.textContent = '';
+    el.connectStartBtn!.disabled = true;
+    el.connectNetwork!.disabled = true;
+    el.connectStatus!.textContent = 'Contacting the Neurai Connect relay…';
+
+    var chain: 'mainnet' | 'testnet' = el.connectNetwork!.value === 'testnet' ? 'testnet' : 'mainnet';
+    var chainId = connectChainFor(chain);
+
+    try {
+      var client = await getConnectClient(C.RELAY_URL, C.CONNECT_STORAGE_PREFIX);
+      var started = await client.connect({ chains: [chainId], methods: [...CONNECT_METHODS], signal: abort.signal });
+      if (abort.signal.aborted) return;
+      connectUri = started.uri;
+      el.connectQrBox!.classList.remove('hidden');
+      await renderQr(el.connectQrCanvas!, started.uri, 240, '../icons/icon128.png');
+      el.connectStatus!.textContent = 'Scan this code with NeuraiWallet and approve the connection on your phone.';
+      el.connectStartBtn!.textContent = 'Show a new QR code';
+      el.connectStartBtn!.disabled = false;
+
+      var session = await started.approval;
+      if (abort.signal.aborted) return;
+      var addresses = sessionAddresses(session, chainId);
+      if (addresses.length === 0) {
+        client.disconnect(session.topic).catch(function () { });
+        throw new Error('NeuraiWallet did not share any ' + chain + ' address that Neurai Sign can use.');
+      }
+      connectPending = { session: session, chainId: chainId, addresses: addresses };
+      showConnectReview();
+    } catch (err) {
+      if (abort.signal.aborted) return;
+      el.connectError!.textContent = describeConnectError(err);
+      el.connectQrBox!.classList.add('hidden');
+      el.connectStartBtn!.textContent = 'Show QR code';
+    } finally {
+      if (connectAbort === abort) {
+        el.connectStartBtn!.disabled = false;
+        el.connectNetwork!.disabled = false;
+      }
+    }
+  }
+
+  function showConnectReview() {
+    var pending = connectPending!;
+    el.connectInfoWallet!.textContent = pending.session.peerMetadata?.name || 'NeuraiWallet';
+    el.connectInfoExpiry!.textContent = new Date(pending.session.expiry * 1000).toLocaleString();
+    el.connectAddress!.replaceChildren();
+    pending.addresses.forEach(function (entry) {
+      var option = document.createElement('option');
+      option.value = entry.address;
+      option.textContent = entry.address;
+      el.connectAddress!.appendChild(option);
+    });
+    updateConnectReviewNetwork();
+    el.connectReviewError!.textContent = '';
+    goToStep(46);
+  }
+
+  function updateConnectReviewNetwork() {
+    if (!connectPending) return;
+    var network = networkForConnectAddress(el.connectAddress!.value, connectPending.chainId);
+    el.connectInfoNetwork!.textContent = network ? networkLabel(network) : '--';
+  }
+
+  // Phase 2: the user picked the address; store the account. No key is
+  // stored: NeuraiWallet signs every request.
+  async function handleConnectAdd() {
+    var pending = connectPending;
+    if (!pending) {
+      el.connectReviewError!.textContent = 'The session is gone. Go back and scan the QR code again.';
+      return;
+    }
+    var entry = pending.addresses.find(function (a) { return a.address === el.connectAddress!.value; });
+    var network = entry ? networkForConnectAddress(entry.address, pending.chainId) : null;
+    if (!entry || !network) {
+      el.connectReviewError!.textContent = 'Choose one of the addresses NeuraiWallet shared.';
+      return;
+    }
+
+    walletResult = {
+      address: entry.address,
+      publicKey: entry.publicKey || '',
+      privateKey: null,
+      seedKey: null,
+      mnemonic: null,
+      passphrase: null,
+      network: network,
+      walletType: 'connect',
+      connectSessionTopic: pending.session.topic,
+      connectChainId: pending.chainId,
+      connectPeerName: pending.session.peerMetadata?.name || null
+    };
+
+    showLoading('Saving wallet...');
+    try {
+      await saveWallet();
+      connectPending = null;
+      connectAbort = null;
+      // Signing happens in its own window: this page must stop listening on
+      // the session, or its client answers that window's requests (see
+      // getConnectClient).
+      await closeConnectClient();
+      hideLoading();
+      goToStep(5);
+      el.successAddress!.textContent = walletResult.address;
+    } catch (err) {
+      hideLoading();
+      el.connectReviewError!.textContent = 'Save failed: ' + (err as Error).message;
+    }
+  }
+
   // ── Save wallet to chrome.storage ──────────────────────────────────────────
 
   async function saveWallet() {
@@ -902,6 +1089,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       hardwareFirmwareVersion: walletResult!.hardwareFirmwareVersion || null,
       hardwareDerivationPath: walletResult!.hardwareDerivationPath || null,
       hardwareMasterFingerprint: walletResult!.hardwareMasterFingerprint || null,
+      connectSessionTopic: walletResult!.connectSessionTopic || null,
+      connectChainId: walletResult!.connectChainId || null,
+      connectPeerName: walletResult!.connectPeerName || null,
       network: walletResult!.network,
       history: []
     };
@@ -969,6 +1159,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     el.methodImport!.addEventListener('click', function () { method = 'import'; goToStep(4); });
     el.methodGenerate!.addEventListener('click', function () { method = 'generate'; goToStep(4); });
     el.methodHardware!.addEventListener('click', function () { method = 'hardware'; resetHardwareUi(); goToStep(4); });
+    el.methodConnect!.addEventListener('click', function () { method = 'connect'; resetConnectUi(); goToStep(4); });
 
     // Step 4a
     el.importBackBtn!.addEventListener('click', function () { goToStep(3); });
@@ -1016,6 +1207,21 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
     // Step 5
     el.finishBtn!.addEventListener('click', handleFinish);
+
+    // Step 4d — Neurai Connect (4 pair → 46 review)
+    el.connectBackBtn!.addEventListener('click', function () { resetConnectUi(); goToStep(3); });
+    el.connectStartBtn!.addEventListener('click', function () { void handleConnectStart(); });
+    el.connectCopyBtn!.addEventListener('click', function () {
+      if (!connectUri) return;
+      navigator.clipboard.writeText(connectUri)
+        .then(function () { showToast('Pairing link copied', 'success'); })
+        .catch(function () { showToast('Could not copy the link', 'error'); });
+    });
+    el.connectAddress!.addEventListener('change', updateConnectReviewNetwork);
+    // Back from the review drops the approved session: a new QR code makes another.
+    el.connectReviewBackBtn!.addEventListener('click', function () { dropPendingConnectSession(); resetConnectUi(); goToStep(4); });
+    el.connectAddBtn!.addEventListener('click', function () { void handleConnectAdd(); });
+    window.addEventListener('pagehide', function () { void closeConnectClient(); });
   }
 
   // ── Adapt UI for new-account mode ──────────────────────────────────────────
@@ -1026,7 +1232,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     // Step 1 — change welcome to "add account"
     el.welcomeTitle!.textContent = 'Add New Account';
     el.welcomeSubtitle!.textContent =
-      'Set up ' + label + '. Import an existing wallet, generate a new one, or connect a hardware device.';
+      'Set up ' + label + '. Import an existing wallet, generate a new one, or connect a hardware device or NeuraiWallet.';
     if (el.welcomeFeatures) el.welcomeFeatures.classList.add('hidden');
     el.getStartedBtn!.textContent = 'Continue';
 
@@ -1083,7 +1289,8 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
             (entry.privateKeyEnc && typeof entry.privateKeyEnc === 'string' && (entry.privateKeyEnc as unknown as string).length > 10) ||
             (entry.seedKeyEnc && typeof entry.seedKeyEnc === 'string' && (entry.seedKeyEnc as unknown as string).length > 10) ||
             (entry.mnemonicEnc && typeof entry.mnemonicEnc === 'string' && (entry.mnemonicEnc as unknown as string).length > 10) ||
-            (entry.walletType === 'hardware' && entry.address && entry.publicKey)
+            (entry.walletType === 'hardware' && entry.address && entry.publicKey) ||
+            (entry.walletType === 'connect' && entry.address && entry.connectSessionTopic)
           );
         });
         if (hasWallet) {

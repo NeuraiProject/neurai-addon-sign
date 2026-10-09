@@ -151,6 +151,9 @@ export const elements = {
   unlockResetConfirmBtn: document.getElementById('unlockResetConfirmBtn')!,
 
   hardwareCard: document.getElementById('hardwareCard'),
+  connectCard: document.getElementById('connectCard'),
+  connectPeerValue: document.getElementById('connectPeerValue'),
+  connectSessionValue: document.getElementById('connectSessionValue'),
   hwStatusDot: document.getElementById('hwStatusDot'),
   hwStatusText: document.getElementById('hwStatusText'),
   hwReconnectBtn: document.getElementById('hwReconnectBtn') as HTMLButtonElement | null,

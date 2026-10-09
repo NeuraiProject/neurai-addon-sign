@@ -41,6 +41,9 @@ import type {
   Utxo,
   SignRequestDecisionMsg,
   HwSignResultMsg,
+  ConnectSignPayload,
+  ConnectSignResultMsg,
+  PendingConnectSignRequest,
 } from '../types/index.js';
 
 // Local type for the Buffer polyfill marker that bitcoinjs-message's bundle expects.
@@ -54,6 +57,7 @@ let walletSettings: WalletSettings = { ...NEURAI_CONSTANTS.DEFAULT_SETTINGS };
 let sessionPinCache: string = '';
 const pendingSignRequests = new Map<string, PendingSignRequest>();
 const pendingHwSignRequests = new Map<string, PendingHwSignRequest>();
+const pendingConnectSignRequests = new Map<string, PendingConnectSignRequest>();
 const keepAlivePorts = new Set<chrome.runtime.Port>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -85,6 +89,11 @@ function getRpcUrl(network: WalletNetwork | string = 'xna'): string {
 
 function isHardwareWallet(wallet: WalletData | null): wallet is WalletData & { walletType: 'hardware' } {
   return wallet?.walletType === 'hardware';
+}
+
+/** NeuraiWallet (mobile) paired over Neurai Connect: it holds the key and signs. */
+function isConnectWallet(wallet: WalletData | null): wallet is WalletData & { walletType: 'connect' } {
+  return wallet?.walletType === 'connect';
 }
 
 function getAuthScriptPQApprovalAddress(wallet: WalletData, network: WalletNetwork | string): string {
@@ -263,7 +272,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 });
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'hw-sign-keepalive') return;
+  if (port.name !== 'hw-sign-keepalive' && port.name !== 'connect-sign-keepalive') return;
   keepAlivePorts.add(port);
   port.onDisconnect.addListener(() => {
     keepAlivePorts.delete(port);
@@ -333,6 +342,15 @@ async function handleMessage(
     case MSG.HW_EXECUTE_SIGN_REQUEST:
       return executePendingHwSignRequest(message.requestId);
 
+    case MSG.CONNECT_GET_SIGN_REQUEST: {
+      const pending = pendingConnectSignRequests.get(message.requestId);
+      if (!pending) return { error: 'Neurai Connect sign request not found or expired' };
+      return { success: true, request: pending.payload };
+    }
+
+    case MSG.CONNECT_SIGN_RESULT:
+      return resolveConnectSignResult(message);
+
     case MSG.VERIFY_OWNERSHIP:
       return verifyOwnership(message.address, message.message, message.signature);
 
@@ -358,6 +376,22 @@ async function signMessageForPage(
 ): Promise<BackgroundResponse> {
   await loadWalletData();
   await loadWalletSettings();
+
+  if (isConnectWallet(walletData)) {
+    if (!walletData.connectSessionTopic || !walletData.connectChainId) {
+      return { error: 'This Neurai Connect account has no session. Add it again from the onboarding.' };
+    }
+    return requestConnectSignature({
+      type: 'message',
+      origin: sender?.url ? new URL(sender.url).origin : 'Unknown site',
+      address: walletData.address,
+      network: walletData.network || 'xna',
+      message: messageText,
+      sessionTopic: walletData.connectSessionTopic,
+      chainId: walletData.connectChainId,
+      peerName: walletData.connectPeerName || null
+    });
+  }
 
   if (isHardwareWallet(walletData)) {
     return requestHardwareSignature({
@@ -526,6 +560,12 @@ async function signRawTxForPage(
 ): Promise<BackgroundResponse> {
   await loadWalletData();
   await loadWalletSettings();
+
+  if (isConnectWallet(walletData)) {
+    // NeuraiWallet answers signPsbt with 4200 today; asking would only make
+    // the phone show an error after the user unlocked it.
+    return { error: 'Neurai Connect accounts cannot sign transactions yet: NeuraiWallet does not support it over Neurai Connect.' };
+  }
 
   const network = walletData?.network || 'xna';
   // `legacy` covers every secp256k1 wallet, ECDSA witness v3 included: the
@@ -1154,6 +1194,82 @@ function finalizeHwSignRequest(requestId: string, result: HwSignResult): void {
   pending.resolve(result);
 }
 
+// ── Neurai Connect signing ────────────────────────────────────────────────────
+
+/**
+ * Ask NeuraiWallet to sign through a window that shows the request and talks
+ * to the relay: the service worker cannot hold the relay socket for the minutes
+ * an approval on the phone can take. Resolves with the signature or an error.
+ */
+function requestConnectSignature(payload: ConnectSignPayload): Promise<HwSignResult> {
+  // One at a time: two signing windows would each run a relay client on the
+  // same session, and each answers the other's request with 4200.
+  if (pendingConnectSignRequests.size > 0) {
+    return Promise.resolve({ error: 'Another NeuraiWallet signature request is pending. Finish or cancel it first.' });
+  }
+  const requestId = 'nc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const url = chrome.runtime.getURL('popup/connect-sign.html') + '?requestId=' + encodeURIComponent(requestId);
+
+  return new Promise<HwSignResult>((resolve) => {
+    // Matches the dApp-side timeout of signMessage in inject.js.
+    const timeout = setTimeout(() => {
+      finalizeConnectSignRequest(requestId, { error: 'Neurai Connect signing request timed out' });
+    }, 180000);
+    pendingConnectSignRequests.set(requestId, { payload, resolve, timeout, windowId: null });
+
+    chrome.windows.create({ url, type: 'popup', width: 460, height: 720 }, (win) => {
+      const pending = pendingConnectSignRequests.get(requestId);
+      if (pending) pending.windowId = win?.id || null;
+    });
+  });
+}
+
+async function resolveConnectSignResult(message: ConnectSignResultMsg): Promise<BackgroundResponse> {
+  const pending = pendingConnectSignRequests.get(message.requestId);
+  if (!pending) return { error: 'Neurai Connect sign request not found or expired' };
+  const { payload } = pending;
+
+  if (message.error || !message.signature) {
+    finalizeConnectSignRequest(message.requestId, { error: message.error || 'NeuraiWallet returned no signature' });
+    return { success: true };
+  }
+
+  // Never hand a site a signature that does not verify for the account.
+  const address = message.address || payload.address;
+  let valid = false;
+  try {
+    valid = address === payload.address && !!NeuraiMessage.verifyMessage(payload.message, address, message.signature);
+  } catch (_) {
+    valid = false;
+  }
+  if (!valid) {
+    finalizeConnectSignRequest(message.requestId, {
+      error: `NeuraiWallet returned a signature that does not verify for ${payload.address}`
+    });
+    return { success: true };
+  }
+
+  const success: HwMessageSignResult = { success: true, signature: message.signature, address };
+  finalizeConnectSignRequest(message.requestId, success);
+  saveHwSignHistory(success, {
+    type: 'message',
+    origin: payload.origin,
+    address: payload.address,
+    network: payload.network,
+    message: payload.message
+  }).catch((err) => console.error('Failed to save Neurai Connect sign history:', err));
+  return { success: true };
+}
+
+function finalizeConnectSignRequest(requestId: string, result: HwSignResult): void {
+  const pending = pendingConnectSignRequests.get(requestId);
+  if (!pending) return;
+  clearTimeout(pending.timeout);
+  pendingConnectSignRequests.delete(requestId);
+  if (pending.windowId) chrome.windows.remove(pending.windowId).catch(() => { });
+  pending.resolve(result);
+}
+
 // ── Verification ──────────────────────────────────────────────────────────────
 
 async function verifyOwnership(address: string, message: string, signature: string): Promise<BackgroundResponse> {
@@ -1211,6 +1327,12 @@ chrome.windows.onRemoved.addListener((windowId) => {
     if (pending.windowId === windowId) {
       if (pending.settling) continue;
       finalizeHwSignRequest(requestId, { error: 'User closed hardware signing window' });
+      break;
+    }
+  }
+  for (const [requestId, pending] of pendingConnectSignRequests.entries()) {
+    if (pending.windowId === windowId) {
+      finalizeConnectSignRequest(requestId, { error: 'User closed the Neurai Connect signing window' });
       break;
     }
   }

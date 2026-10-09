@@ -11,6 +11,7 @@ import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
 import { isTestnetNetwork, isPQNetwork, networkLabel, expectedGenesis } from '../shared/networks.js';
 import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
 import { runWalletMigrations } from '../shared/migrations.js';
+import { clearConnectStorage } from '../shared/neurai-connect.js';
 import { elem, option } from '../shared/dom.js';
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
@@ -476,6 +477,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     state.settings = { ...C.DEFAULT_SETTINGS, pinHash: '' };
     state.unlockUntil = 0;
     await persistSessionPin('');
+    // Neurai Connect sessions go with the accounts. The popup does not load the
+    // relay client, so NeuraiWallet lists them until they expire or are revoked there.
+    await clearConnectStorage(C.CONNECT_STORAGE_PREFIX);
 
     clearActiveWalletData();
     await saveAccountsData();
@@ -549,10 +553,12 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     elements.walletSection.classList.remove('hidden');
     elements.addressDisplay.textContent = state.address;
     elements.addressDisplay.title = state.address || '';
-    elements.openBackupBtn!.disabled = state.walletType === 'hardware';
+    elements.openBackupBtn!.disabled = state.walletType === 'hardware' || state.walletType === 'connect';
     elements.openBackupBtn!.title = state.walletType === 'hardware'
       ? 'Hardware wallet secrets stay on the device'
-      : 'Back up wallet secrets';
+      : state.walletType === 'connect'
+        ? 'The keys of this account stay in NeuraiWallet'
+        : 'Back up wallet secrets';
     updateAccountLabels();
 
     const isTestnet = isTestnetNetwork(state.network);
@@ -881,6 +887,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
         hardwareFirmwareVersion: entry!.hardwareFirmwareVersion || null,
         hardwareDerivationPath: entry!.hardwareDerivationPath || null,
         hardwareMasterFingerprint: entry!.hardwareMasterFingerprint || null,
+        connectSessionTopic: entry!.connectSessionTopic || null,
+        connectChainId: entry!.connectChainId || null,
+        connectPeerName: entry!.connectPeerName || null,
         network: entry!.network || 'xna',
         history: Array.isArray(entry!.history) ? entry!.history : []
       };
@@ -1064,6 +1073,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
           hardwareFirmwareVersion: e.hardwareFirmwareVersion || null,
           hardwareDerivationPath: e.hardwareDerivationPath || null,
           hardwareMasterFingerprint: e.hardwareMasterFingerprint || null,
+          connectSessionTopic: e.connectSessionTopic || null,
+          connectChainId: e.connectChainId || null,
+          connectPeerName: e.connectPeerName || null,
           network: e.network || 'xna',
           history: Array.isArray(e.history) ? e.history : []
         };
@@ -1094,7 +1106,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       entry.seedKeyEnc ||
       entry.mnemonic ||
       entry.mnemonicEnc ||
-      (entry.walletType === 'hardware' && entry.address && entry.publicKey)
+      (entry.walletType === 'hardware' && entry.address && entry.publicKey) ||
+      (entry.walletType === 'connect' && entry.address && entry.connectSessionTopic)
     ));
   }
   function isStoredAccountConfigured(entry: Record<string, unknown>) {
@@ -1105,7 +1118,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       NEURAI_UTILS.isEncryptedSecret(entry.seedKeyEnc) ||
       entry.mnemonic ||
       NEURAI_UTILS.isEncryptedSecret(entry.mnemonicEnc) ||
-      (entry.walletType === 'hardware' && entry.address && entry.publicKey)
+      (entry.walletType === 'hardware' && entry.address && entry.publicKey) ||
+      (entry.walletType === 'connect' && entry.address && entry.connectSessionTopic)
     ));
   }
   function hasActiveWallet() { return isConfiguredAccount(getActiveWalletData()); }
@@ -1138,6 +1152,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       hardwareFirmwareVersion: walletData.hardwareFirmwareVersion as string || previous.hardwareFirmwareVersion || null,
       hardwareDerivationPath: walletData.hardwareDerivationPath as string || previous.hardwareDerivationPath || null,
       hardwareMasterFingerprint: walletData.hardwareMasterFingerprint as string || previous.hardwareMasterFingerprint || null,
+      connectSessionTopic: walletData.connectSessionTopic as string || previous.connectSessionTopic || null,
+      connectChainId: walletData.connectChainId as string || previous.connectChainId || null,
+      connectPeerName: walletData.connectPeerName as string || previous.connectPeerName || null,
       network: state.network,
       history: Array.isArray(walletData.history) ? walletData.history : (Array.isArray(previous.history) ? previous.history : [])
     };
@@ -1494,6 +1511,10 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   function openBackupModal() {
     if (state.walletType === 'hardware') {
       showToast('Hardware wallet secrets stay on the device', 'error');
+      return;
+    }
+    if (state.walletType === 'connect') {
+      showToast('The keys of this account stay in NeuraiWallet', 'error');
       return;
     }
     elements.backupModal.classList.remove('hidden');

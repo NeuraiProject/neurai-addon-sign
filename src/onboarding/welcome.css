@@ -359,6 +359,44 @@ body::before {
   color: var(--warning);
 }
 
+.method-icon.connect-icon {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.08));
+  color: #818cf8;
+}
+
+/* === Neurai Connect pairing === */
+.connect-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+/* The code stays dark-on-white in both themes: inverted codes do not scan. */
+.connect-qr canvas {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+
+.connect-status {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.connect-copy {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.connect-address {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .method-info h3 {
   font-size: 15px;
   font-weight: 600;

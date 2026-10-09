@@ -175,6 +175,18 @@
                 </div>
                 <button class="btn btn-secondary btn-small hidden" id="hwReconnectBtn" type="button">Reconnect</button>
               </section>
+
+              <!-- A Neurai Connect account: NeuraiWallet (mobile) holds the keys. -->
+              <section class="card hardware-card connect-card hidden" id="connectCard">
+                <div class="section-intro">
+                  <p class="eyebrow">Neurai Connect</p>
+                  <h2 id="connectPeerValue">NeuraiWallet</h2>
+                </div>
+                <div class="hardware-status-copy">
+                  <strong id="connectSessionValue">--</strong>
+                  <span class="section-copy">Messages are signed in NeuraiWallet on your phone. Sending and asset operations are not available for this account: NeuraiWallet does not sign transactions over Neurai Connect yet.</span>
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -964,6 +976,7 @@
   <script src="../lib/NeuraiSignTransaction.js"></script>
   <script src="../lib/NeuraiAssets.js"></script>
   <script src="../lib/NeuraiCreateTransaction.js"></script>
+  <script src="../lib/NeuraiConnect.js"></script>
   <script type="module" src="expanded.js"></script>
 </body>
 

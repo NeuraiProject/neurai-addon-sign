@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neurai Sign - NeuraiWallet Signing</title>
+  <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
+  <link rel="stylesheet" href="sign-request.css">
+  <style>
+    .nc-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--pre-bg);
+    }
+
+    .nc-status--waiting { color: #fbbf24; }
+    .nc-status--connecting { color: #60a5fa; }
+    .nc-status--confirm { color: #a78bfa; }
+    .nc-status--success { color: #34d399; }
+    .nc-status--error { color: #fca5a5; }
+
+    :root[data-theme="light"] .nc-status--waiting { color: #b45309; }
+    :root[data-theme="light"] .nc-status--connecting { color: #1d4ed8; }
+    :root[data-theme="light"] .nc-status--confirm { color: #7c3aed; }
+    :root[data-theme="light"] .nc-status--success { color: #059669; }
+    :root[data-theme="light"] .nc-status--error { color: #b91c1c; }
+
+    .nc-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .nc-reconnect {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* The code stays dark-on-white in both themes: inverted codes do not scan. */
+    .nc-reconnect canvas {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 8px;
+    }
+
+    .nc-reconnect p {
+      font-size: 12px;
+      text-align: center;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <header class="head">
+      <div class="head-title">
+        <span class="sign-type-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" style="color:#818cf8">
+            <path d="M5 0h6a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 11 16H5a1.5 1.5 0 0 1-1.5-1.5v-13A1.5 1.5 0 0 1 5 0zm0 1.5V13h6V1.5H5zm3 12.25a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/>
+          </svg>
+        </span>
+        <h1>NeuraiWallet Signing</h1>
+      </div>
+      <span class="sign-badge sign-badge--msg">Message</span>
+      <p>Approve this request in the NeuraiWallet app on your phone.</p>
+    </header>
+
+    <section class="card">
+      <div class="row">
+        <span>Site</span>
+        <strong id="originValue">--</strong>
+      </div>
+      <div class="row">
+        <span>Address</span>
+        <strong id="addressValue">--</strong>
+      </div>
+      <div class="row">
+        <span>Network</span>
+        <strong id="networkValue">--</strong>
+      </div>
+      <div class="row">
+        <span>Wallet</span>
+        <strong id="walletValue">--</strong>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Message to sign</h2>
+      <pre id="messageValue">--</pre>
+    </section>
+
+    <section class="card nc-reconnect hidden" id="reconnectBlock">
+      <canvas id="reconnectQr" width="240" height="240" aria-label="Neurai Connect pairing QR code"></canvas>
+      <p>The session with NeuraiWallet has ended. Scan this code with the wallet that holds this address to reconnect; the request is sent once it approves.</p>
+    </section>
+
+    <section class="card">
+      <div id="ncStatus" class="nc-status nc-status--waiting">
+        <span id="ncStatusText">Preparing the request…</span>
+      </div>
+    </section>
+
+    <p class="error" id="errorText"></p>
+
+    <div class="actions">
+      <button id="cancelBtn" class="btn btn-secondary" type="button">Cancel</button>
+      <button id="retryBtn" class="btn btn-primary hidden" type="button">Send again</button>
+    </div>
+  </main>
+
+  <script src="../lib/NeuraiMessage.js"></script>
+  <script src="../lib/NeuraiConnect.js"></script>
+  <script type="module" src="connect-sign.js"></script>
+</body>
+</html>

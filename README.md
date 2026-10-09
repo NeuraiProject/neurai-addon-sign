@@ -12,6 +12,7 @@ A browser extension for managing Neurai (XNA) keys and securely signing messages
 *   **Balance & Assets**: View XNA balance and Neurai asset holdings with auto-refresh.
 *   **Request History**: Track all signature requests with origin, message, and timestamp.
 *   **Cross-Browser**: Supports Chrome (Manifest V3 service worker) and Firefox (Manifest V3 background page).
+*   **Neurai Connect**: Add the NeuraiWallet mobile app as an account by scanning a QR code; the phone keeps the keys and signs.
 
 ## Development
 
@@ -62,7 +63,7 @@ test-page/    Test pages for the extension API
 *   **Content Script** (`content/content.js`): Bridge between the web page and the extension. Injects `inject.js` into the page and forwards messages to the background.
 *   **Injected Script** (`content/inject.js`): Runs in the page context and exposes the `window.neuraiWallet` API.
 *   **Popup** (`popup/`): UI for managing keys, viewing balances, approving sign requests, and settings.
-*   **Libraries** (`lib/`): Bundled `@neuraiproject/neurai-key`, `@neuraiproject/neurai-message`, and `@neuraiproject/neurai-reader`.
+*   **Libraries** (`lib/`): browser bundles of the `@neuraiproject/*` packages, copied from `node_modules` by `sync-libs.js` and checked byte for byte by `verify-libs.js`. `NeuraiConnect.js` is built with esbuild from `@neuraiproject/neurai-connect`, `@neuraiproject/neurai-connect-core` and `qrcode` (`neurai-connect-bundle.js`), because those packages ship no browser bundle. `NeuraiReader.js` is maintained in this repository.
 
 ## Web API (`window.neuraiWallet`)
 
@@ -124,12 +125,33 @@ The testnet was restarted from a new genesis block, `0000008b384aeffecdab182575d
 *   **Existing accounts.** Legacy accounts keep their addresses. A software testnet PQ account used the AuthScript v1 address of earlier releases (`tnq1p…`), which current nodes reject. On first load, the extension changes it to the witness v2 address of the same key (`tpq1z…`). The stored keys still sign, and no PIN is needed for this change. A hardware PQ account keeps the v1 family that the device signs, written as `tnc1p…`.
 *   **Recipients.** Send refuses an address in the old `nq1p…` / `tnq1p…` form and asks for the current address. The same destination is now written `nc1p…` / `tnc1p…`.
 
+## Neurai Connect accounts
+
+In the onboarding, **Connect NeuraiWallet** adds the NeuraiWallet mobile app as an account. It works like WalletConnect:
+
+1.  Choose Mainnet or Testnet and press **Show QR code**.
+2.  Scan the code with NeuraiWallet and approve the connection on the phone. The traffic goes end-to-end encrypted through the relay at `wss://relay.neurai.org/v1`.
+3.  Choose one of the addresses that NeuraiWallet shared, then press **Add**.
+
+The extension stores the address, its public key (when the wallet shares it) and the session. It stores no private key and no recovery phrase.
+
+| Operation | Neurai Connect account |
+|---|---|
+| Balance, assets and history | Yes, read from the RPC like any other account |
+| `signMessage` from a site | Yes. A window shows the request and NeuraiWallet asks for approval on the phone. The extension checks the returned signature before it hands it to the site. |
+| `verifyMessage`, `getAddress`, `getInfo` | Yes. `getInfo().walletType` is `connect`. |
+| `signRawTransaction`, Send, Assets and DePIN | Not yet. NeuraiWallet answers `signPsbt` and `sendTransfer` with error 4200, so the extension refuses these requests up front and hides those tabs. |
+| Backup | Not applicable: the keys stay in NeuraiWallet. |
+
+A session lasts 7 days, and either side can revoke it. When it has ended, the next signature request shows a new QR code in the signing window. Once the same NeuraiWallet approves it, the account moves to the new session and the request continues. Only one NeuraiWallet signature request can be pending at a time.
+
 ## Related Packages
 
 *   [@neuraiproject/neurai-key](https://www.npmjs.com/package/@neuraiproject/neurai-key) - Key generation and management
 *   [@neuraiproject/neurai-message](https://www.npmjs.com/package/@neuraiproject/neurai-message) - Message signing and verification
 *   [@neuraiproject/neurai-reader](https://www.npmjs.com/package/@neuraiproject/neurai-reader) - Blockchain RPC reader
 *   [@neuraiproject/neurai-lock](https://www.npmjs.com/package/@neuraiproject/neurai-lock) - Authentication via wallet signatures
+*   [@neuraiproject/neurai-connect](https://www.npmjs.com/package/@neuraiproject/neurai-connect) - Neurai Connect SDK for sites (QR pairing and sessions with NeuraiWallet)
 
 ## License
 

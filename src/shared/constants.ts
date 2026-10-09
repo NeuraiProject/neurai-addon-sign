@@ -33,6 +33,14 @@ export const NEURAI_CONSTANTS = Object.freeze({
   // without the field is rejected rather than read as `rvn`.
   RPC_URL_TESTNET: 'https://rpc-testnet-depin.neurai.org/rpc',
 
+  // ── Neurai Connect (NeuraiWallet mobile app over an encrypted relay) ──────
+  // The public relay of NeuraiWallet. Sessions and pairings live on one relay:
+  // changing this strands every session made on the previous one.
+  RELAY_URL: 'wss://relay.neurai.org/v1',
+  // Prefix of the Neurai Connect records (pairings, sessions, relay identity)
+  // in chrome.storage.local.
+  CONNECT_STORAGE_PREFIX: 'neurai_connect:',
+
   // ── Default block explorer URLs (URL templates with {txid} placeholder) ───
   EXPLORER_URL_MAINNET: 'https://explorer.neurai.org/tx/{txid}',
   EXPLORER_URL_TESTNET: 'https://rebel-explorer-testnet.neurai.org/tx/{txid}',
@@ -68,7 +76,9 @@ export const NEURAI_CONSTANTS = Object.freeze({
     HW_SIGN_RESULT:          'HW_SIGN_RESULT',
     HW_GET_SIGN_REQUEST:     'HW_GET_SIGN_REQUEST',
     HW_CONNECTION_STATUS:    'HW_CONNECTION_STATUS',
-    HW_EXECUTE_SIGN_REQUEST: 'HW_EXECUTE_SIGN_REQUEST'
+    HW_EXECUTE_SIGN_REQUEST: 'HW_EXECUTE_SIGN_REQUEST',
+    CONNECT_GET_SIGN_REQUEST: 'CONNECT_GET_SIGN_REQUEST',
+    CONNECT_SIGN_RESULT:      'CONNECT_SIGN_RESULT'
   } as const)
 
 });
