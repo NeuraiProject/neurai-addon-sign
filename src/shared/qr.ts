@@ -1,16 +1,20 @@
-// Neurai Wallet — QR code of a Neurai Connect pairing URI.
+// Neurai Wallet — QR codes: a Neurai Connect pairing URI, a receive address.
 //
 // Modules from the `qrcode` package (bundled in lib/NeuraiConnect.js), drawn on
-// a canvas. Two rules keep it scannable, as in the faucet and the relay demo:
+// a canvas. Three rules keep it scannable, as in the faucet and the relay demo:
 // dark modules on white in both themes (an inverted code is refused by many
-// scanners), and error correction `Q` so the logo in the middle can cover
-// modules. The brand colour only goes on the three finder patterns.
+// scanners), error correction `Q` so the logo in the middle can cover modules,
+// and modules drawn as slightly rounded squares. Round dots read worse: at some
+// module sizes (3, 4 and 9 device pixels) a decoder failed on every address
+// tried, while rounded squares decoded at every size. The brand colour only
+// goes on the three finder patterns.
 
 const DARK = '#111827';
 const LIGHT = '#ffffff';
 const EYE = '#9a3412';
 const QUIET_MODULES = 2;
 const LOGO_RATIO = 0.2;
+const MODULE_ROUNDING = 0.3;
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, side: number, radius: number): void {
   ctx.beginPath();
@@ -71,8 +75,7 @@ export async function renderQr(canvas: HTMLCanvasElement, text: string, cssSize 
   for (let r = 0; r < count; r++) {
     for (let c = 0; c < count; c++) {
       if (!qr.modules.get(r, c) || isFinder(r, c) || inHole(r, c)) continue;
-      ctx.beginPath();
-      ctx.arc(origin + c * module + module / 2, origin + r * module + module / 2, module * 0.5, 0, Math.PI * 2);
+      roundRect(ctx, origin + c * module, origin + r * module, module, module * MODULE_ROUNDING);
       ctx.fill();
     }
   }

@@ -74,41 +74,76 @@
 
     <div id="walletSection" class="wallet-dashboard hidden">
       <section class="hero-grid">
-        <section class="card active-account-card">
-          <div class="section-head active-account-head">
-            <div class="section-intro">
-              <p class="eyebrow">Active account</p>
-              <h2 id="accountValue">--</h2>
-              <p class="section-copy">Current wallet identity selected in the extension.</p>
+        <section class="card account-card">
+          <div class="account-head">
+            <div class="account-identity">
+              <span class="account-tile" id="accountTile" data-kind="software" aria-hidden="true">
+                <svg class="account-tile-icon account-tile-icon--software" width="22" height="22" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M2.5 3A1.5 1.5 0 0 0 1 4.5v7A1.5 1.5 0 0 0 2.5 13h11a1.5 1.5 0 0 0 1.5-1.5V10h-3.25a2 2 0 1 1 0-4H15V4.5A1.5 1.5 0 0 0 13.5 3h-11zM15 7h-3.25a1 1 0 1 0 0 2H15V7z" />
+                </svg>
+                <svg class="account-tile-icon account-tile-icon--hardware" width="22" height="22" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M14 3H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm-.5 8.5h-11v-7h11v7zM4 7h2v2H4V7z" />
+                </svg>
+                <svg class="account-tile-icon account-tile-icon--connect" width="22" height="22" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M5 0h6a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 11 16H5a1.5 1.5 0 0 1-1.5-1.5v-13A1.5 1.5 0 0 1 5 0zm0 1.5V13h6V1.5H5zm3 12.25a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z" />
+                </svg>
+              </span>
+              <div class="account-title">
+                <p class="eyebrow">Active account</p>
+                <h2 id="accountValue">--</h2>
+                <div class="account-chips" id="accountChips"></div>
+              </div>
             </div>
             <div class="account-actions">
               <button id="changeAccountBtn" class="btn btn-secondary btn-small btn-account-switch" type="button">Change account</button>
-              <button id="newAccountBtn" class="btn btn-primary btn-small" type="button">New account</button>
+              <button id="newAccountBtn" class="btn btn-secondary btn-small" type="button">New account</button>
             </div>
           </div>
+
+          <div class="balance-block">
+            <p class="eyebrow">Available balance</p>
+            <div class="balance-line">
+              <strong class="value-main" id="balanceValue">--</strong>
+              <span class="balance-unit">XNA</span>
+            </div>
+            <p class="balance-pending">
+              Pending <strong id="pendingValue">--</strong> XNA
+            </p>
+          </div>
+
+          <div class="hero-actions">
+            <button class="btn btn-primary" type="button" data-goto="send">Send</button>
+            <button class="btn btn-secondary" type="button" id="receiveQrBtn">Receive</button>
+            <button class="btn btn-secondary" type="button" data-goto="assets">Create asset</button>
+          </div>
         </section>
 
-        <section class="card address-card">
-          <div class="section-head">
-            <span class="panel-label">Receiving address</span>
-            <button id="copyAddressBtn" class="btn btn-secondary btn-small copy-btn" type="button">
-              <span class="copy-btn-label">Copy</span>
+        <section class="card receive-card" id="receiveCard">
+          <button class="receive-privacy-btn" id="addressPrivacyBtn" type="button" aria-pressed="false"
+            aria-label="Hide address and QR" title="Hide address and QR">
+            <svg class="receive-eye" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 3C4.4 3 1.6 5.4.5 8c1.1 2.6 3.9 5 7.5 5s6.4-2.4 7.5-5C14.4 5.4 11.6 3 8 3zm0 8.25A3.25 3.25 0 1 1 8 4.75a3.25 3.25 0 0 1 0 6.5zM8 6.25a1.75 1.75 0 1 0 0 3.5 1.75 1.75 0 0 0 0-3.5z" />
+            </svg>
+            <svg class="receive-eye-off" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M2.3 1.2 1.2 2.3l2.1 2.1A8.6 8.6 0 0 0 .5 8c1.1 2.6 3.9 5 7.5 5 1.4 0 2.6-.3 3.7-.9l2 2 1.1-1.1L2.3 1.2zM8 11.25A3.25 3.25 0 0 1 4.75 8c0-.6.2-1.2.5-1.7l1.1 1.1a1.75 1.75 0 0 0 2.2 2.2l1.1 1.1c-.5.3-1.1.55-1.65.55zM8 3c3.6 0 6.4 2.4 7.5 5-.5 1.2-1.4 2.4-2.5 3.3l-2.1-2.1c.2-.4.35-.9.35-1.2A3.25 3.25 0 0 0 8 4.75c-.4 0-.8.1-1.2.25L5.2 3.4C6.1 3.15 7 3 8 3z" />
+            </svg>
+          </button>
+          <div class="receive-body">
+            <div class="receive-text">
+              <h2 class="receive-title">Receive address</h2>
+              <p class="address receive-address" id="addressValue">--</p>
+              <button id="copyAddressBtn" class="btn btn-secondary btn-small copy-btn" type="button">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M5 1.5A1.5 1.5 0 0 1 6.5 0h6A1.5 1.5 0 0 1 14 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 5 9.5v-8zm1.5 0v8h6v-8h-6zM2 5.5A1.5 1.5 0 0 1 3.5 4H4v1.5h-.5v9h6V14H11v.5A1.5 1.5 0 0 1 9.5 16h-6A1.5 1.5 0 0 1 2 14.5v-9z" />
+                </svg>
+                <span class="copy-btn-label">Copy</span>
+              </button>
+            </div>
+            <button class="receive-qr" id="addressQrBtn" type="button" aria-label="Show larger QR" title="Show larger QR">
+              <canvas id="addressQr" width="168" height="168"></canvas>
             </button>
           </div>
-          <p class="address" id="addressValue">--</p>
         </section>
-
-        <div class="stat-card stat-card-balance">
-          <p class="panel-label">Available balance</p>
-          <div class="balance-inline">
-            <span class="currency-pill">XNA</span>
-            <strong class="value-main" id="balanceValue">--</strong>
-          </div>
-          <div class="hero-meta">
-            <span class="meta-label">Pending</span>
-            <strong id="pendingValue">--</strong>
-          </div>
-        </div>
       </section>
 
       <section class="portfolio-card">
@@ -902,6 +937,29 @@
           <button class="btn btn-secondary" id="backupCopyWifBtn" type="button">Copy Private Key</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="addressQrModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="addressQrTitle">
+    <div class="unlock-panel qr-panel">
+      <div class="settings-panel-head">
+        <div>
+          <p class="eyebrow" id="addressQrNetwork">Receive</p>
+          <h2 id="addressQrTitle">Receive address</h2>
+        </div>
+        <button class="topbar-icon-btn settings-close-btn" id="addressQrCloseBtn" type="button" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M3.3 2.3L8 7l4.7-4.7 1 1L9 8l4.7 4.7-1 1L8 9 3.3 13.7l-1-1L7 8 2.3 3.3l1-1z" />
+          </svg>
+        </button>
+      </div>
+      <div class="qr-panel-code">
+        <canvas id="addressQrLarge" width="280" height="280"></canvas>
+      </div>
+      <p class="address qr-panel-address" id="addressQrText">--</p>
+      <button class="btn btn-primary copy-btn" id="addressQrCopyBtn" type="button">
+        <span class="copy-btn-label">Copy address</span>
+      </button>
     </div>
   </div>
 

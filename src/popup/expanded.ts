@@ -15,6 +15,7 @@ import {
   isPQNetwork,
   toKeyNetwork,
   networkLabel,
+  walletFamily,
   expectedGenesis,
   estimateTxVbytes,
   prevoutKind,
@@ -33,6 +34,7 @@ import {
 } from '../shared/neurai-connect.js';
 import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
 import { elem, option } from '../shared/dom.js';
+import { renderQr } from '../shared/qr.js';
 import {
   formatAmountParts,
   renderAmount,
@@ -87,6 +89,7 @@ import {
   type HolderListing, type FreezeMode
 } from './expanded/holder-picker.js';
 import { restrictedCandidates, keepExistingAssets } from './expanded/restricted-assets.js';
+import { addressLines, accountChips, accountTileKind } from './expanded/receive.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
@@ -100,6 +103,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   let hwDevice: NeuraiESP32Instance | null = null; // NeuraiESP32 instance, kept alive while expanded is open
   let hwStatusInterval: ReturnType<typeof setInterval> | null = null;
   let copyAddressFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
+  let copyQrFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
+  // The address the receive QR was drawn for: a new account redraws it.
+  let qrAddress = '';
   const PAGE_SIZE = 5;
   const DEBUG_AUTHSCRIPT_SIGN = false;
   const DEBUG_ASSET_OPS = false;
@@ -213,6 +219,23 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       });
     }
     elements.copyAddressBtn.addEventListener('click', copyAddress);
+    elements.addressQrBtn?.addEventListener('click', openAddressQr);
+    elements.receiveQrBtn?.addEventListener('click', openAddressQr);
+    elements.addressQrCloseBtn?.addEventListener('click', closeAddressQr);
+    elements.addressQrCopyBtn?.addEventListener('click', copyAddressFromQr);
+    elements.addressQrModal?.addEventListener('click', (e) => {
+      if (e.target === elements.addressQrModal) closeAddressQr();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !elements.addressQrModal?.classList.contains('hidden')) closeAddressQr();
+    });
+    elements.addressPrivacyBtn?.addEventListener('click', toggleAddressPrivacy);
+    document.querySelectorAll<HTMLButtonElement>('.hero-actions [data-goto]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        switchPortfolioView(btn.dataset.goto!);
+        document.querySelector('.portfolio-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
     if (elements.changeAccountBtn) elements.changeAccountBtn.addEventListener('click', handleChangeAccount);
     if (elements.newAccountBtn) elements.newAccountBtn.addEventListener('click', handleCreateNewAccount);
     if (elements.assetsPrevBtn) elements.assetsPrevBtn.addEventListener('click', () => changeAssetsPage(-1));
@@ -789,9 +812,81 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const network = (state.wallet.network || 'xna') as string;
     elements.networkValue.textContent = networkLabel(network);
     elements.accountValue.textContent = 'Neurai_' + state.activeAccountId;
-    elements.addressValue.textContent = state.wallet.address as string || '--';
+    renderAccountChips();
+    renderReceiveAddress(state.wallet.address as string || '');
     elements.headerSubtitle.classList.toggle('hidden', state.wallet.walletType !== 'hardware');
     updateChangeAccountButton();
+  }
+
+  /** Family, wallet type and, for a followed NeuraiWallet account, its address count. */
+  function renderAccountChips(): void {
+    const wallet = state.wallet as Record<string, unknown> | null;
+    if (!wallet) return;
+    const walletType = wallet.walletType as string | undefined;
+    const followed = watchesConnectAccount(wallet) ? ownAddresses().length : 0;
+    const chips = accountChips(walletFamily(wallet.network as string), walletType, followed);
+    elements.accountChips?.replaceChildren(...chips.map((label) => elem('span', { class: 'account-chip' }, label)));
+    elements.accountTile?.setAttribute('data-kind', accountTileKind(walletType));
+  }
+
+  /** The address in a few lines next to its QR code, as in the web wallet. */
+  function renderReceiveAddress(address: string): void {
+    const lines = addressLines(address);
+    if (lines.length) {
+      elements.addressValue.replaceChildren(...lines.map((line) => elem('span', {}, line)));
+    } else {
+      elements.addressValue.textContent = '--';
+    }
+    elements.addressQrText!.textContent = address || '--';
+    elements.addressQrNetwork!.textContent = state.wallet ? networkLabel(state.wallet.network as string) : 'Receive';
+    if (address === qrAddress) return;
+    qrAddress = address;
+    if (!address || !elements.addressQr) return;
+    renderQr(elements.addressQr, address, 168, '../icons/icon128.png').catch(() => { });
+  }
+
+  function openAddressQr(): void {
+    const address = (state.wallet?.address as string) || '';
+    if (!address || !elements.addressQrModal || !elements.addressQrLarge) return;
+    elements.addressQrModal.classList.remove('hidden');
+    renderQr(elements.addressQrLarge, address, 280, '../icons/icon128.png').catch(() => { });
+    elements.addressQrCloseBtn?.focus();
+  }
+
+  function closeAddressQr(): void {
+    elements.addressQrModal?.classList.add('hidden');
+  }
+
+  /** Blur the address and its QR, for screen sharing; the larger QR still opens on request. */
+  function toggleAddressPrivacy(): void {
+    const card = elements.receiveCard;
+    if (!card) return;
+    const hidden = !card.classList.contains('is-private');
+    card.classList.toggle('is-private', hidden);
+    const label = hidden ? 'Show address and QR' : 'Hide address and QR';
+    elements.addressPrivacyBtn!.setAttribute('aria-pressed', String(hidden));
+    elements.addressPrivacyBtn!.setAttribute('aria-label', label);
+    elements.addressPrivacyBtn!.title = label;
+    (elements.copyAddressBtn as HTMLButtonElement).disabled = hidden;
+    elements.addressQrBtn!.disabled = hidden;
+  }
+
+  function copyAddressFromQr(): void {
+    const address = (state.wallet?.address as string) || '';
+    const button = elements.addressQrCopyBtn;
+    if (!address || !button) return;
+    const label = button.querySelector('.copy-btn-label')!;
+    const done = (success: boolean) => {
+      button.classList.toggle('is-success', success);
+      label.textContent = success ? 'Copied' : 'Could not copy';
+      if (copyQrFeedbackTimeout) clearTimeout(copyQrFeedbackTimeout);
+      copyQrFeedbackTimeout = setTimeout(() => {
+        button.classList.remove('is-success');
+        label.textContent = 'Copy address';
+        copyQrFeedbackTimeout = null;
+      }, 1400);
+    };
+    navigator.clipboard.writeText(address).then(() => done(true), () => done(false));
   }
 
   /**
@@ -834,6 +929,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
     try {
       await refreshOwnAddresses();
+      renderAccountChips();
       const addresses = ownAddresses();
       const balanceData = await NeuraiReader.getNeuraiBalance(addresses);
       const balance = NeuraiReader.formatBalance(balanceData!.balance);
@@ -1191,6 +1287,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       if (view !== 'send' && view !== 'assets') return;
       btn.classList.toggle('hidden', hide);
       if (hide && btn.classList.contains('active')) activeHidden = true;
+    });
+    // The shortcuts of the account card follow their tabs.
+    document.querySelectorAll('.hero-actions [data-goto]').forEach((btn) => {
+      btn.classList.toggle('hidden', hide);
     });
     if (activeHidden) switchPortfolioView('balance');
   }
