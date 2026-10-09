@@ -1,25 +1,17 @@
-:root {
-  --bg: #0a0e1a;
-  --card: #111827;
-  --text: #f8fafc;
-  --muted: #94a3b8;
-  --border: rgba(71, 85, 105, 0.5);
-  --primary: #2563eb;
-  --danger: #dc2626;
-  --pre-bg: #0f172a;
-  --input-bg: #0f172a;
-}
+/* Approval windows: sign-request, hw-sign and connect-sign.
+   Colors, radii and fonts come from ../styles/neurai-theme.css. */
 
-:root[data-theme="light"] {
-  --bg: #eef2ff;
-  --card: rgba(255, 255, 255, 0.98);
-  --text: #0f172a;
-  --muted: #334155;
-  --border: rgba(148, 163, 184, 0.45);
-  --primary: #2563eb;
-  --danger: #dc2626;
-  --pre-bg: #ffffff;
-  --input-bg: #ffffff;
+:root {
+  --bg: var(--nx-page);
+  --card: var(--nx-card);
+  --text: var(--nx-text);
+  --muted: var(--nx-muted);
+  --subtle: var(--nx-subtle);
+  --border: var(--nx-border);
+  --primary: var(--nx-primary);
+  --danger: var(--nx-danger);
+  --pre-bg: var(--nx-sunken);
+  --input-bg: var(--nx-sunken);
 }
 
 * {
@@ -38,26 +30,34 @@ body {
   min-height: 100%;
   padding: 18px;
   display: flex;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--nx-font);
+  font-size: 14px;
+  line-height: 1.45;
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
 }
 
+/* A column, not a grid: the cards keep their height and the buttons sit at the
+   bottom of the window. */
 .panel {
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
 .head h1 {
   margin: 0;
-  font-size: 19px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .head p {
-  margin: 4px 0 0 0;
+  margin: 6px 0 0 0;
   font-size: 13px;
   color: var(--muted);
 }
@@ -65,37 +65,51 @@ body {
 .card {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: var(--nx-radius-card);
+  padding: 14px 16px;
+  box-shadow: var(--nx-shadow-soft);
 }
 
 .row {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  padding: 7px 0;
+  gap: 12px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
 
-.row:last-child {
+/* First and last *visible* row: the optional rows stay in the markup, hidden. */
+.row:nth-child(1 of .row:not(.hidden)) {
+  padding-top: 0;
+}
+
+.row:nth-last-child(1 of .row:not(.hidden)) {
   border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .row span {
-  color: var(--muted);
+  color: var(--subtle);
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .row strong {
   font-size: 12px;
+  font-weight: 600;
   text-align: right;
   overflow-wrap: anywhere;
   color: var(--text);
 }
 
+/* Card titles read as the wallet's eyebrows. */
 h2 {
-  margin: 0 0 8px 0;
-  font-size: 14px;
+  margin: 0 0 10px 0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--subtle);
 }
 
 pre {
@@ -104,16 +118,20 @@ pre {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  padding: 10px;
-  border-radius: 10px;
+  padding: 10px 12px;
+  border-radius: var(--nx-radius-field);
   border: 1px solid var(--border);
   background: var(--pre-bg);
+  font-family: var(--nx-font-mono);
   font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
 }
 
 label {
   display: block;
   font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
   margin-bottom: 6px;
 }
@@ -121,47 +139,77 @@ label {
 input {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
+  border-radius: var(--nx-radius-field);
+  border: 1px solid var(--nx-border-strong);
   background: var(--input-bg);
   color: var(--text);
+  font-family: var(--nx-font);
+  font-size: 14px;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--nx-primary);
+  box-shadow: 0 0 0 3px var(--nx-ring);
+}
+
+input::placeholder {
+  color: var(--subtle);
 }
 
 .error {
   margin: 8px 0 0 0;
   min-height: 16px;
   font-size: 12px;
-  color: #fca5a5;
-}
-
-:root[data-theme="light"] .error {
-  color: #b91c1c;
+  color: var(--nx-bad);
 }
 
 .actions {
   display: flex;
   gap: 10px;
+  margin-top: auto;
   padding-bottom: 2px;
 }
 
 .btn {
   flex: 1;
-  border-radius: 10px;
+  border-radius: var(--nx-radius-field);
   padding: 11px 14px;
+  font-family: var(--nx-font);
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--nx-primary);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
-  border: 1px solid var(--border);
-  background: transparent;
+  border: 1px solid var(--nx-border-strong);
+  background: var(--card);
   color: var(--text);
 }
 
+.btn-secondary:hover:not(:disabled) {
+  background: var(--nx-hover);
+}
+
 .btn-primary {
-  border: none;
+  border: 1px solid transparent;
   background: var(--primary);
-  color: #fff;
+  color: var(--nx-primary-content);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--nx-primary-hover);
 }
 
 .info-note p {
@@ -182,8 +230,7 @@ input {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(2, 6, 23, 0.7);
-  backdrop-filter: blur(6px);
+  background: var(--nx-backdrop);
   z-index: 1000;
 }
 
@@ -191,9 +238,9 @@ input {
   width: min(440px, 100%);
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--nx-radius-card);
   padding: 16px;
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--nx-shadow-card);
 }
 
 .modal-copy {
@@ -204,23 +251,35 @@ input {
 
 .port-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 12px;
 }
 
 .port-option {
   display: grid;
   gap: 4px;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--nx-radius-sel);
   background: var(--pre-bg);
   cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.port-option:hover {
+  border-color: var(--nx-primary-line);
+  background: var(--nx-primary-soft);
+}
+
+.port-option:has(input:checked) {
+  border-color: var(--nx-primary);
+  background: var(--nx-primary-soft);
 }
 
 .port-option input {
   width: auto;
   margin: 0;
+  accent-color: var(--nx-primary);
 }
 
 .port-option-head {
@@ -267,63 +326,65 @@ input {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  color: var(--nx-primary);
+}
+
+.sign-icon--msg {
+  color: var(--nx-primary);
+}
+
+.sign-icon--rawtx {
+  color: var(--nx-warn);
+}
+
+.sign-icon--cancel {
+  color: var(--nx-danger);
 }
 
 .sign-badge {
   display: inline-block;
+  width: fit-content;
+  margin-top: 6px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  padding: 3px 9px;
-  border-radius: 20px;
-  margin-bottom: 2px;
+  padding: 2px 10px;
+  border-radius: var(--nx-radius-pill);
+  border: 1px solid var(--border);
+  background: var(--nx-hover);
+  color: var(--muted);
 }
 
 .sign-badge--msg {
-  background: rgba(37, 99, 235, 0.15);
-  color: #60a5fa;
-  border: 1px solid rgba(37, 99, 235, 0.35);
+  background: var(--nx-primary-soft);
+  color: var(--nx-link);
+  border-color: var(--nx-primary-line);
 }
 
 .sign-badge--rawtx {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: var(--nx-warn-soft);
+  border-color: transparent;
+  color: var(--nx-warn);
 }
 
-:root[data-theme="light"] .sign-badge--msg {
-  background: rgba(37, 99, 235, 0.1);
-  color: #1d4ed8;
-  border-color: rgba(37, 99, 235, 0.25);
+.row strong.sign-type-msg {
+  color: var(--nx-link);
 }
 
-:root[data-theme="light"] .sign-badge--rawtx {
-  background: rgba(217, 119, 6, 0.1);
-  color: #b45309;
-  border-color: rgba(217, 119, 6, 0.25);
+.row strong.sign-type-rawtx {
+  color: var(--nx-warn);
 }
-
-.sign-type-msg {
-  color: #60a5fa;
-}
-
-.sign-type-rawtx {
-  color: #fbbf24;
-}
-
-:root[data-theme="light"] .sign-type-msg  { color: #1d4ed8; }
-:root[data-theme="light"] .sign-type-rawtx { color: #b45309; }
 
 /* === Warning accept button === */
 
 .btn-warning {
-  border: none;
+  border: 1px solid transparent;
   background: #d97706;
-  color: #fff;
+  color: #ffffff;
 }
 
-.btn-warning:hover {
+.btn-warning:hover:not(:disabled) {
   background: #b45309;
 }
 
@@ -337,6 +398,7 @@ input {
   background: none;
   border: none;
   color: var(--muted);
+  font-family: var(--nx-font);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -345,7 +407,7 @@ input {
 }
 
 .tx-expand-btn:hover {
-  color: var(--text);
+  color: var(--nx-link);
 }
 
 .tx-expand-btn svg {
@@ -368,8 +430,10 @@ input {
 
 .tx-details-label {
   font-size: 11px;
-  color: var(--muted);
-  font-style: italic;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--subtle);
 }
 
 .tx-hex {
@@ -377,10 +441,10 @@ input {
   font-size: 10px;
   word-break: break-all;
   white-space: pre-wrap;
-  color: #34d399;
+  color: var(--muted);
   background: var(--pre-bg);
-  border: 1px dashed var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--nx-radius-sel);
   padding: 8px 10px;
   margin: 0;
   overflow-y: auto;
@@ -391,13 +455,13 @@ input {
   gap: 8px;
   background: var(--pre-bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--nx-radius-sel);
   padding: 8px 10px;
   font-size: 11px;
 }
 
 .utxo-index {
-  color: var(--muted);
+  color: var(--subtle);
   font-weight: 700;
   min-width: 22px;
   padding-top: 1px;
@@ -417,13 +481,13 @@ input {
 }
 
 .utxo-field span {
-  color: var(--muted);
+  color: var(--subtle);
   min-width: 44px;
   flex-shrink: 0;
 }
 
 .utxo-field code {
-  font-family: monospace;
+  font-family: var(--nx-font-mono);
   font-size: 10px;
   color: var(--text);
   word-break: break-all;
@@ -439,16 +503,112 @@ input {
 
 .cancel-refund h3 {
   margin: 0 0 8px 0;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--subtle);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.09em;
 }
 
 .cancel-refund .warn {
   font-weight: 400;
   text-transform: none;
-  color: #dc2626;
+  letter-spacing: 0;
+  color: var(--nx-bad);
   margin-left: 6px;
+}
+
+/* === Device / NeuraiWallet status line (hw-sign, connect-sign) === */
+
+.hw-status,
+.nc-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--nx-radius-field);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--pre-bg);
+}
+
+.hw-status--waiting,
+.nc-status--waiting {
+  color: var(--nx-warn);
+  background: var(--nx-warn-soft);
+  border-color: transparent;
+}
+
+.hw-status--connecting,
+.nc-status--connecting {
+  color: var(--nx-info);
+  background: var(--nx-info-soft);
+  border-color: transparent;
+}
+
+.hw-status--confirm,
+.nc-status--confirm {
+  color: var(--nx-link);
+  background: var(--nx-primary-soft);
+  border-color: var(--nx-primary-line);
+}
+
+.hw-status--success,
+.nc-status--success {
+  color: var(--nx-ok);
+  background: var(--nx-ok-soft);
+  border-color: transparent;
+}
+
+.hw-status--error,
+.nc-status--error {
+  color: var(--nx-bad);
+  background: var(--nx-bad-soft);
+  border-color: transparent;
+}
+
+.hw-spinner,
+.nc-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.hw-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.nc-reconnect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The code stays dark-on-white in both themes: inverted codes do not scan. */
+.nc-reconnect canvas {
+  background: #ffffff;
+  border-radius: var(--nx-radius-card);
+  border: 1px solid var(--border);
+  padding: 8px;
+}
+
+.nc-reconnect p {
+  margin: 0;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
 }

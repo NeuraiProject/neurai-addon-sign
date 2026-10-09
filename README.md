@@ -63,6 +63,7 @@ test-page/    Test pages for the extension API
 *   **Content Script** (`content/content.js`): Bridge between the web page and the extension. Injects `inject.js` into the page and forwards messages to the background.
 *   **Injected Script** (`content/inject.js`): Runs in the page context and exposes the `window.neuraiWallet` API.
 *   **Popup** (`popup/`): UI for managing keys, viewing balances, approving sign requests, and settings.
+*   **Styles** (`styles/`): `neurai-theme.css` holds the colors, radii, shadows and fonts shared by every page. It follows the Neurai web wallet and the explorers, in light and dark. The Inter font is bundled (`styles/fonts/`, SIL OFL 1.1), so no page loads a font from the network.
 *   **Libraries** (`lib/`): browser bundles of the `@neuraiproject/*` packages, copied from `node_modules` by `sync-libs.js` and checked byte for byte by `verify-libs.js`. `NeuraiConnect.js` is built with esbuild from `@neuraiproject/neurai-connect`, `@neuraiproject/neurai-connect-core` and `qrcode` (`neurai-connect-bundle.js`), because those packages ship no browser bundle. `NeuraiReader.js` is maintained in this repository.
 
 ## Web API (`window.neuraiWallet`)

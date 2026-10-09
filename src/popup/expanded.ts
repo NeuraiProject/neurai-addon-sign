@@ -4513,7 +4513,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const feeRow = document.createElement('div');
       feeRow.className = 'ca-output-row';
       feeRow.replaceChildren(
-        elem('span', { class: 'ca-output-badge', style: 'background:rgba(148,163,184,.12);color:var(--text-muted)' }, 'Fee'),
+        elem('span', { class: 'ca-output-badge ca-output-badge--fee' }, 'Fee'),
         elem('span', { class: 'ca-output-addr' }, 'Miner fee (estimated)'),
         elem('span', { class: 'ca-output-value' }, Number(buildResult.fee).toFixed(8) + ' XNA')
       );

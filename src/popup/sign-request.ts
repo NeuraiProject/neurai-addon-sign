@@ -190,7 +190,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
     if (isCovenantCancel && request.cancelData) {
       const cd = request.cancelData as CancelApprovalData;
       elements.pageTitle!.textContent = 'Cancel Covenant Order';
-      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="color:#dc2626"><path d="M10 2a8 8 0 1 0 0 16A8 8 0 0 0 10 2zm3.54 11.46a.75.75 0 1 1-1.06 1.06L10 12.06l-2.48 2.46a.75.75 0 1 1-1.06-1.06L8.94 11 6.46 8.54a.75.75 0 1 1 1.06-1.06L10 9.94l2.48-2.46a.75.75 0 1 1 1.06 1.06L11.06 11l2.48 2.46z"/></svg>`;
+      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" class="sign-icon--cancel"><path d="M10 2a8 8 0 1 0 0 16A8 8 0 0 0 10 2zm3.54 11.46a.75.75 0 1 1-1.06 1.06L10 12.06l-2.48 2.46a.75.75 0 1 1-1.06-1.06L8.94 11 6.46 8.54a.75.75 0 1 1 1.06-1.06L10 9.94l2.48-2.46a.75.75 0 1 1 1.06 1.06L11.06 11l2.48 2.46z"/></svg>`;
       elements.signTypeBadge!.textContent = 'Cancel partial-fill sell order';
       elements.signTypeBadge!.className = 'sign-badge sign-badge--rawtx';
       elements.signTypeValue!.textContent = 'Covenant cancel';
@@ -260,7 +260,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
       });
     } else if (isRawTx) {
       elements.pageTitle!.textContent = 'Transaction Signing';
-      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="color:#f59e0b"><path d="M10 2a8 8 0 1 0 0 16A8 8 0 0 0 10 2zm.75 4v4.25l3 1.75-.75 1.25-3.75-2.25V6h1.5z"/><path d="M3.5 10.5h1.25M15.25 10.5H16.5M10 3.5V2.25M10 17.75V16.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" class="sign-icon--rawtx"><path d="M10 2a8 8 0 1 0 0 16A8 8 0 0 0 10 2zm.75 4v4.25l3 1.75-.75 1.25-3.75-2.25V6h1.5z"/><path d="M3.5 10.5h1.25M15.25 10.5H16.5M10 3.5V2.25M10 17.75V16.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`;
       elements.signTypeBadge!.textContent = 'Raw Transaction';
       elements.signTypeBadge!.className = 'sign-badge sign-badge--rawtx';
       elements.signTypeValue!.textContent = 'Raw Transaction';
@@ -295,7 +295,7 @@ import type { CancelApprovalData, CancelOutputSummary } from '../types/index.js'
       });
     } else {
       elements.pageTitle!.textContent = 'Message Signature';
-      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" style="color:#2563eb"><path d="M2 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4zm2 0v.01L10 9l6-4.99V4H4zm0 2.24V16h12V6.24l-5.55 4.62a.75.75 0 0 1-.9 0L4 6.24z"/></svg>`;
+      elements.signTypeIcon!.innerHTML = `<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" class="sign-icon--msg"><path d="M2 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4zm2 0v.01L10 9l6-4.99V4H4zm0 2.24V16h12V6.24l-5.55 4.62a.75.75 0 0 1-.9 0L4 6.24z"/></svg>`;
       elements.signTypeBadge!.textContent = 'Message';
       elements.signTypeBadge!.className = 'sign-badge sign-badge--msg';
       elements.signTypeValue!.textContent = 'Message Signature';
