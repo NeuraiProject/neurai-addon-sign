@@ -12,6 +12,8 @@ import { isTestnetNetwork, isPQNetwork, networkLabel, expectedGenesis } from '..
 import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
 import { runWalletMigrations } from '../shared/migrations.js';
 import { clearConnectStorage } from '../shared/neurai-connect.js';
+import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
+import { checkedJsonRpc } from '../shared/chain-identity.js';
 import { elem, option } from '../shared/dom.js';
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
@@ -505,13 +507,14 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       setLoadingStatus(true);
       applyReaderRpcForCurrentContext();
 
-      const balanceData = await NeuraiReader.getNeuraiBalance(state.address);
+      const addresses = await accountAddresses();
+      const balanceData = await NeuraiReader.getNeuraiBalance(addresses);
       if (balanceData) {
-        const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.address, 'XNA');
+        const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(addresses, 'XNA');
         state.balance = NeuraiReader.formatBalance(balanceData.balance);
         state.pendingBalance = NeuraiReader.formatBalance(pendingDelta);
 
-        const assetBalance = await NeuraiReader.getAssetBalance(state.address);
+        const assetBalance = await NeuraiReader.getAssetBalance(addresses);
         state.assets = normalizeAssetsFromRpc(assetBalance);
         state.lastPortfolioUpdatedAt = Date.now();
 
@@ -532,6 +535,27 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     } finally {
       setLoadingStatus(false);
     }
+  }
+
+  /**
+   * Every address of the active account: its own, or every used address of a
+   * NeuraiWallet account whose key the wallet shared (rescanned at most once a
+   * minute, see connect-account.ts).
+   */
+  async function accountAddresses(): Promise<string[]> {
+    let wallet = getActiveWalletData() as Record<string, unknown> | null;
+    if (wallet && watchesConnectAccount(wallet)) {
+      const network = String(wallet.network || state.network);
+      const url = getRpcUrlForNetwork(network);
+      const cache = await refreshConnectAddresses(
+        wallet,
+        (method, params) => checkedJsonRpc(url, network, method, params, 'neurai-wallet-scan'),
+        { accounts: C.ACCOUNTS_KEY, activeWallet: C.STORAGE_KEY }
+      );
+      if (cache) wallet = { ...wallet, connectAddresses: cache };
+    }
+    const set = walletAddressSet(wallet);
+    return set.length > 0 ? set : [state.address as string];
   }
 
   function startPolling() {
@@ -890,6 +914,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
         connectSessionTopic: entry!.connectSessionTopic || null,
         connectChainId: entry!.connectChainId || null,
         connectPeerName: entry!.connectPeerName || null,
+        connectMethods: Array.isArray(entry!.connectMethods) ? entry!.connectMethods : null,
+        connectXpub: entry!.connectXpub || null,
+        connectAddresses: entry!.connectAddresses || null,
         network: entry!.network || 'xna',
         history: Array.isArray(entry!.history) ? entry!.history : []
       };
@@ -1076,6 +1103,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
           connectSessionTopic: e.connectSessionTopic || null,
           connectChainId: e.connectChainId || null,
           connectPeerName: e.connectPeerName || null,
+          connectMethods: Array.isArray(e.connectMethods) ? e.connectMethods : null,
+          connectXpub: e.connectXpub || null,
+          connectAddresses: e.connectAddresses || null,
           network: e.network || 'xna',
           history: Array.isArray(e.history) ? e.history : []
         };
@@ -1155,6 +1185,10 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       connectSessionTopic: walletData.connectSessionTopic as string || previous.connectSessionTopic || null,
       connectChainId: walletData.connectChainId as string || previous.connectChainId || null,
       connectPeerName: walletData.connectPeerName as string || previous.connectPeerName || null,
+      connectMethods: Array.isArray(walletData.connectMethods) ? walletData.connectMethods
+        : (Array.isArray(previous.connectMethods) ? previous.connectMethods : null),
+      connectXpub: walletData.connectXpub || previous.connectXpub || null,
+      connectAddresses: walletData.connectAddresses || previous.connectAddresses || null,
       network: state.network,
       history: Array.isArray(walletData.history) ? walletData.history : (Array.isArray(previous.history) ? previous.history : [])
     };

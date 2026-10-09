@@ -38,6 +38,8 @@ declare global {
       chains?: string[];
       methods?: string[];
       events?: string[];
+      requiredNamespaces?: Record<string, { chains: string[]; methods: string[]; events: string[] }>;
+      optionalNamespaces?: Record<string, { chains: string[]; methods: string[]; events: string[] }>;
       expirySeconds?: number;
       signal?: AbortSignal;
     }): Promise<{ uri: string; deepLink: string; approval: Promise<NeuraiConnectSession> }>;
@@ -70,10 +72,19 @@ declare global {
     NEURAI_CHAIN_TESTNET: string;
     addressKind(address: string): 'legacy' | 'ecdsa' | 'authscript' | 'pq' | undefined;
     isExpired(unixSeconds: number, nowMs?: number): boolean;
+    /** BIP32 keys of @scure/bip32, for the addresses of a shared account key. */
+    HDKey: {
+      fromExtendedKey(base58key: string, versions?: { public: number; private: number }): NeuraiConnectHDKey;
+    };
     /** QR module matrix of `text` (qrcode's `create`). */
     createQr(text: string, options?: { errorCorrectionLevel?: 'L' | 'M' | 'Q' | 'H' }): {
       modules: { size: number; get(row: number, col: number): boolean | number };
     };
+  }
+
+  interface NeuraiConnectHDKey {
+    deriveChild(index: number): NeuraiConnectHDKey;
+    publicKey: Uint8Array | null;
   }
 
   var NeuraiConnectSDK: NeuraiConnectSDKStatic;

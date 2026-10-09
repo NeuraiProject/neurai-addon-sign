@@ -154,6 +154,7 @@ export const elements = {
   connectCard: document.getElementById('connectCard'),
   connectPeerValue: document.getElementById('connectPeerValue'),
   connectSessionValue: document.getElementById('connectSessionValue'),
+  connectCapabilityText: document.getElementById('connectCapabilityText'),
   hwStatusDot: document.getElementById('hwStatusDot'),
   hwStatusText: document.getElementById('hwStatusText'),
   hwReconnectBtn: document.getElementById('hwReconnectBtn') as HTMLButtonElement | null,

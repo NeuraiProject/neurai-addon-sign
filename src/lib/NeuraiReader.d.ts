@@ -16,16 +16,16 @@ declare global {
     getRPC(username: string, password: string, url: string): RpcMethod;
 
     /** Fetch the confirmed XNA balance for an address. */
-    getNeuraiBalance(address: string): Promise<{ balance: number } | null>;
+    getNeuraiBalance(address: string | string[]): Promise<{ balance: number } | null>;
 
     /** Fetch the net pending satoshis for an address/asset from the mempool. */
-    getPendingBalanceFromAddressMempool(address: string, assetName: string): Promise<number>;
+    getPendingBalanceFromAddressMempool(address: string | string[], assetName: string): Promise<number>;
 
     /** Format a raw balance number to a human-readable string. */
     formatBalance(balance: number): string;
 
     /** Fetch all asset balances for an address. */
-    getAssetBalance(address: string): Promise<unknown>;
+    getAssetBalance(address: string | string[]): Promise<unknown>;
 
     /** Switch the reader to mainnet. */
     setMainnet(): void;
@@ -43,7 +43,7 @@ declare global {
     setExpectedGenesis(hash: string | null): void;
 
     /** Fetch address deltas (transaction history entries) for a given asset. */
-    getAddressDeltas(address: string, assetName: string): Promise<unknown[]>;
+    getAddressDeltas(address: string | string[], assetName: string): Promise<unknown[]>;
 
     /** Fetch a full transaction by txid. */
     getTransaction(txid: string): Promise<unknown>;

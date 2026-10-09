@@ -12,7 +12,7 @@
 
 import type { SighashType } from '../types/index.js';
 
-export type WalletSigningKind = 'legacy' | 'pq' | 'hardware';
+export type WalletSigningKind = 'legacy' | 'pq' | 'hardware' | 'connect';
 
 /** Sighash values accepted by the current signing path. */
 export const SUPPORTED_SIGHASHES: readonly SighashType[] = ['ALL'] as const;

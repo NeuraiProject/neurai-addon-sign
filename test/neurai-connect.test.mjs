@@ -24,7 +24,13 @@ import {
   networkForConnectAddress,
   sessionAddresses,
   signMessageParams,
-  describeConnectError
+  describeConnectError,
+  CONNECT_OPTIONAL_METHODS,
+  connectProposalNamespaces,
+  connectSignsTransactions,
+  sessionMethods,
+  signPsbtParams,
+  sameTransaction
 } from '../src/shared/neurai-connect.ts';
 
 const T = CONNECT_CHAINS.testnet;
@@ -47,9 +53,50 @@ test('chain identifiers and storage key match the SDK the bundle is built from',
   assert.equal(chainKindOf('bip122:0000009697907b2aa409d4b1f10da0fa'), null, 'the testnet before the reset');
 });
 
-test('the extension asks only for what it uses', () => {
+test('the extension needs messages and asks for transactions as optional', () => {
   assert.deepEqual([...CONNECT_METHODS], ['getAccountAddresses', 'signMessage']);
-  for (const method of CONNECT_METHODS) assert.ok(NEURAI_METHODS.includes(method), method);
+  assert.deepEqual([...CONNECT_OPTIONAL_METHODS], ['signPsbt', 'neurai_getAccountXpub']);
+  for (const method of [...CONNECT_METHODS, 'signPsbt']) assert.ok(NEURAI_METHODS.includes(method), method);
+  const proposal = connectProposalNamespaces(T);
+  assert.deepEqual(proposal.requiredNamespaces.bip122.chains, [T]);
+  assert.deepEqual(proposal.requiredNamespaces.bip122.methods, ['getAccountAddresses', 'signMessage']);
+  assert.deepEqual(proposal.optionalNamespaces.bip122, { chains: [T], methods: ['signPsbt', 'neurai_getAccountXpub'], events: [] });
+});
+
+test('transactions are on when the session settled signPsbt, for secp256k1 families only', () => {
+  const base = { walletType: 'connect', connectMethods: ['getAccountAddresses', 'signMessage', 'signPsbt'] };
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna-test' }), true);
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna-ecdsa-test' }), true);
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna' }), true);
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna-pq-test' }), false, 'a PSBT carries no ML-DSA signature');
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna-test', connectMethods: ['signMessage'] }), false);
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna-test', connectMethods: null }), false);
+  assert.equal(connectSignsTransactions({ ...base, network: 'xna-test', walletType: 'software' }), false);
+  assert.equal(connectSignsTransactions(null), false);
+  assert.deepEqual(sessionMethods({ namespaces: { bip122: { methods: ['signPsbt'] } } }), ['signPsbt']);
+  assert.deepEqual(sessionMethods({}), []);
+});
+
+test('signPsbt params follow the bip122 profile', () => {
+  const change = 'tPXGaMRNwZuV1UKSrD9gABPscrJWUmedQ9';
+  assert.deepEqual(signPsbtParams(T, ADDR.legacyTest, 'cHNidP8=', [{ index: 0, address: ADDR.legacyTest }, { index: 2, address: change }]), {
+    account: `${T}:${ADDR.legacyTest}`,
+    psbt: 'cHNidP8=',
+    signInputs: [
+      { address: ADDR.legacyTest, index: 0, sighashTypes: [1] },
+      { address: change, index: 2, sighashTypes: [1] }
+    ],
+    broadcast: false
+  });
+});
+
+test('a signed transaction is the same one when only unlocking data changed', () => {
+  const unsigned = '02000000' + '01' + '11'.repeat(32) + '00000000' + '00' + 'ffffffff' + '01' + 'a086010000000000' + '19' + '76a914' + '33'.repeat(20) + '88ac' + '00000000';
+  const signed = '02000000' + '01' + '11'.repeat(32) + '00000000' + '02' + 'abcd' + 'ffffffff' + '01' + 'a086010000000000' + '19' + '76a914' + '33'.repeat(20) + '88ac' + '00000000';
+  const otherValue = signed.replace('a086010000000000', 'a186010000000000');
+  assert.equal(sameTransaction(unsigned, signed), true);
+  assert.equal(sameTransaction(unsigned, otherValue), false);
+  assert.equal(sameTransaction(unsigned, 'zz'), false);
 });
 
 test('each address family gets its account label', () => {

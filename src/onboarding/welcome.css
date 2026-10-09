@@ -392,6 +392,10 @@ body::before {
   font-size: 12px;
 }
 
+.connect-xpub-row {
+  align-items: flex-start;
+}
+
 .connect-address {
   font-family: var(--font-mono);
   font-size: 12px;

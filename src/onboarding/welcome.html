@@ -410,6 +410,13 @@
         <select class="form-select connect-address" id="connectAddress"></select>
       </div>
 
+      <!-- Shown when the session settled neurai_getAccountXpub and the address is Legacy or ECDSA. -->
+      <label class="checkbox-row connect-xpub-row hidden" id="connectXpubRow">
+        <input type="checkbox" id="connectXpubCheck" checked>
+        <span>Follow every address of this NeuraiWallet account, receive and change. NeuraiWallet will ask you to share the account public key. With it the extension sees the balance and history of the whole account, but cannot spend from it.</span>
+      </label>
+
+      <p class="connect-status hidden" id="connectReviewStatus"></p>
       <p class="form-error" id="connectReviewError"></p>
 
       <div class="btn-group">

@@ -19,6 +19,8 @@ import {
 } from '../shared/networks.js';
 import { checkedJsonRpc } from '../shared/chain-identity.js';
 import { runWalletMigrations } from '../shared/migrations.js';
+import { connectSignsTransactions, sameTransaction } from '../shared/neurai-connect.js';
+import { walletAddressSet } from '../shared/connect-account.js';
 import type {
   WalletData,
   WalletSettings,
@@ -235,7 +237,9 @@ function startPolling(): void {
   pollingInterval = setInterval(async () => {
     if (walletData && walletData.address) {
       try {
-        const balance = await fetchBalance(walletData.address, walletData.network);
+        // Every address of the account: one, or those found from a shared
+        // NeuraiWallet account key (scanned by the pages, not here).
+        const balance = await fetchBalance(walletAddressSet(walletData), walletData.network);
         chrome.runtime.sendMessage({ type: NEURAI_CONSTANTS.MSG.BALANCE_UPDATE, balance }).catch(() => { });
       } catch (error) {
         console.error('Background polling error:', error);
@@ -251,14 +255,14 @@ function stopPolling(): void {
   }
 }
 
-async function fetchBalance(address: string, network: WalletNetwork | string = 'xna'): Promise<string> {
+async function fetchBalance(addresses: string[], network: WalletNetwork | string = 'xna'): Promise<string> {
   // Refuses a node of another chain first (the testnet before its reset
   // answers like the new one), so a stale balance is never reported.
   const result = await checkedJsonRpc(
     getRpcUrl(network),
     network,
     'getaddressbalance',
-    [{ addresses: [address] }, false],
+    [{ addresses }, false],
     'neurai-wallet-bg'
   ) as { balance: number };
   return (result.balance / 1e8).toFixed(8);
@@ -562,9 +566,33 @@ async function signRawTxForPage(
   await loadWalletSettings();
 
   if (isConnectWallet(walletData)) {
-    // NeuraiWallet answers signPsbt with 4200 today; asking would only make
-    // the phone show an error after the user unlocked it.
-    return { error: 'Neurai Connect accounts cannot sign transactions yet: NeuraiWallet does not support it over Neurai Connect.' };
+    // Only when the session settled signPsbt (and the account is Legacy or
+    // ECDSA witness): otherwise the phone has nothing to sign it with.
+    if (!connectSignsTransactions(walletData)) {
+      return { error: 'This NeuraiWallet account cannot sign transactions over Neurai Connect: the wallet did not enable signPsbt for this session.' };
+    }
+    try {
+      assertSighashSupported(sighashType || 'ALL', 'connect');
+    } catch (err) {
+      if (err instanceof UnsupportedSighashError) return { error: err.message };
+      throw err;
+    }
+    if (!walletData.connectSessionTopic || !walletData.connectChainId) {
+      return { error: 'This Neurai Connect account has no session. Add it again from the onboarding.' };
+    }
+    return requestConnectSignature({
+      type: 'raw_tx',
+      origin: sender?.url ? new URL(sender.url).origin : 'Unknown site',
+      address: walletData.address,
+      network: walletData.network || 'xna',
+      message: '',
+      txHex,
+      utxos: utxos || [],
+      sighashType: sighashType || 'ALL',
+      sessionTopic: walletData.connectSessionTopic,
+      chainId: walletData.connectChainId,
+      peerName: walletData.connectPeerName || null
+    });
   }
 
   const network = walletData?.network || 'xna';
@@ -1229,8 +1257,42 @@ async function resolveConnectSignResult(message: ConnectSignResultMsg): Promise<
   if (!pending) return { error: 'Neurai Connect sign request not found or expired' };
   const { payload } = pending;
 
-  if (message.error || !message.signature) {
-    finalizeConnectSignRequest(message.requestId, { error: message.error || 'NeuraiWallet returned no signature' });
+  if (message.error) {
+    finalizeConnectSignRequest(message.requestId, { error: message.error });
+    return { success: true };
+  }
+
+  if (payload.type === 'raw_tx') {
+    // The window already checked it; check again here, where the result is
+    // handed to the site.
+    const signedTxHex = String(message.signedTxHex || '');
+    if (!signedTxHex || !sameTransaction(payload.txHex || '', signedTxHex)) {
+      finalizeConnectSignRequest(message.requestId, {
+        error: 'NeuraiWallet returned a different transaction from the one sent for signing'
+      });
+      return { success: true };
+    }
+    const txResult: HwRawTxSignResult = {
+      success: true,
+      signedTxHex,
+      complete: isTxComplete(signedTxHex),
+      address: payload.address
+    };
+    finalizeConnectSignRequest(message.requestId, txResult);
+    saveHwSignHistory(txResult, {
+      type: 'raw_tx',
+      origin: payload.origin,
+      address: payload.address,
+      network: payload.network,
+      txHex: payload.txHex,
+      utxos: payload.utxos,
+      sighashType: payload.sighashType
+    }).catch((err) => console.error('Failed to save Neurai Connect sign history:', err));
+    return { success: true };
+  }
+
+  if (!message.signature) {
+    finalizeConnectSignRequest(message.requestId, { error: 'NeuraiWallet returned no signature' });
     return { success: true };
   }
 

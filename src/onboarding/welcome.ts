@@ -12,17 +12,28 @@ import {
 } from '../shared/networks.js';
 import { runWalletMigrations } from '../shared/migrations.js';
 import {
-  CONNECT_METHODS,
   connectChainFor,
+  connectProposalNamespaces,
   closeConnectClient,
   describeConnectError,
   getConnectClient,
   networkForConnectAddress,
   sessionAddresses,
+  sessionMethods,
+  CONNECT_XPUB_METHOD,
   type ConnectAddressEntry
 } from '../shared/neurai-connect.js';
+import {
+  discoverAddresses,
+  parseAccountXpubAnswer,
+  rpcUsedAddressCheck,
+  runtimeAddressDeriver,
+  type ConnectAccountXpub,
+  type ConnectAddressCache
+} from '../shared/connect-account.js';
+import { checkedJsonRpc } from '../shared/chain-identity.js';
 import { renderQr } from '../shared/qr.js';
-import { networkLabel } from '../shared/networks.js';
+import { isTestnetNetwork, networkLabel, walletFamily } from '../shared/networks.js';
 import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
 (function () {
@@ -86,6 +97,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     connectInfoNetwork: document.getElementById('connectInfoNetwork'),
     connectInfoExpiry: document.getElementById('connectInfoExpiry'),
     connectAddress: document.getElementById('connectAddress') as HTMLSelectElement | null,
+    connectXpubRow: document.getElementById('connectXpubRow'),
+    connectXpubCheck: document.getElementById('connectXpubCheck') as HTMLInputElement | null,
+    connectReviewStatus: document.getElementById('connectReviewStatus'),
     connectReviewError: document.getElementById('connectReviewError'),
     connectReviewBackBtn: document.getElementById('connectReviewBackBtn'),
     connectAddBtn: document.getElementById('connectAddBtn') as HTMLButtonElement | null,
@@ -257,6 +271,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     connectSessionTopic?: string | null;
     connectChainId?: string | null;
     connectPeerName?: string | null;
+    connectMethods?: string[] | null;
+    connectXpub?: ConnectAccountXpub | null;
+    connectAddresses?: ConnectAddressCache | null;
   }
 
   var currentStep = 1;
@@ -948,7 +965,7 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
 
     try {
       var client = await getConnectClient(C.RELAY_URL, C.CONNECT_STORAGE_PREFIX);
-      var started = await client.connect({ chains: [chainId], methods: [...CONNECT_METHODS], signal: abort.signal });
+      var started = await client.connect({ ...connectProposalNamespaces(chainId), signal: abort.signal });
       if (abort.signal.aborted) return;
       connectUri = started.uri;
       el.connectQrBox!.classList.remove('hidden');
@@ -999,6 +1016,40 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
     if (!connectPending) return;
     var network = networkForConnectAddress(el.connectAddress!.value, connectPending.chainId);
     el.connectInfoNetwork!.textContent = network ? networkLabel(network) : '--';
+    // The account key exists for Legacy and ECDSA accounts, when the wallet offers it.
+    var family = network ? walletFamily(network) : null;
+    var canFollow = sessionMethods(connectPending.session).includes(CONNECT_XPUB_METHOD) && (family === 'legacy' || family === 'ecdsa');
+    el.connectXpubRow!.classList.toggle('hidden', !canFollow);
+  }
+
+  /**
+   * Ask the phone for the account key, check it belongs to `address`, and scan
+   * the account. Throws when the wallet refuses or the key does not fit.
+   */
+  async function fetchConnectAccount(
+    pending: { session: NeuraiConnectSession; chainId: string },
+    address: string,
+    network: string
+  ): Promise<{ xpub: ConnectAccountXpub; addresses: ConnectAddressCache }> {
+    var client = await getConnectClient(C.RELAY_URL, C.CONNECT_STORAGE_PREFIX);
+    el.connectReviewStatus!.textContent = 'Approve sharing the account public key in NeuraiWallet on your phone…';
+    el.connectReviewStatus!.classList.remove('hidden');
+    var answer = await client.request(pending.session.topic, pending.chainId, CONNECT_XPUB_METHOD, {
+      account: pending.chainId + ':' + address
+    });
+    var xpub = parseAccountXpubAnswer(answer, network);
+
+    el.connectReviewStatus!.textContent = 'Looking for the addresses of the account…';
+    var settings = existingSettings || C.DEFAULT_SETTINGS;
+    var url = isTestnetNetwork(network) ? (settings.rpcTestnet || C.RPC_URL_TESTNET) : (settings.rpcMainnet || C.RPC_URL);
+    var derive = runtimeAddressDeriver(xpub, network);
+    var found = await discoverAddresses(derive, rpcUsedAddressCheck(function (method, params) {
+      return checkedJsonRpc(url, network, method, params, 'neurai-wallet-scan');
+    }));
+    if (!found.derived.has(address)) {
+      throw new Error('The account key NeuraiWallet sent does not derive ' + address + '.');
+    }
+    return { xpub: xpub, addresses: { receive: found.receive, change: found.change, scannedAt: Date.now() } };
   }
 
   // Phase 2: the user picked the address; store the account. No key is
@@ -1016,6 +1067,24 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       return;
     }
 
+    var account: { xpub: ConnectAccountXpub; addresses: ConnectAddressCache } | null = null;
+    if (!el.connectXpubRow!.classList.contains('hidden') && el.connectXpubCheck!.checked) {
+      el.connectAddBtn!.disabled = true;
+      try {
+        account = await fetchConnectAccount(pending, entry.address, network);
+      } catch (err) {
+        // Not fatal: the account works with its one address. Untick the box so
+        // pressing Add again saves it that way.
+        el.connectXpubCheck!.checked = false;
+        el.connectReviewError!.textContent = 'Could not follow the whole account: ' + describeConnectError(err) +
+          ' Press Add to add only ' + entry.address + '.';
+        return;
+      } finally {
+        el.connectAddBtn!.disabled = false;
+        el.connectReviewStatus!.classList.add('hidden');
+      }
+    }
+
     walletResult = {
       address: entry.address,
       publicKey: entry.publicKey || '',
@@ -1027,7 +1096,10 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       walletType: 'connect',
       connectSessionTopic: pending.session.topic,
       connectChainId: pending.chainId,
-      connectPeerName: pending.session.peerMetadata?.name || null
+      connectPeerName: pending.session.peerMetadata?.name || null,
+      connectMethods: sessionMethods(pending.session),
+      connectXpub: account ? account.xpub : null,
+      connectAddresses: account ? account.addresses : null
     };
 
     showLoading('Saving wallet...');
@@ -1092,6 +1164,9 @@ import type { WalletSettings, AccountsRecord } from '../types/index.js';
       connectSessionTopic: walletResult!.connectSessionTopic || null,
       connectChainId: walletResult!.connectChainId || null,
       connectPeerName: walletResult!.connectPeerName || null,
+      connectMethods: walletResult!.connectMethods || null,
+      connectXpub: walletResult!.connectXpub || null,
+      connectAddresses: walletResult!.connectAddresses || null,
       network: walletResult!.network,
       history: []
     };

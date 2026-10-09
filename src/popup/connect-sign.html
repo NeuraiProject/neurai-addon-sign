@@ -77,7 +77,7 @@
         </span>
         <h1>NeuraiWallet Signing</h1>
       </div>
-      <span class="sign-badge sign-badge--msg">Message</span>
+      <span class="sign-badge sign-badge--msg" id="signTypeBadge">Message</span>
       <p>Approve this request in the NeuraiWallet app on your phone.</p>
     </header>
 
@@ -101,7 +101,7 @@
     </section>
 
     <section class="card">
-      <h2>Message to sign</h2>
+      <h2 id="messageCardTitle">Message to sign</h2>
       <pre id="messageValue">--</pre>
     </section>
 
@@ -125,6 +125,7 @@
   </main>
 
   <script src="../lib/NeuraiMessage.js"></script>
+  <script src="../lib/NeuraiSignESP32.js"></script>
   <script src="../lib/NeuraiConnect.js"></script>
   <script type="module" src="connect-sign.js"></script>
 </body>

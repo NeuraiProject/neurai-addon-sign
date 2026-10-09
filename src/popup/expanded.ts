@@ -24,7 +24,14 @@ import {
 } from '../shared/networks.js';
 import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
 import { runWalletMigrations } from '../shared/migrations.js';
-import { clearConnectStorage, closeConnectClient, getConnectClient, readStoredConnectSession } from '../shared/neurai-connect.js';
+import {
+  clearConnectStorage,
+  closeConnectClient,
+  connectSignsTransactions,
+  getConnectClient,
+  readStoredConnectSession
+} from '../shared/neurai-connect.js';
+import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
 import { elem, option } from '../shared/dom.js';
 import {
   formatAmountParts,
@@ -787,6 +794,30 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     updateChangeAccountButton();
   }
 
+  /**
+   * Every address this account watches: its own, or every used address of
+   * the NeuraiWallet account whose key the wallet shared. Change from spends
+   * made here goes back to the first one, the session address.
+   */
+  function ownAddresses(): string[] {
+    const wallet = state.wallet as Record<string, unknown> | null;
+    const set = walletAddressSet(wallet);
+    return set.length > 0 ? set : (wallet?.address ? [String(wallet.address)] : []);
+  }
+
+  /** Rescan a shared NeuraiWallet account (at most once a minute unless forced). */
+  async function refreshOwnAddresses(force = false): Promise<void> {
+    const wallet = state.wallet as Record<string, unknown> | null;
+    if (!wallet || !watchesConnectAccount(wallet)) return;
+    const cache = await refreshConnectAddresses(
+      wallet,
+      buildRpcFn(String(wallet.network || 'xna')),
+      { accounts: C.ACCOUNTS_KEY, activeWallet: C.STORAGE_KEY },
+      force
+    );
+    if (cache && state.wallet) state.wallet = { ...state.wallet, connectAddresses: cache };
+  }
+
   async function refreshBalance() {
     if (isAddonLocked()) {
       openUnlockModal();
@@ -802,20 +833,22 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     applyReaderConfig(state.wallet.network as string || 'xna');
 
     try {
-      const balanceData = await NeuraiReader.getNeuraiBalance(state.wallet.address as string);
+      await refreshOwnAddresses();
+      const addresses = ownAddresses();
+      const balanceData = await NeuraiReader.getNeuraiBalance(addresses);
       const balance = NeuraiReader.formatBalance(balanceData!.balance);
 
       // Mempool/pending query may fail for AuthScript addresses (RPC 500).
       // Isolate so that a mempool error does not prevent the confirmed balance from displaying.
       let pending = '0';
       try {
-        const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(state.wallet.address as string, 'XNA');
+        const pendingDelta = await NeuraiReader.getPendingBalanceFromAddressMempool(addresses, 'XNA');
         pending = NeuraiReader.formatBalance(pendingDelta);
       } catch (_mempoolError) {
         // getaddressmempool not supported for this address type — show 0 pending
       }
 
-      const assetBalance = await NeuraiReader.getAssetBalance(state.wallet.address as string);
+      const assetBalance = await NeuraiReader.getAssetBalance(addresses);
       state.assets = normalizeAssetsFromRpc(assetBalance);
       renderAmount(elements.balanceValue, balance, '0');
       renderAmount(elements.pendingValue, pending, '0');
@@ -870,7 +903,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
 
     try {
-      const deltas = await NeuraiReader.getAddressDeltas(state.wallet.address as string, 'XNA');
+      // Net per transaction over every address: a spend with change to another
+      // address of the account counts only what left it.
+      const deltas = await NeuraiReader.getAddressDeltas(ownAddresses(), 'XNA');
       const movementMap = new Map<string, { txid: string; netSatoshis: number; height: number }>();
       for (const delta of Array.isArray(deltas) ? deltas : []) {
         const txid = (delta as Record<string, unknown>)?.txid as string;
@@ -1132,18 +1167,23 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   /** The tab only exists where the node supports DEPIN. */
-  /** NeuraiWallet over Neurai Connect: it signs messages, not transactions (yet). */
+  /** NeuraiWallet over Neurai Connect: the phone holds the keys. */
   function isConnectAccount(): boolean {
     return (state.wallet as Record<string, unknown> | null)?.walletType === 'connect';
   }
 
+  /** A Neurai Connect account whose wallet cannot sign transactions (no `signPsbt`). */
+  function isMessageOnlyConnectAccount(): boolean {
+    return isConnectAccount() && !connectSignsTransactions(state.wallet as Record<string, unknown>);
+  }
+
   /**
    * Send and Assets build transactions the account would have to sign. A
-   * Neurai Connect account cannot, so the tabs are hidden rather than offered
-   * and failing at the signing step.
+   * Neurai Connect account whose wallet has no `signPsbt` cannot, so the tabs
+   * are hidden rather than offered and failing at the signing step.
    */
   function updateTransactionTabsVisibility(): void {
-    const hide = isConnectAccount();
+    const hide = isMessageOnlyConnectAccount();
     const tabs = elements.portfolioViewTabs;
     let activeHidden = false;
     tabs?.querySelectorAll('.portfolio-view-tab').forEach((btn) => {
@@ -1166,6 +1206,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
     card.classList.remove('hidden');
     elements.connectPeerValue!.textContent = (wallet.connectPeerName as string) || 'NeuraiWallet';
+    const capability = connectSignsTransactions(wallet)
+      ? 'Messages and transactions are signed in NeuraiWallet on your phone.'
+      : 'Messages are signed in NeuraiWallet on your phone. Sending and asset operations are not available: this NeuraiWallet does not sign transactions over Neurai Connect.';
+    const watched = watchesConnectAccount(wallet)
+      ? ` Following ${ownAddresses().length} used address${ownAddresses().length === 1 ? '' : 'es'} of the account, receive and change; change from spends made here goes back to ${String(wallet.address)}.`
+      : '';
+    elements.connectCapabilityText!.textContent = capability + watched;
     elements.connectSessionValue!.textContent = 'Session: checking…';
     readStoredConnectSession(C.CONNECT_STORAGE_PREFIX, String(wallet.connectSessionTopic || ''))
       .then((session) => {
@@ -1179,7 +1226,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   }
 
   function updateDepinTabVisibility(): void {
-    const available = supportsDepin(depinNetwork()) && !isConnectAccount();
+    const available = supportsDepin(depinNetwork()) && !isMessageOnlyConnectAccount();
     elements.depinViewTab?.classList.toggle('hidden', !available);
     if (!available && elements.depinViewTab?.classList.contains('active')) {
       switchPortfolioView('balance');
@@ -1493,13 +1540,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
   async function fetchSendUtxos(
     rpc: (method: string, params: unknown[]) => Promise<unknown>,
-    address: string
+    addresses: string[]
   ): Promise<SendUtxo[]> {
     // getaddressutxos without assetName returns XNA UTXOs only; asset UTXOs
     // need an explicit `assetName: '*'`. Mirrors jswallet's sweep.ts behaviour.
     const [baseRaw, assetRaw] = await Promise.all([
-      rpc('getaddressutxos', [{ addresses: [address] }]).catch(() => []),
-      rpc('getaddressutxos', [{ addresses: [address], assetName: '*' }]).catch(() => []),
+      rpc('getaddressutxos', [{ addresses }]).catch(() => []),
+      rpc('getaddressutxos', [{ addresses, assetName: '*' }]).catch(() => []),
     ]);
     const merged = [
       ...(Array.isArray(baseRaw) ? baseRaw as Array<Record<string, unknown>> : []),
@@ -1519,7 +1566,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         txid,
         outputIndex,
         satoshis,
-        address: String(entry.address || address),
+        address: String(entry.address || addresses[0]),
         assetName: typeof entry.assetName === 'string' ? entry.assetName : undefined,
         script: typeof entry.script === 'string' ? entry.script : undefined,
         height: typeof entry.height === 'number' ? entry.height : undefined,
@@ -1615,7 +1662,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       for (const r of recipients) {
         if (!r.address) throw new Error('Each recipient needs an address.');
-        if (r.address === walletAddress) throw new Error('Cannot send to your own address.');
+        if (r.address === walletAddress || ownAddresses().includes(r.address)) throw new Error('Cannot send to your own address.');
         const obsolete = obsoleteAddressMessage(r.address);
         if (obsolete) throw new Error(obsolete);
         if (!Number.isFinite(r.amount) || r.amount <= 0) {
@@ -1674,7 +1721,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const { network, walletAddress, isAssetMode, assetName, recipients } = params;
     const rpc = buildRpcFn(network);
 
-    const utxos = await fetchSendUtxos(rpc, walletAddress);
+    const utxos = await fetchSendUtxos(rpc, ownAddresses());
     if (utxos.length === 0) throw new Error('No spendable UTXOs at this address.');
 
     const feeRate = await fetchSendFeeRate(rpc);
@@ -1691,7 +1738,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       // local builder (operationType 'TRANSFER'); no node-side createrawtransaction is used.
       const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
-        addresses: [walletAddress],
+        addresses: ownAddresses(),
         changeAddress: walletAddress,
         toAddress: walletAddress,
       });
@@ -2309,6 +2356,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         connectSessionTopic: entry!.connectSessionTopic || null,
         connectChainId: entry!.connectChainId || null,
         connectPeerName: entry!.connectPeerName || null,
+        connectMethods: Array.isArray(entry!.connectMethods) ? entry!.connectMethods : null,
+        connectXpub: entry!.connectXpub || null,
+        connectAddresses: entry!.connectAddresses || null,
         network: entry!.network || 'xna',
         history: Array.isArray(entry!.history) ? entry!.history : []
       };
@@ -2615,6 +2665,15 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (area !== 'local') return;
     if (changes[C.UNLOCK_UNTIL_KEY]) {
       state.unlockUntil = Number(changes[C.UNLOCK_UNTIL_KEY].newValue || 0);
+    }
+    // The signing window can move a Neurai Connect account to a new session
+    // or turn its transactions off (the wallet answered signPsbt with 4200).
+    if (changes[C.ACCOUNTS_KEY] && isConnectAccount()) {
+      loadState().then(() => {
+        updateTransactionTabsVisibility();
+        updateDepinTabVisibility();
+        renderConnectCard();
+      }).catch(() => { });
     }
   });
 
@@ -3848,7 +3907,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const rpc = buildRpcFn(network);
       const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
-        addresses: [address],
+        addresses: ownAddresses(),
         changeAddress: address,
         toAddress: address,
       });
@@ -4138,7 +4197,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
-        addresses: [address],
+        addresses: ownAddresses(),
         changeAddress: address,
         toAddress: address,
       });
@@ -4397,7 +4456,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         if (isLikelyBurnAddress(addr)) {
           badgeClass = 'ca-output-badge--burn';
           badgeLabel = 'Burn';
-        } else if (walletAddress && addr === walletAddress) {
+        } else if (walletAddress && ownAddresses().includes(addr)) {
           badgeClass = 'ca-output-badge--change';
           badgeLabel = 'Change';
         } else {
@@ -4410,7 +4469,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         if (v.transfer) {
           const assetName = Object.keys(v.transfer as Record<string, unknown>)[0] || '';
           const amount = (v.transfer as Record<string, unknown>)[assetName];
-          const isSelf = walletAddress && addr === walletAddress;
+          const isSelf = walletAddress && ownAddresses().includes(addr);
           badgeClass = assetName.endsWith('!') ? 'ca-output-badge--owner' : 'ca-output-badge--asset';
           if (assetName.endsWith('!')) {
             badgeLabel = 'Owner token';
@@ -4705,7 +4764,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   async function signRawTx(rawTx: string, rpcUrl: string): Promise<string> {
     const wallet = state.wallet as Record<string, unknown>;
     if (wallet.walletType === 'connect') {
-      throw new Error('This account is held by NeuraiWallet, which cannot sign transactions over Neurai Connect yet.');
+      return signRawTxWithConnect(rawTx, rpcUrl);
     }
     if (wallet.walletType === 'hardware') {
       if (!hwDevice || !hwDevice.connected) {
@@ -4854,6 +4913,45 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         throw error;
       }
     }
+  }
+
+  /**
+   * NeuraiWallet signs over Neurai Connect: the background opens the signing
+   * window, which sends the transaction as a PSBT. Every input is this
+   * account's (the extension built the transaction from its UTXOs).
+   */
+  async function signRawTxWithConnect(rawTx: string, rpcUrl: string): Promise<string> {
+    const wallet = state.wallet as Record<string, unknown>;
+    if (!connectSignsTransactions(wallet)) {
+      throw new Error('This NeuraiWallet account cannot sign transactions over Neurai Connect.');
+    }
+    const txInputs = parseRawTransactionInputs(rawTx);
+    const enriched = await fetchRawTxForUtxos(txInputs, rpcUrl);
+    // The phone signs each input with the key of the address that owns it,
+    // which with a shared account key can be any of its addresses.
+    const addresses = ownAddresses();
+    const owners = new Map<string, string>();
+    if (addresses.length > 1) {
+      const owned = await fetchSendUtxos(buildRpcFn(String(wallet.network || 'xna')), addresses);
+      for (const utxo of owned) owners.set(`${utxo.txid}:${utxo.outputIndex}`, utxo.address);
+    }
+    const utxos = enriched.map((utxo) => {
+      const prevout = getPrevoutDetailsFromRawTx(utxo.rawTxHex, Number(utxo.vout));
+      if (!prevout) throw new Error(`Unable to load prevout data for ${utxo.txid}:${utxo.vout}`);
+      const address = addresses.length > 1 ? owners.get(`${utxo.txid}:${utxo.vout}`) : addresses[0];
+      if (!address) throw new Error(`Input ${utxo.txid}:${utxo.vout} is not an unspent output of this account.`);
+      return { txid: utxo.txid, vout: Number(utxo.vout), scriptPubKey: prevout.scriptHex, amount: prevout.satoshis / 1e8, address };
+    });
+    const response = await chrome.runtime.sendMessage({
+      type: C.MSG.SIGN_RAW_TX,
+      txHex: rawTx,
+      utxos,
+      sighashType: 'ALL'
+    }) as { success?: boolean; signedTxHex?: string; error?: string } | undefined;
+    if (!response || response.error || !response.signedTxHex) {
+      throw new Error(response?.error || 'NeuraiWallet did not sign the transaction.');
+    }
+    return response.signedTxHex;
   }
 
   // ── Configure Asset panel ───────────────────────────────────────────────────
@@ -5187,7 +5285,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       const rpc = buildRpcFn(network);
       const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
-        addresses: [address],
+        addresses: ownAddresses(),
         changeAddress: address,
         toAddress: address,
       });
@@ -5362,7 +5460,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       const neuraiAssets = await createNeuraiAssetsClient(rpc, {
         network,
-        addresses: [address],
+        addresses: ownAddresses(),
         changeAddress: address,
         toAddress: address
       });

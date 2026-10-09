@@ -6,19 +6,40 @@
 // reaches the extension; the account it stores is the address (and public key,
 // when the wallet shares it), the session topic and the chain.
 //
-// What the session can do is what NeuraiWallet answers today:
-// `getAccountAddresses` and `signMessage`. `sendTransfer` and `signPsbt` are
-// answered with error 4200, so a Neurai Connect account cannot sign
-// transactions yet; the extension does not ask for those methods.
+// Messages are signed with `signMessage`. Transactions are signed with
+// `signPsbt`, which the extension asks for as an OPTIONAL method: a wallet that
+// implements it settles it in the session, and then the extension builds the
+// transaction, sends it as a PSBT and finalizes what comes back. NeuraiWallet
+// does not implement `signPsbt` yet but currently grants every method a site
+// asks for, so a 4200 answer to `signPsbt` also turns the feature off for that
+// account (see connect-sign.ts). `sendTransfer` is not used: the extension
+// builds its own transactions.
 //
 // The pure helpers here are loaded by `node --test`, so this file only imports
-// networks.ts. The client and the storage adapter use the NeuraiConnectSDK and
-// chrome globals at call time only.
+// other import-free modules. The client and the storage adapter use the
+// NeuraiConnectSDK and chrome globals at call time only.
 
-import { addressKind, type WalletNetworkLabel } from './networks.ts';
+import { addressKind, walletFamily, type WalletNetworkLabel } from './networks.ts';
+import { parseRawTransaction } from './parse-raw-tx.ts';
 
-/** Methods the extension asks the wallet for, and nothing more. */
+/** Methods the extension needs from the wallet. */
 export const CONNECT_METHODS: readonly string[] = ['getAccountAddresses', 'signMessage'];
+
+/** Neurai extension: the account extended public key (see connect-account.ts). */
+export const CONNECT_XPUB_METHOD = 'neurai_getAccountXpub';
+
+/** Methods the extension uses when the wallet has them. */
+export const CONNECT_OPTIONAL_METHODS: readonly string[] = ['signPsbt', CONNECT_XPUB_METHOD];
+
+export const CONNECT_EVENTS: readonly string[] = ['bip122_addressesChanged'];
+
+/** `requiredNamespaces` / `optionalNamespaces` of the extension's session proposal. */
+export function connectProposalNamespaces(chainId: string) {
+  return {
+    requiredNamespaces: { bip122: { chains: [chainId], methods: [...CONNECT_METHODS], events: [...CONNECT_EVENTS] } },
+    optionalNamespaces: { bip122: { chains: [chainId], methods: [...CONNECT_OPTIONAL_METHODS], events: [] as string[] } }
+  };
+}
 
 /**
  * CAIP-2 chain identifiers (`bip122:` + first 32 hex characters of the genesis
@@ -105,6 +126,66 @@ export function sessionAddresses(session: SessionLike, chainId: string): Connect
     if (account.startsWith(prefix)) add({ address: account.slice(prefix.length) });
   }
   return [...found.values()];
+}
+
+/** Methods the wallet settled in a session. */
+export function sessionMethods(session: { namespaces?: Record<string, { methods?: string[] } | undefined> } | null | undefined): string[] {
+  return [...(session?.namespaces?.bip122?.methods || [])];
+}
+
+/**
+ * Whether a stored account can sign transactions through its wallet: a Neurai
+ * Connect account whose session settled `signPsbt`, on a family a PSBT can
+ * carry. Legacy P2PKH and ECDSA witness v3 sign with secp256k1 keys; PQ inputs
+ * need ML-DSA signatures, which a PSBT has no field for.
+ */
+export function connectSignsTransactions(
+  wallet: { walletType?: unknown; network?: unknown; connectMethods?: unknown } | null | undefined
+): boolean {
+  if (!wallet || wallet.walletType !== 'connect') return false;
+  const family = walletFamily(String(wallet.network || ''));
+  if (family !== 'legacy' && family !== 'ecdsa') return false;
+  return Array.isArray(wallet.connectMethods) && wallet.connectMethods.includes('signPsbt');
+}
+
+/** SIGHASH_ALL, the only type the extension signs. */
+export const SIGHASH_ALL = 1;
+
+/**
+ * Params of a `signPsbt` request (neurai-walletconnect-spec, methods/signPsbt.json).
+ * The wallet signs only the listed inputs, each from the address that owns
+ * its prevout, all with SIGHASH_ALL, and never broadcasts.
+ *
+ * @param address - The session account
+ * @param inputs - Input index and the address of the account that owns its prevout
+ */
+export function signPsbtParams(chainId: string, address: string, psbt: string, inputs: ReadonlyArray<{ index: number; address: string }>) {
+  return {
+    account: `${chainId}:${address}`,
+    psbt,
+    signInputs: inputs.map((input) => ({ address: input.address, index: input.index, sighashTypes: [SIGHASH_ALL] })),
+    broadcast: false
+  };
+}
+
+/**
+ * True when `signedHex` spends the same outpoints, with the same sequences,
+ * into the same outputs as `unsignedHex`: what a signature may add is the
+ * unlocking data, nothing else.
+ */
+export function sameTransaction(unsignedHex: string, signedHex: string): boolean {
+  try {
+    const a = parseRawTransaction(unsignedHex);
+    const b = parseRawTransaction(signedHex);
+    if (a.inputs.length !== b.inputs.length || a.outputs.length !== b.outputs.length) return false;
+    const inputsMatch = a.inputs.every((input, i) =>
+      input.txid === b.inputs[i].txid && input.vout === b.inputs[i].vout && input.sequence === b.inputs[i].sequence);
+    const outputsMatch = a.outputs.every((output, i) =>
+      output.value === b.outputs[i].value && output.scriptHex === b.outputs[i].scriptHex);
+    return inputsMatch && outputsMatch;
+  } catch {
+    return false;
+  }
 }
 
 /** Params of a `signMessage` session request, as NeuraiWallet reads them. */

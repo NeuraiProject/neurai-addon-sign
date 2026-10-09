@@ -137,13 +137,37 @@ The extension stores the address, its public key (when the wallet shares it) and
 
 | Operation | Neurai Connect account |
 |---|---|
-| Balance, assets and history | Yes, read from the RPC like any other account |
+| Balance, assets and history | Yes, from the RPC. With the account key, over every receive and change address of the account. |
 | `signMessage` from a site | Yes. A window shows the request and NeuraiWallet asks for approval on the phone. The extension checks the returned signature before it hands it to the site. |
 | `verifyMessage`, `getAddress`, `getInfo` | Yes. `getInfo().walletType` is `connect`. |
-| `signRawTransaction`, Send, Assets and DePIN | Not yet. NeuraiWallet answers `signPsbt` and `sendTransfer` with error 4200, so the extension refuses these requests up front and hides those tabs. |
+| `signRawTransaction`, Send, Assets and DePIN | Only when the session settled `signPsbt` and the account is Legacy or ECDSA witness. Otherwise the extension refuses these requests up front and hides those tabs. |
 | Backup | Not applicable: the keys stay in NeuraiWallet. |
 
 A session lasts 7 days, and either side can revoke it. When it has ended, the next signature request shows a new QR code in the signing window. Once the same NeuraiWallet approves it, the account moves to the new session and the request continues. Only one NeuraiWallet signature request can be pending at a time.
+
+### Transactions over Neurai Connect (`signPsbt`)
+
+The session proposal lists `getAccountAddresses` and `signMessage` as required methods, and `signPsbt` and `neurai_getAccountXpub` as optional ones. NeuraiWallet settles an optional method only when the chosen wallet implements it. Legacy and ECDSA witness software wallets implement both. Transactions are turned on for the account only when the session settled `signPsbt`. They stay off for post-quantum accounts, because a PSBT has no field for an ML-DSA-44 signature.
+
+To sign a transaction, the signing window:
+
+1.  Reads every prevout with `getrawtransaction` from the account's RPC, after checking the genesis block, and builds a PSBT that carries each prevout as `nonWitnessUtxo`.
+2.  Sends `signPsbt` with `signInputs` listing only the inputs of this account. Each entry names the address that owns the prevout and uses `sighashTypes: [1]`; `broadcast` is `false`.
+3.  Finalizes the partial signatures that come back. A Legacy input gets a P2PKH scriptSig. An ECDSA witness v3 input gets the witness `[0x02, signature, compressed public key, 0x51]`.
+4.  Restores any input that another signer had already signed, such as the seller's input in a swap. It then checks that the transaction spends the same outpoints, with the same sequences, into the same outputs. The background checks this again before it answers the site.
+
+Before it signs, NeuraiWallet shows every output with its address and asset, what comes back to the wallet, what leaves it and the fee. It signs only its own inputs with SIGHASH_ALL and never broadcasts. A wallet that settles `signPsbt` but answers it with error 4200 has the method removed from the account, and transactions are turned off until a new session settles it.
+
+### Following the whole NeuraiWallet account (`neurai_getAccountXpub`)
+
+NeuraiWallet uses a new receive address per payment and a new change address per spend, so one address is not the whole account. When the session offers `neurai_getAccountXpub`, the review step shows **Follow every address of this NeuraiWallet account**, which is ticked by default. On **Add**, NeuraiWallet asks the user to share the account extended public key: `m/44'/coin'/0'` for Legacy, `m/84'/coin'/0'` for ECDSA witness, never the master key. With it, the extension:
+
+*   Checks that the key fits the account. The family, path and chain must match, and the session address must be one of its children.
+*   Derives the receive (`0/i`) and change (`1/i`) addresses and finds the used ones with a gap limit of 20 (`getaddressdeltas` and `getaddressmempool`). The scan runs again when the balance is refreshed, at most once a minute (`src/shared/connect-account.ts`).
+*   Shows the balance, assets and history of every used address, and spends their UTXOs. NeuraiWallet signs each input with the key of its own address.
+*   Sends change from spends made in the extension back to the session address. The extension does not hand out new addresses.
+
+The key reveals the balance and history of the whole account but cannot spend. If the user refuses on the phone, the account is added with its one address.
 
 ## Related Packages
 

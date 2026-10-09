@@ -2,7 +2,8 @@
 //
 // Unlike the other libraries, @neuraiproject/neurai-connect ships no global
 // bundle: it is ESM with dependencies (connect-core, @noble/*, @scure/base),
-// and the QR code comes from `qrcode`. esbuild packs them into one IIFE that
+// the QR code comes from `qrcode`, and `@scure/bip32` derives the addresses of
+// an account whose extended public key NeuraiWallet shared. esbuild packs them into one IIFE that
 // sets `globalThis.NeuraiConnectSDK`. The build is deterministic for a given
 // set of installed versions, so verify-libs.js rebuilds it in memory and
 // compares bytes, exactly as it does for the copied bundles.
@@ -13,7 +14,7 @@ const ROOT = __dirname;
 const FILE_NAME = 'NeuraiConnect.js';
 
 /** The packages the bundle is made of; verify-libs checks their declared ranges. */
-const PACKAGES = ['@neuraiproject/neurai-connect', '@neuraiproject/neurai-connect-core', 'qrcode'];
+const PACKAGES = ['@neuraiproject/neurai-connect', '@neuraiproject/neurai-connect-core', 'qrcode', '@scure/bip32'];
 
 const ENTRY = `
 export { NeuraiConnect, RpcError, NeuraiRpcError } from '@neuraiproject/neurai-connect';
@@ -23,6 +24,7 @@ export {
   addressKind,
   isExpired
 } from '@neuraiproject/neurai-connect-core';
+export { HDKey } from '@scure/bip32';
 import QRCode from 'qrcode';
 /** QR module matrix: { modules: { size, get(row, col) } }. */
 export function createQr(text, options) { return QRCode.create(text, options); }

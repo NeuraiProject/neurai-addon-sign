@@ -102,6 +102,12 @@ export interface WalletData {
   connectChainId?: string | null;
   /** Neurai Connect accounts: name the wallet app reported */
   connectPeerName?: string | null;
+  /** Neurai Connect accounts: methods the wallet settled (`signPsbt` enables transactions) */
+  connectMethods?: string[] | null;
+  /** Neurai Connect accounts: account extended public key the wallet shared, if any */
+  connectXpub?: { xpub: string; path: string; addressType: 'legacy' | 'ecdsa' } | null;
+  /** Neurai Connect accounts: used receive and change addresses found from `connectXpub` */
+  connectAddresses?: { receive: string[]; change: string[]; scannedAt: number } | null;
   history?: HistoryEntry[];
 }
 
@@ -132,6 +138,8 @@ export interface Utxo {
   vout: number;
   scriptPubKey: string;
   amount: number;
+  /** Address the prevout pays, when the caller knows it (Neurai Connect accounts with several addresses). */
+  address?: string;
   /** Optional hint for non-standard prevouts. Passed through to the library. */
   bareScriptHint?: BareScriptSigningHint;
 }
@@ -233,11 +241,17 @@ export interface HwSignPayload {
 
 /** Payload stored for a pending Neurai Connect message signature */
 export interface ConnectSignPayload {
-  type: 'message';
+  type: 'message' | 'raw_tx';
   origin: string;
   address: string;
   network: WalletNetwork | string;
+  /** type === 'message' */
   message: string;
+  /** type === 'raw_tx': unsigned (or partially signed) transaction */
+  txHex?: string;
+  /** type === 'raw_tx': the inputs this account signs */
+  utxos?: Utxo[];
+  sighashType?: string;
   sessionTopic: string;
   chainId: string;
   peerName: string | null;
@@ -309,7 +323,7 @@ export interface SignRequestDecisionMsg   { type: 'SIGN_REQUEST_DECISION';   req
 export interface HwSignResultMsg          { type: 'HW_SIGN_RESULT';          requestId: string; error?: string; signature?: string; address?: string; signedTxHex?: string; complete?: boolean }
 export interface HwExecuteSignRequestMsg  { type: 'HW_EXECUTE_SIGN_REQUEST'; requestId: string }
 export interface ConnectGetSignRequestMsg { type: 'CONNECT_GET_SIGN_REQUEST'; requestId: string }
-export interface ConnectSignResultMsg     { type: 'CONNECT_SIGN_RESULT';     requestId: string; error?: string; signature?: string; address?: string }
+export interface ConnectSignResultMsg     { type: 'CONNECT_SIGN_RESULT';     requestId: string; error?: string; signature?: string; address?: string; signedTxHex?: string }
 export interface VerifyOwnershipMsg       { type: 'VERIFY_OWNERSHIP';        address: string; message: string; signature: string }
 export interface WalletUpdatedMsg         { type: 'WALLET_UPDATED' }
 export interface SettingsUpdatedMsg       { type: 'SETTINGS_UPDATED' }
