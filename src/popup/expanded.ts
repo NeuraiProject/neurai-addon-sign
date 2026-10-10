@@ -1430,8 +1430,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (!asset.owned) {
       elements.depinSendPromptCard!.classList.remove('hidden');
       elements.depinSendPrompt!.textContent =
-        `You hold ${asset.name} but not its owner token, so you cannot move it. ` +
-        `Only the owner can — you can renounce it under Manage.`;
+        `You hold ${asset.name} but not its owner token, so only the owner can move it. ` +
+        `You can renounce it under Manage.`;
     }
   }
 
@@ -1645,8 +1645,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const available = rows.filter(r => r.selectable).length;
     const blocked = depinHolders.filter(h => h.valid !== 1).length;
     hint.textContent =
-      `${depinHolders.length} device${depinHolders.length === 1 ? '' : 's'}, ` +
-      `${blocked} blocked — ${available} available to ${depinMode === 'FREEZE' ? 'block' : 'unblock'}.`;
+      `${depinHolders.length} device${depinHolders.length === 1 ? '' : 's'}: ` +
+      `${blocked} blocked, ${available} available to ${depinMode === 'FREEZE' ? 'block' : 'unblock'}.`;
     elements.depinSelectAll!.disabled = available === 0;
   }
 
@@ -1665,7 +1665,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
 
       const select = elements.depinParentSelect!;
       const previous = select.value;
-      select.innerHTML = '<option value="">-- Root asset (no parent) --</option>';
+      select.innerHTML = '<option value="">Root asset (no parent)</option>';
       for (const parent of manageableDepinParents(balances)) {
         const opt = document.createElement('option');
         opt.value = parent;
@@ -1696,7 +1696,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function updateDepinCreateHints(): void {
     const parent = elements.depinParentSelect!.value;
     elements.depinParentHint!.textContent = parent
-      ? `Spends and returns ${parent}! — the immediate parent's owner token`
+      ? `Spends and returns ${parent}!, the owner token of the parent`
       : 'A sub-asset spends and returns its parent\'s owner token';
     elements.depinNewName!.placeholder = parent ? 'SENSOR' : '&FLEET';
     const full = depinNameToCreate();
@@ -5856,7 +5856,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const amount = Number(elements.depinMintAmount!.value);
     if (!Number.isInteger(amount) || amount <= 0) {
       elements.depinMintError!.textContent =
-        'Amount must be a whole number greater than 0 — DePIN assets have no decimals.';
+        'Amount must be a whole number greater than 0. DePIN assets have no decimals.';
       elements.depinMintError!.classList.remove('hidden');
       return;
     }

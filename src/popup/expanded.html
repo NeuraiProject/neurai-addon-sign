@@ -532,13 +532,13 @@
 
               <div class="create-asset-side-note">
                 <p class="panel-label">Soulbound</p>
-                <p>A DePIN asset cannot be moved by whoever holds it — only by the owner. A holder can always renounce its own.</p>
+                <p>Only the owner can move a DePIN asset, unless the owner opens its transfers. A holder can always renounce its own.</p>
               </div>
             </div>
 
             <div class="create-asset-body">
               <p class="depin-result hidden" id="depinResult">
-                Broadcast — <code id="depinTxid"></code>
+                Transaction sent: <code id="depinTxid"></code>
                 <a class="depin-explorer-link hidden" id="depinTxExplorerLink" target="_blank" rel="noopener">View in explorer</a>
               </p>
 
@@ -561,7 +561,7 @@
                   <div class="form-group">
                     <label for="depinParentSelect">Parent</label>
                     <select id="depinParentSelect">
-                      <option value="">-- Root asset (no parent) --</option>
+                      <option value="">Root asset (no parent)</option>
                     </select>
                     <span class="form-hint" id="depinParentHint">
                       A sub-asset spends and returns its parent's owner token
