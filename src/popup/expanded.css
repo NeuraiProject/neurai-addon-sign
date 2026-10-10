@@ -1365,101 +1365,386 @@ textarea::placeholder {
   flex-shrink: 0;
 }
 
-.settings-grid {
+/* ── Settings ─────────────────────────────────────────────────────────────
+ * The web wallet's settings: one card per subject, a short line under each
+ * title, rows of "what it is" on the left and the control on the right. */
+.settings-panel--wide {
+  width: min(960px, 100%);
+  max-height: calc(100vh - 40px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.settings-panel--wide > .settings-panel-head {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-subtitle {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.settings-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 14px;
+  gap: 16px;
+  align-items: start;
+  padding: 18px 24px;
+  overflow-y: auto;
+  background: var(--bg-base);
 }
 
-.settings-grid--compact {
-  align-items: end;
-  gap: 14px;
-}
-
-.settings-network-grid {
+.settings-column {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
+  min-width: 0;
 }
 
-.settings-network-card {
+.settings-card {
   display: grid;
-  align-content: start;
   gap: 14px;
-  padding: 16px;
+  padding: 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg-input);
+  background: var(--bg-card);
+  box-shadow: var(--nx-shadow-soft);
+  min-width: 0;
 }
 
-.settings-network-card h3 {
+.settings-card-head {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-card-head h3 {
   margin: 0;
   font-size: 15px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
-.settings-network-card .form-group {
-  margin-bottom: 0;
+.settings-card-head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
-.settings-section {
-  display: grid;
-  gap: 14px;
-  padding-top: 6px;
+/* "What it is" on the left, the control on the right */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 
-.settings-section-title {
-  margin: 0;
-  font-size: 18px !important;
+.settings-card-head + .settings-row,
+.settings-card-head + input + .settings-row {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-row-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-row-copy strong,
+.settings-row-copy label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-row-copy span:not(.settings-status-pill) {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.settings-row > .btn {
+  flex-shrink: 0;
+}
+
+.settings-danger-row {
+  margin: 2px -18px -18px;
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--nx-bad-line);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--nx-bad-soft);
+}
+
+.settings-danger-row .settings-row-copy strong {
+  color: var(--nx-bad);
+}
+
+/* A number with its unit */
+.input-suffix {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.input-suffix:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--nx-ring);
+}
+
+.input-suffix input[type="number"] {
+  width: 76px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: right;
+}
+
+.input-suffix input[type="number"]:focus {
+  box-shadow: none;
+}
+
+.input-suffix span {
+  padding: 0 12px 0 2px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* The wallet's segmented control, with an icon per option */
+.settings-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--nx-radius-sel);
+  background: var(--bg-base);
+}
+
+.settings-segmented button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-segmented button:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.settings-segmented button.active,
+.settings-segmented button.active:hover {
+  background: var(--bg-card);
+  color: var(--nx-link);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme="dark"] .settings-segmented button.active {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+.settings-segmented button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 .settings-status-pill {
   display: inline-flex;
   width: fit-content;
   align-items: center;
-  padding: 8px 12px;
+  padding: 1px 8px;
   border-radius: 999px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  background: var(--bg-muted);
   color: var(--text-secondary);
+  font-size: 11px;
   font-weight: 700;
-  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .settings-status-pill.active {
-  color: var(--success);
-  border-color: transparent;
+  color: var(--nx-ok);
   background: var(--nx-ok-soft);
 }
 
-.settings-pin-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px;
+/* One block per chain inside "Nodes and explorers" */
+.settings-network {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   background: var(--bg-input);
 }
 
-.settings-pin-card p {
-  margin: 0;
-  color: var(--text-secondary);
+.settings-network .form-group {
+  margin-bottom: 0;
+  gap: 6px;
 }
 
-.settings-pin-card .btn {
+.settings-network input[type="url"] {
+  background: var(--bg-card);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.settings-network-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-network-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.network-pill-dot--test {
+  background: var(--nx-primary);
+}
+
+.settings-active-chip {
+  border-color: var(--nx-primary-line);
+  background: var(--primary-soft);
+  color: var(--nx-link);
+}
+
+.settings-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+}
+
+.settings-test-row .btn {
   flex-shrink: 0;
 }
 
-.settings-danger {
-  border-top-color: var(--nx-bad-line);
+.settings-test-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
-.settings-danger-actions {
+.settings-test-status[data-tone="ok"] {
+  color: var(--nx-ok);
+}
+
+.settings-test-status[data-tone="warn"] {
+  color: var(--nx-warn);
+}
+
+.settings-test-status[data-tone="bad"] {
+  color: var(--nx-bad);
+}
+
+.settings-test-status[data-tone="ok"]::before,
+.settings-test-status[data-tone="warn"]::before,
+.settings-test-status[data-tone="bad"]::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+
+.settings-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.settings-facts div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-facts dt {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.settings-facts dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.settings-links {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-links a {
+  color: var(--nx-link);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settings-links a:hover {
+  text-decoration: underline;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.settings-footer .settings-feedback {
+  flex: 1;
+  padding: 8px 12px;
+}
+
+.settings-footer .settings-actions .btn {
+  flex: 0 0 auto;
+  min-width: 132px;
 }
 
 .settings-feedback {
@@ -1566,7 +1851,8 @@ textarea::placeholder {
 @media (max-width: 980px) {
   .hero-grid,
   .portfolio-grid,
-  .dashboard-grid {
+  .dashboard-grid,
+  .settings-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1622,8 +1908,22 @@ textarea::placeholder {
     flex-direction: column;
   }
 
-  .settings-grid {
+  .settings-layout {
+    padding: 14px;
+  }
+
+  .settings-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-facts {
     grid-template-columns: 1fr;
+  }
+
+  .settings-footer {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .receive-body {
@@ -1667,12 +1967,6 @@ textarea::placeholder {
     padding: 18px;
   }
 
-  .settings-network-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-danger-actions,
-  .settings-pin-card,
   .backup-wif-row {
     flex-direction: column;
     align-items: stretch;

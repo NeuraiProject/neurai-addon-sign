@@ -44,7 +44,9 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     confirmRemoveBtn: document.getElementById('confirmRemoveBtn')!,
     cancelRemoveBtn: document.getElementById('cancelRemoveBtn')!,
     removeConfirmText: document.getElementById('removeConfirmText')!,
-    themeMode: document.getElementById('themeMode') as HTMLSelectElement | null,
+    themeMode: document.getElementById('themeMode') as HTMLInputElement | null,
+    themeSegmented: document.getElementById('themeSegmented'),
+    openFullSettingsBtn: document.getElementById('openFullSettingsBtn'),
     rpcMainnet: document.getElementById('rpcMainnet') as HTMLInputElement | null,
     rpcTestnet: document.getElementById('rpcTestnet') as HTMLInputElement | null,
     explorerMainnet: document.getElementById('explorerMainnet') as HTMLInputElement | null,
@@ -335,6 +337,13 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     elements.closeAccountModalBtn.addEventListener('click', closeAccountModal);
     elements.saveSettingsBtn.addEventListener('click', handleSaveSettings);
     elements.resetSettingsBtn.addEventListener('click', handleResetSettings);
+    elements.themeSegmented?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-theme-value]') as HTMLElement | null;
+      if (btn) previewTheme(btn.dataset.themeValue as string);
+    });
+    elements.openFullSettingsBtn?.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('popup/expanded.html#settings') });
+    });
 
     elements.openBackupBtn!.addEventListener('click', openBackupModal);
     elements.closeBackupBtn.addEventListener('click', closeBackupModal);
@@ -1314,11 +1323,32 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
   function closeSettingsModal() {
     elements.settingsModal.classList.add('hidden');
+    // A theme picked but not saved was only a preview.
+    NEURAI_UTILS.applyTheme((state.settings || C.DEFAULT_SETTINGS) as Partial<WalletSettings>);
+  }
+
+  /** The theme buttons follow the hidden field the form saves. */
+  function syncThemeSegmented() {
+    const current = elements.themeMode?.value || C.DEFAULT_SETTINGS.theme;
+    elements.themeSegmented?.querySelectorAll<HTMLElement>('[data-theme-value]').forEach((btn) => {
+      const selected = btn.dataset.themeValue === current;
+      btn.classList.toggle('active', selected);
+      btn.setAttribute('aria-checked', String(selected));
+    });
+  }
+
+  /** Show a theme at once; it is kept on Save and undone on close. */
+  function previewTheme(theme: string) {
+    if (!elements.themeMode) return;
+    elements.themeMode.value = theme;
+    syncThemeSegmented();
+    NEURAI_UTILS.applyTheme({ ...state.settings, theme } as Partial<WalletSettings>);
   }
 
   function syncSettingsForm() {
     const s = state.settings || C.DEFAULT_SETTINGS;
     elements.themeMode!.value = s.theme as string || C.DEFAULT_SETTINGS.theme;
+    syncThemeSegmented();
     elements.rpcMainnet!.value = s.rpcMainnet as string || '';
     elements.rpcTestnet!.value = s.rpcTestnet as string || '';
     if (elements.explorerMainnet) elements.explorerMainnet.value = s.explorerMainnet as string || '';
@@ -1329,7 +1359,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
   function syncPinSettingsUI() {
     const hasPin = !!state.settings?.pinHash;
-    elements.pinStatusText.textContent = hasPin ? 'Active' : 'Not configured';
+    elements.pinStatusText.textContent = hasPin ? 'On' : 'Not set';
     elements.pinStatusText.classList.toggle('active', hasPin);
     elements.settingsPinOld!.value = '';
     elements.settingsPinNew!.value = '';

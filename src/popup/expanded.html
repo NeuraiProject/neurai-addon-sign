@@ -714,11 +714,12 @@
   </main>
 
   <div id="settingsModal" class="unlock-modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-    <div class="unlock-panel settings-panel">
+    <div class="unlock-panel settings-panel settings-panel--wide">
       <div class="settings-panel-head">
         <div>
           <p class="eyebrow">Preferences</p>
           <h2 id="settingsTitle">Settings</h2>
+          <p class="settings-subtitle">Appearance, security and the nodes this extension talks to.</p>
         </div>
         <button id="closeSettingsBtn" class="topbar-icon-btn settings-close-btn" type="button" aria-label="Close settings">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -727,81 +728,167 @@
         </button>
       </div>
 
-      <div class="settings-grid settings-grid--compact">
-        <div class="form-group">
-          <label for="themeMode">Theme</label>
-          <select id="themeMode">
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="system">System</option>
-          </select>
+      <div class="settings-layout">
+        <div class="settings-column">
+          <section class="settings-card" aria-labelledby="settingsAppearanceTitle">
+            <div class="settings-card-head">
+              <h3 id="settingsAppearanceTitle">Appearance</h3>
+              <p>Applies to every window of the extension.</p>
+            </div>
+            <input type="hidden" id="themeMode" value="light">
+            <div class="settings-segmented" id="themeSegmented" role="radiogroup" aria-label="Theme">
+              <button type="button" role="radio" aria-checked="false" data-theme-value="light">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 4.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zM7.25 0h1.5v2.5h-1.5zm0 13.5h1.5V16h-1.5zM0 7.25h2.5v1.5H0zm13.5 0H16v1.5h-2.5zM2.1 3.2l1.1-1.1 1.8 1.8-1.1 1.1zm8.8 8.8 1.1-1.1 1.8 1.8-1.1 1.1zM2.1 12.8l1.8-1.8L5 12.1l-1.8 1.8zm8.8-8.8 1.8-1.8 1.1 1.1-1.8 1.8z" />
+                </svg>
+                Light
+              </button>
+              <button type="button" role="radio" aria-checked="false" data-theme-value="dark">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M6.2.6A7.5 7.5 0 1 0 15.4 9.8 6 6 0 0 1 6.2.6z" />
+                </svg>
+                Dark
+              </button>
+              <button type="button" role="radio" aria-checked="false" data-theme-value="system">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M1.5 2h13A1.5 1.5 0 0 1 16 3.5v8a1.5 1.5 0 0 1-1.5 1.5H10v1.5h2V16H4v-1.5h2V13H1.5A1.5 1.5 0 0 1 0 11.5v-8A1.5 1.5 0 0 1 1.5 2zm0 1.5v8h13v-8h-13z" />
+                </svg>
+                System
+              </button>
+            </div>
+          </section>
+
+          <section class="settings-card" aria-labelledby="settingsSecurityTitle">
+            <div class="settings-card-head">
+              <h3 id="settingsSecurityTitle">Security</h3>
+              <p>The PIN encrypts the keys kept in this browser.</p>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <label for="lockTimeoutMinutes">Auto-lock</label>
+                <span>Ask for the PIN again after this long without activity.</span>
+              </div>
+              <div class="input-suffix">
+                <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
+                <span>min</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>Access PIN <span class="settings-status-pill" id="pinStatusPill">--</span></strong>
+                <span>Changing it encrypts every account again with the new PIN.</span>
+              </div>
+              <button class="btn btn-secondary btn-small" id="openChangePinBtn" type="button">Change PIN</button>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>Lock now</strong>
+                <span>Ends this session; the PIN is asked again before anything else.</span>
+              </div>
+              <button class="btn btn-secondary btn-small" id="lockNowSettingsBtn" type="button">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 1a4 4 0 0 1 4 4v2h.5A1.5 1.5 0 0 1 14 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5v-5A1.5 1.5 0 0 1 3.5 7H4V5a4 4 0 0 1 4-4zm0 1.5A2.5 2.5 0 0 0 5.5 5v2h5V5A2.5 2.5 0 0 0 8 2.5z" />
+                </svg>
+                Lock
+              </button>
+            </div>
+          </section>
+
+          <section class="settings-card" aria-labelledby="settingsRecoveryTitle">
+            <div class="settings-card-head">
+              <h3 id="settingsRecoveryTitle">Wallet &amp; recovery</h3>
+              <p>Keep the recovery phrase offline; anyone who has it controls the funds.</p>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>Secret keys</strong>
+                <span id="backupHint">Recovery phrase and private key of the active account. Asks for the PIN.</span>
+              </div>
+              <button class="btn btn-secondary btn-small" id="openBackupBtn" type="button">View</button>
+            </div>
+            <div class="settings-row settings-danger-row">
+              <div class="settings-row-copy">
+                <strong>Remove all data</strong>
+                <span>Deletes every account, key and the PIN from this browser. It cannot be undone.</span>
+              </div>
+              <button class="btn btn-danger btn-small" id="removeWalletBtn" type="button">Remove…</button>
+            </div>
+          </section>
         </div>
 
-        <div class="form-group">
-          <label for="lockTimeoutMinutes">Auto-lock (minutes)</label>
-          <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
+        <div class="settings-column">
+          <section class="settings-card" aria-labelledby="settingsNodesTitle">
+            <div class="settings-card-head">
+              <h3 id="settingsNodesTitle">Nodes and explorers</h3>
+              <p>Leave a field empty to use the default. Before using an RPC, the extension checks that it serves the right chain.</p>
+            </div>
+
+            <div class="settings-network" data-chain="mainnet">
+              <div class="settings-network-head">
+                <span class="settings-network-name"><span class="network-pill-dot"></span>Mainnet</span>
+                <span class="account-chip settings-active-chip hidden">Active account</span>
+              </div>
+              <div class="form-group">
+                <label for="rpcMainnet">RPC URL</label>
+                <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
+              </div>
+              <div class="form-group">
+                <label for="explorerMainnet">Explorer URL</label>
+                <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
+              </div>
+              <div class="settings-test-row">
+                <button class="btn btn-secondary btn-small" type="button" data-test-chain="mainnet">Test connection</button>
+                <p class="settings-test-status" id="rpcMainnetStatus" aria-live="polite"></p>
+              </div>
+            </div>
+
+            <div class="settings-network" data-chain="testnet">
+              <div class="settings-network-head">
+                <span class="settings-network-name"><span class="network-pill-dot network-pill-dot--test"></span>Testnet</span>
+                <span class="account-chip settings-active-chip hidden">Active account</span>
+              </div>
+              <div class="form-group">
+                <label for="rpcTestnet">RPC URL</label>
+                <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet-depin.neurai.org/rpc" spellcheck="false">
+              </div>
+              <div class="form-group">
+                <label for="explorerTestnet">Explorer URL</label>
+                <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
+              </div>
+              <div class="settings-test-row">
+                <button class="btn btn-secondary btn-small" type="button" data-test-chain="testnet">Test connection</button>
+                <p class="settings-test-status" id="rpcTestnetStatus" aria-live="polite"></p>
+              </div>
+            </div>
+
+            <p class="form-hint">An explorer URL takes <code>{txid}</code> where the transaction id goes. A custom RPC host asks for permission once.</p>
+          </section>
+
+          <section class="settings-card" aria-labelledby="settingsAboutTitle">
+            <div class="settings-card-head">
+              <h3 id="settingsAboutTitle">About</h3>
+            </div>
+            <dl class="settings-facts">
+              <div><dt>Version</dt><dd id="aboutVersion">--</dd></div>
+              <div><dt>Accounts</dt><dd id="aboutAccounts">--</dd></div>
+              <div><dt>Active account</dt><dd id="aboutActive">--</dd></div>
+            </dl>
+            <div class="settings-links">
+              <a href="https://neurai.org" target="_blank" rel="noopener noreferrer">neurai.org</a>
+              <a href="https://explorer.neurai.org" target="_blank" rel="noopener noreferrer">Mainnet explorer</a>
+              <a href="https://rebel-explorer-testnet.neurai.org" target="_blank" rel="noopener noreferrer">Testnet explorer</a>
+              <a href="https://github.com/NeuraiProject/neurai-addon-sign" target="_blank" rel="noopener noreferrer">Source code</a>
+            </div>
+          </section>
         </div>
       </div>
 
-      <div class="settings-network-grid">
-        <section class="settings-network-card" aria-labelledby="settingsMainnetTitle">
-          <h3 id="settingsMainnetTitle">Mainnet</h3>
-
-          <div class="form-group">
-            <label for="rpcMainnet">RPC Mainnet URL</label>
-            <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
-          </div>
-
-          <div class="form-group">
-            <label for="explorerMainnet">Explorer Mainnet URL</label>
-            <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
-            <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
-          </div>
-        </section>
-
-        <section class="settings-network-card" aria-labelledby="settingsTestnetTitle">
-          <h3 id="settingsTestnetTitle">Testnet</h3>
-
-          <div class="form-group">
-            <label for="rpcTestnet">RPC Testnet URL</label>
-            <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet-depin.neurai.org/rpc" spellcheck="false">
-          </div>
-
-          <div class="form-group">
-            <label for="explorerTestnet">Explorer Testnet URL</label>
-            <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
-            <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
-          </div>
-        </section>
-      </div>
-
-      <div class="settings-section">
-        <div class="section-intro">
-          <p class="eyebrow">Security</p>
-          <h2 class="settings-section-title">Access PIN</h2>
+      <div class="settings-footer">
+        <p id="settingsFeedback" class="settings-feedback hidden" aria-live="polite"></p>
+        <div class="settings-actions">
+          <button class="btn btn-secondary" id="resetSettingsBtn" type="button">Use defaults</button>
+          <button class="btn btn-primary" id="saveSettingsBtn" type="button">Save settings</button>
         </div>
-        <div class="settings-pin-card">
-          <p>Update the PIN used to unlock the addon and encrypt wallet secrets.</p>
-          <button class="btn btn-secondary" id="openChangePinBtn" type="button">Change PIN</button>
-        </div>
-      </div>
-
-      <div class="settings-section settings-danger">
-        <div class="section-intro">
-          <p class="eyebrow eyebrow-warning">Danger Zone</p>
-          <h2 class="settings-section-title">Sensitive actions</h2>
-        </div>
-        <div class="settings-danger-actions">
-          <button class="btn btn-secondary" id="openBackupBtn" type="button">Backup / View Secret Keys</button>
-          <button class="btn btn-danger" id="removeWalletBtn" type="button">Remove All Data & Reset</button>
-        </div>
-      </div>
-
-      <p id="settingsFeedback" class="settings-feedback hidden" aria-live="polite"></p>
-
-      <div class="settings-actions">
-        <button class="btn btn-secondary" id="resetSettingsBtn" type="button">Use Defaults</button>
-        <button class="btn btn-primary" id="saveSettingsBtn" type="button">Save Settings</button>
       </div>
     </div>
   </div>

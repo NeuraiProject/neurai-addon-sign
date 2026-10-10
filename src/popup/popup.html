@@ -180,73 +180,82 @@
       </div>
 
       <div class="modal-body">
-        <div class="settings-grid">
-          <div class="form-group">
-            <label for="themeMode">Theme</label>
-            <select id="themeMode">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
+        <section class="settings-block">
+          <h3 class="settings-section-title">Appearance</h3>
+          <input type="hidden" id="themeMode" value="light">
+          <div class="settings-segmented" id="themeSegmented" role="radiogroup" aria-label="Theme">
+            <button type="button" role="radio" aria-checked="false" data-theme-value="light">Light</button>
+            <button type="button" role="radio" aria-checked="false" data-theme-value="dark">Dark</button>
+            <button type="button" role="radio" aria-checked="false" data-theme-value="system">System</button>
           </div>
+        </section>
 
+        <section class="settings-block">
+          <h3 class="settings-section-title">Nodes and explorers</h3>
+          <p class="settings-group-name">Mainnet</p>
           <div class="form-group">
-            <label for="rpcMainnet">RPC Mainnet URL</label>
+            <label for="rpcMainnet">RPC URL</label>
             <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
           </div>
-
           <div class="form-group">
-            <label for="rpcTestnet">RPC Testnet URL</label>
+            <label for="explorerMainnet">Explorer URL</label>
+            <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
+          </div>
+          <p class="settings-group-name">Testnet</p>
+          <div class="form-group">
+            <label for="rpcTestnet">RPC URL</label>
             <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet-depin.neurai.org/rpc" spellcheck="false">
           </div>
-
           <div class="form-group">
-            <label for="explorerMainnet">Explorer Mainnet URL</label>
-            <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
-            <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
-          </div>
-
-          <div class="form-group">
-            <label for="explorerTestnet">Explorer Testnet URL</label>
+            <label for="explorerTestnet">Explorer URL</label>
             <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
-            <p class="form-hint">Use <code>{txid}</code> placeholder. Leave empty for the default.</p>
           </div>
+          <p class="form-hint">Leave a field empty to use the default. An explorer URL takes <code>{txid}</code> where the transaction id goes.</p>
+        </section>
 
-          <div class="form-group">
-            <label for="lockTimeoutMinutes">Auto-lock (minutes)</label>
-            <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
+        <section class="settings-block">
+          <h3 class="settings-section-title">Security</h3>
+          <div class="settings-inline-row">
+            <label for="lockTimeoutMinutes">Auto-lock after</label>
+            <div class="input-suffix">
+              <input type="number" id="lockTimeoutMinutes" min="1" max="1440" step="1" placeholder="10">
+              <span>min</span>
+            </div>
           </div>
-        </div>
-
-        <div class="settings-section-title">Security</div>
-        <div class="settings-grid">
-          <div class="form-group">
-            <label>Access PIN</label>
-            <span class="pin-status-text" id="pinStatusText">Not configured</span>
+          <div class="settings-inline-row">
+            <span class="settings-inline-label">Access PIN</span>
+            <span class="pin-status-text" id="pinStatusText">Not set</span>
           </div>
           <div class="form-group">
-            <label for="settingsPinOld">Current PIN <span class="label-hint">(required to change PIN)</span></label>
+            <label for="settingsPinOld">Current PIN <span class="label-hint">(required to change it)</span></label>
             <input type="password" id="settingsPinOld" placeholder="Current PIN" autocomplete="current-password">
           </div>
           <div class="form-group">
-            <label for="settingsPinNew">Set / Change PIN <span class="label-hint">(4–20 chars)</span></label>
+            <label for="settingsPinNew">New PIN <span class="label-hint">(4–20 characters)</span></label>
             <input type="password" id="settingsPinNew" placeholder="New PIN" autocomplete="new-password">
           </div>
           <div class="form-group">
             <label for="settingsPinConfirm">Confirm new PIN</label>
             <input type="password" id="settingsPinConfirm" placeholder="Repeat PIN" autocomplete="new-password">
           </div>
-        </div>
+        </section>
 
-        <div class="settings-danger">
-          <h3>Danger Zone</h3>
-          <button class="btn btn-secondary btn-small" id="openBackupBtn" type="button" style="margin-bottom: 8px;">
+        <section class="settings-block settings-danger">
+          <h3>Wallet &amp; recovery</h3>
+          <button class="btn btn-secondary btn-small" id="openBackupBtn" type="button">
             Backup / View Secret Keys
           </button>
           <button class="btn btn-danger btn-small" id="removeWalletBtn" type="button">
-            Remove All Data & Reset
+            Remove All Data &amp; Reset
           </button>
-        </div>
+        </section>
+
+        <button class="settings-more-link" id="openFullSettingsBtn" type="button">
+          Test the nodes and see more in the full settings
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M5.3 2.3 11 8l-5.7 5.7-1.1-1.1L8.8 8 4.2 3.4z" />
+          </svg>
+        </button>
       </div>
 
       <div class="settings-actions">

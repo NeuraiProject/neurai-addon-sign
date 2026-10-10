@@ -991,18 +991,146 @@ body {
   flex: 1;
 }
 
-.settings-danger {
-  margin-top: 8px;
-  padding-top: 10px;
+/* Settings: one block per subject, an eyebrow on each */
+.settings-block {
+  display: grid;
+  gap: 2px;
+  padding: 12px 0;
   border-top: 1px solid var(--border);
 }
 
-.settings-danger h3 {
-  font-size: 11px;
-  color: var(--warning);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+.settings-block:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-block .form-group {
   margin-bottom: 8px;
+}
+
+.settings-group-name {
+  margin: 6px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.settings-group-name:first-of-type {
+  margin-top: 0;
+}
+
+/* The wallet's segmented control */
+.settings-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-base);
+}
+
+.settings-segmented button {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-segmented button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-segmented button.active,
+.settings-segmented button.active:hover {
+  background: var(--bg-card);
+  color: var(--nx-link);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10), 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.settings-inline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.settings-inline-row label,
+.settings-inline-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* A number with its unit */
+.input-suffix {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--nx-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  overflow: hidden;
+}
+
+.input-suffix:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+.input-suffix input {
+  width: 64px;
+  padding: 7px 4px 7px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: right;
+  outline: none;
+}
+
+.input-suffix span {
+  padding: 0 10px 0 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settings-danger {
+  gap: 8px;
+}
+
+.settings-danger h3 {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--nx-bad);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.settings-more-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nx-link);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settings-more-link:hover {
+  text-decoration: underline;
 }
 
 .account-current {
@@ -1185,21 +1313,24 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--text-muted);
-  padding: 4px 0 8px;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
+  margin-bottom: 8px;
 }
 
 .pin-status-text {
-  font-size: 12px;
+  display: inline-flex;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-hover);
   color: var(--text-secondary);
-  padding: 6px 0;
-  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .pin-status-text.active {
-  color: var(--success);
-  font-weight: 600;
+  background: var(--nx-ok-soft);
+  color: var(--nx-ok);
 }
 
 .form-hint {

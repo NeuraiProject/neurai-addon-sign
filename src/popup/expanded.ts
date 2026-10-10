@@ -90,6 +90,7 @@ import {
 } from './expanded/holder-picker.js';
 import { restrictedCandidates, keepExistingAssets } from './expanded/restricted-assets.js';
 import { addressLines, accountChips, accountTileKind } from './expanded/receive.js';
+import { checkRpcEndpoint, describeRpcCheck, rpcCheckTone } from './expanded/rpc-check.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
 import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
@@ -176,6 +177,14 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (elements.saveChangePinBtn) elements.saveChangePinBtn.addEventListener('click', handleSaveChangedPin);
     if (elements.openBackupBtn) elements.openBackupBtn.addEventListener('click', openBackupModal);
     if (elements.removeWalletBtn) elements.removeWalletBtn.addEventListener('click', openRemoveConfirmModal);
+    elements.themeSegmented?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-theme-value]') as HTMLElement | null;
+      if (btn) previewTheme(btn.dataset.themeValue as Theme);
+    });
+    elements.lockNowSettingsBtn?.addEventListener('click', handleLockNow);
+    document.querySelectorAll<HTMLButtonElement>('[data-test-chain]').forEach((btn) => {
+      btn.addEventListener('click', () => testRpcConnection(btn.dataset.testChain as 'mainnet' | 'testnet', btn));
+    });
     if (elements.settingsModal) {
       elements.settingsModal.addEventListener('click', (e) => {
         if (e.target === elements.settingsModal) closeSettingsModal();
@@ -339,6 +348,12 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     touchUnlockSession(true);
     startAutoRefresh();
 
+    // The popup's "All settings" link lands here with #settings.
+    if (location.hash === '#settings') {
+      history.replaceState(null, '', location.pathname);
+      openSettingsModal();
+    }
+
     const wallet = state.wallet || {};
     if (wallet.walletType === 'hardware') {
       startHwStatusMonitor();
@@ -498,12 +513,15 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   function closeSettingsModal() {
     elements.settingsModal?.classList.add('hidden');
     clearSettingsFeedback();
+    // A theme picked but not saved was only a preview.
+    NEURAI_UTILS.applyTheme(state.settings || C.DEFAULT_SETTINGS);
     if (hasActiveWallet() && !isAddonLocked()) startAutoRefresh();
   }
 
   function syncSettingsForm() {
     const settings = state.settings || C.DEFAULT_SETTINGS;
     if (elements.themeMode) elements.themeMode.value = String(settings.theme || C.DEFAULT_SETTINGS.theme);
+    syncThemeSegmented();
     if (elements.rpcMainnet) elements.rpcMainnet.value = String(settings.rpcMainnet || '');
     if (elements.rpcTestnet) elements.rpcTestnet.value = String(settings.rpcTestnet || '');
     if (elements.explorerMainnet) elements.explorerMainnet.value = String(settings.explorerMainnet || '');
@@ -514,16 +532,122 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       );
     }
     syncPinSettingsUI();
+    syncAboutSettings();
+    clearRpcTestStatus();
   }
 
   function syncPinSettingsUI() {
+    const walletType = state.wallet?.walletType;
+    const keysElsewhere = walletType === 'hardware'
+      ? 'This account signs on the ESP32: its keys never leave the device.'
+      : walletType === 'connect' ? 'This account signs in NeuraiWallet: its keys stay on the phone.' : '';
     if (elements.openBackupBtn) {
-      const walletType = state.wallet?.walletType;
-      elements.openBackupBtn.disabled = walletType === 'hardware' || walletType === 'connect';
-      elements.openBackupBtn.title = walletType === 'hardware'
-        ? 'Hardware wallet secrets stay on the device'
-        : walletType === 'connect' ? 'The keys of this account stay in NeuraiWallet' : '';
+      elements.openBackupBtn.disabled = !!keysElsewhere;
+      elements.openBackupBtn.title = keysElsewhere;
     }
+    if (elements.backupHint) {
+      elements.backupHint.textContent = keysElsewhere
+        || 'Recovery phrase and private key of the active account. Asks for the PIN.';
+    }
+    const pinSet = !!state.settings?.pinHash;
+    if (elements.pinStatusPill) {
+      elements.pinStatusPill.textContent = pinSet ? 'On' : 'Not set';
+      elements.pinStatusPill.classList.toggle('active', pinSet);
+    }
+    if (elements.openChangePinBtn) elements.openChangePinBtn.disabled = !pinSet;
+    if (elements.lockNowSettingsBtn) elements.lockNowSettingsBtn.disabled = !pinSet || !hasActiveWallet();
+  }
+
+  /** The theme buttons follow the hidden field the form saves. */
+  function syncThemeSegmented() {
+    const current = elements.themeMode?.value || C.DEFAULT_SETTINGS.theme;
+    elements.themeSegmented?.querySelectorAll<HTMLElement>('[data-theme-value]').forEach((btn) => {
+      const selected = btn.dataset.themeValue === current;
+      btn.classList.toggle('active', selected);
+      btn.setAttribute('aria-checked', String(selected));
+    });
+  }
+
+  /** Show a theme at once; it is kept on Save and undone on close. */
+  function previewTheme(theme: Theme) {
+    if (!elements.themeMode) return;
+    elements.themeMode.value = theme;
+    syncThemeSegmented();
+    NEURAI_UTILS.applyTheme({ ...state.settings, theme });
+  }
+
+  function syncAboutSettings() {
+    if (elements.aboutVersion) elements.aboutVersion.textContent = chrome.runtime.getManifest().version;
+    if (elements.aboutAccounts) {
+      elements.aboutAccounts.textContent = `${getConfiguredAccountIds().length} of ${C.MAX_ACCOUNTS}`;
+    }
+    const network = state.wallet ? String(state.wallet.network || 'xna') : '';
+    if (elements.aboutActive) {
+      elements.aboutActive.textContent = state.wallet
+        ? `Neurai_${state.activeAccountId} · ${networkLabel(network)}`
+        : 'None';
+    }
+    const activeChain = network ? (isTestnetNetwork(network) ? 'testnet' : 'mainnet') : '';
+    document.querySelectorAll<HTMLElement>('.settings-network').forEach((block) => {
+      block.querySelector('.settings-active-chip')?.classList.toggle('hidden', block.dataset.chain !== activeChain);
+    });
+  }
+
+  function rpcStatusElement(chain: 'mainnet' | 'testnet') {
+    return chain === 'mainnet' ? elements.rpcMainnetStatus : elements.rpcTestnetStatus;
+  }
+
+  function clearRpcTestStatus() {
+    for (const chain of ['mainnet', 'testnet'] as const) {
+      const status = rpcStatusElement(chain);
+      if (!status) continue;
+      status.textContent = '';
+      status.removeAttribute('data-tone');
+    }
+  }
+
+  /**
+   * Ask the RPC typed in the form (or the default) for its genesis block and
+   * height, without saving anything.
+   */
+  async function testRpcConnection(chain: 'mainnet' | 'testnet', button: HTMLButtonElement) {
+    const status = rpcStatusElement(chain);
+    if (!status) return;
+    const input = chain === 'mainnet' ? elements.rpcMainnet : elements.rpcTestnet;
+    const name = chain === 'mainnet' ? 'Mainnet' : 'Testnet';
+    let url: string;
+    try {
+      url = normalizeOptionalUrl(input?.value || '') || (chain === 'mainnet' ? C.RPC_URL : C.RPC_URL_TESTNET);
+      // A custom host needs its permission before the extension can reach it.
+      await ensureRpcPermissions({ ...state.settings, rpcMainnet: chain === 'mainnet' ? url : '', rpcTestnet: chain === 'testnet' ? url : '' });
+    } catch (error) {
+      status.textContent = (error as Error).message;
+      status.dataset.tone = 'bad';
+      return;
+    }
+    button.disabled = true;
+    status.textContent = `Asking ${new URL(url).host}…`;
+    status.dataset.tone = 'busy';
+    const network = chain === 'mainnet' ? 'xna' : 'xna-test';
+    const result = await checkRpcEndpoint(
+      (method, params) => jsonRpc(url, method, params, 'neurai-settings-test'),
+      expectedGenesis(network),
+      { requireAssetMarker: chain === 'testnet' }
+    );
+    button.disabled = false;
+    status.textContent = describeRpcCheck(result, name);
+    status.dataset.tone = rpcCheckTone(result);
+  }
+
+  /** End the session now: the PIN is asked again before anything else. */
+  async function handleLockNow() {
+    if (!state.settings?.pinHash || !hasActiveWallet()) return;
+    state.unlockUntil = 0;
+    await persistSessionPin('');
+    await chrome.storage.local.set({ [C.UNLOCK_UNTIL_KEY]: 0 });
+    closeSettingsModal();
+    stopAutoRefresh();
+    openUnlockModal();
   }
 
   function openChangePinModal() {
