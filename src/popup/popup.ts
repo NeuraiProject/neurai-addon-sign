@@ -14,7 +14,7 @@ import { runWalletMigrations } from '../shared/migrations.js';
 import { clearConnectStorage } from '../shared/neurai-connect.js';
 import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
 import { checkedJsonRpc } from '../shared/chain-identity.js';
-import { elem, option } from '../shared/dom.js';
+import { bindResetButtons, elem, option, syncResetButtons } from '../shared/dom.js';
 import type { EncryptedSecret, WalletSettings } from '../types/index.js';
 
 (function () {
@@ -341,6 +341,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
       const btn = (e.target as HTMLElement).closest('[data-theme-value]') as HTMLElement | null;
       if (btn) previewTheme(btn.dataset.themeValue as string);
     });
+    bindResetButtons(elements.settingsModal);
     elements.openFullSettingsBtn?.addEventListener('click', () => {
       chrome.tabs.create({ url: chrome.runtime.getURL('popup/expanded.html#settings') });
     });
@@ -1353,6 +1354,7 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     elements.rpcTestnet!.value = s.rpcTestnet as string || '';
     if (elements.explorerMainnet) elements.explorerMainnet.value = s.explorerMainnet as string || '';
     if (elements.explorerTestnet) elements.explorerTestnet.value = s.explorerTestnet as string || '';
+    syncResetButtons(elements.settingsModal);
     elements.lockTimeoutMinutes!.value = String(NEURAI_UTILS.normalizeLockTimeoutMinutes(s.lockTimeoutMinutes as number));
     syncPinSettingsUI();
   }

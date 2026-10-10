@@ -33,7 +33,7 @@ import {
   readStoredConnectSession
 } from '../shared/neurai-connect.js';
 import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
-import { elem, option } from '../shared/dom.js';
+import { bindResetButtons, elem, option, syncResetButtons } from '../shared/dom.js';
 import { renderQr } from '../shared/qr.js';
 import {
   formatAmountParts,
@@ -185,6 +185,13 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     document.querySelectorAll<HTMLButtonElement>('[data-test-chain]').forEach((btn) => {
       btn.addEventListener('click', () => testRpcConnection(btn.dataset.testChain as 'mainnet' | 'testnet', btn));
     });
+    // A test result speaks for the URL it tested: another URL makes it stale.
+    const chainOfField = (input: HTMLElement) =>
+      (input.closest('.settings-network') as HTMLElement | null)?.dataset.chain as 'mainnet' | 'testnet' | undefined;
+    if (elements.settingsModal) bindResetButtons(elements.settingsModal, (input) => clearRpcTestStatus(chainOfField(input)));
+    for (const input of [elements.rpcMainnet, elements.rpcTestnet]) {
+      input?.addEventListener('input', () => clearRpcTestStatus(chainOfField(input)));
+    }
     if (elements.settingsModal) {
       elements.settingsModal.addEventListener('click', (e) => {
         if (e.target === elements.settingsModal) closeSettingsModal();
@@ -526,6 +533,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     if (elements.rpcTestnet) elements.rpcTestnet.value = String(settings.rpcTestnet || '');
     if (elements.explorerMainnet) elements.explorerMainnet.value = String(settings.explorerMainnet || '');
     if (elements.explorerTestnet) elements.explorerTestnet.value = String(settings.explorerTestnet || '');
+    if (elements.settingsModal) syncResetButtons(elements.settingsModal);
     if (elements.lockTimeoutMinutes) {
       elements.lockTimeoutMinutes.value = String(
         NEURAI_UTILS.normalizeLockTimeoutMinutes(settings.lockTimeoutMinutes)
@@ -597,8 +605,8 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     return chain === 'mainnet' ? elements.rpcMainnetStatus : elements.rpcTestnetStatus;
   }
 
-  function clearRpcTestStatus() {
-    for (const chain of ['mainnet', 'testnet'] as const) {
+  function clearRpcTestStatus(only?: 'mainnet' | 'testnet') {
+    for (const chain of only ? [only] : ['mainnet', 'testnet'] as const) {
       const status = rpcStatusElement(chain);
       if (!status) continue;
       status.textContent = '';

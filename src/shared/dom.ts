@@ -68,3 +68,40 @@ export function utxoRow(
     )),
   ]);
 }
+
+// ── Restore-default buttons ─────────────────────────────────────────────────
+//
+// A field whose empty value means "use the default" (shown as its placeholder)
+// can carry a restore button, `<button data-reset-for="<input id>">`. The
+// button shows while the field holds a value of its own; pressing it empties
+// the field, so the default applies again once the form is saved.
+
+function syncResetButton(button: HTMLElement): void {
+  const input = document.getElementById(button.dataset.resetFor || '') as HTMLInputElement | null;
+  if (!input) return;
+  button.classList.toggle('hidden', !input.value.trim());
+  if (input.placeholder) button.title = `Restore the default (${input.placeholder})`;
+}
+
+// Show or hide every restore button under `root`. Call it after filling the
+// fields from code: setting `value` fires no input event.
+export function syncResetButtons(root: ParentNode = document): void {
+  root.querySelectorAll<HTMLElement>('[data-reset-for]').forEach(syncResetButton);
+}
+
+// Wire the restore buttons under `root`. `onReset` runs after a field is
+// emptied, with that field.
+export function bindResetButtons(root: ParentNode = document, onReset?: (input: HTMLInputElement) => void): void {
+  root.querySelectorAll<HTMLElement>('[data-reset-for]').forEach((button) => {
+    const input = document.getElementById(button.dataset.resetFor || '') as HTMLInputElement | null;
+    if (!input) return;
+    input.addEventListener('input', () => syncResetButton(button));
+    button.addEventListener('click', () => {
+      input.value = '';
+      syncResetButton(button);
+      input.focus();
+      onReset?.(input);
+    });
+    syncResetButton(button);
+  });
+}

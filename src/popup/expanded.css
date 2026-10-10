@@ -1635,6 +1635,43 @@ textarea::placeholder {
   color: var(--nx-link);
 }
 
+/* A field that falls back to a default, with the button that restores it */
+.input-reset {
+  position: relative;
+}
+
+.input-reset input {
+  padding-right: 40px;
+}
+
+.input-reset-btn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.input-reset-btn:hover {
+  background: var(--bg-muted);
+  color: var(--nx-link);
+}
+
+.input-reset-btn:focus-visible {
+  outline: 2px solid var(--nx-primary);
+  outline-offset: 1px;
+}
+
 .settings-test-row {
   display: flex;
   align-items: center;

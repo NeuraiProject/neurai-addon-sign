@@ -830,11 +830,21 @@
               </div>
               <div class="form-group">
                 <label for="rpcMainnet">RPC URL</label>
-                <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
+                <div class="input-reset">
+                  <input type="url" id="rpcMainnet" placeholder="https://rpc-depin.neurai.org/rpc" spellcheck="false">
+                  <button class="input-reset-btn hidden" type="button" data-reset-for="rpcMainnet" aria-label="Restore the default mainnet RPC URL">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 3a5 5 0 1 1-4.9 6h1.55A3.5 3.5 0 1 0 8 4.5V7L4.5 3.75 8 .5V3z" /></svg>
+                  </button>
+                </div>
               </div>
               <div class="form-group">
                 <label for="explorerMainnet">Explorer URL</label>
-                <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
+                <div class="input-reset">
+                  <input type="url" id="explorerMainnet" placeholder="https://explorer.neurai.org/tx/{txid}" spellcheck="false">
+                  <button class="input-reset-btn hidden" type="button" data-reset-for="explorerMainnet" aria-label="Restore the default mainnet explorer URL">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 3a5 5 0 1 1-4.9 6h1.55A3.5 3.5 0 1 0 8 4.5V7L4.5 3.75 8 .5V3z" /></svg>
+                  </button>
+                </div>
               </div>
               <div class="settings-test-row">
                 <button class="btn btn-secondary btn-small" type="button" data-test-chain="mainnet">Test connection</button>
@@ -849,11 +859,21 @@
               </div>
               <div class="form-group">
                 <label for="rpcTestnet">RPC URL</label>
-                <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet-depin.neurai.org/rpc" spellcheck="false">
+                <div class="input-reset">
+                  <input type="url" id="rpcTestnet" placeholder="https://rpc-testnet-depin.neurai.org/rpc" spellcheck="false">
+                  <button class="input-reset-btn hidden" type="button" data-reset-for="rpcTestnet" aria-label="Restore the default testnet RPC URL">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 3a5 5 0 1 1-4.9 6h1.55A3.5 3.5 0 1 0 8 4.5V7L4.5 3.75 8 .5V3z" /></svg>
+                  </button>
+                </div>
               </div>
               <div class="form-group">
                 <label for="explorerTestnet">Explorer URL</label>
-                <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
+                <div class="input-reset">
+                  <input type="url" id="explorerTestnet" placeholder="https://rebel-explorer-testnet.neurai.org/tx/{txid}" spellcheck="false">
+                  <button class="input-reset-btn hidden" type="button" data-reset-for="explorerTestnet" aria-label="Restore the default testnet explorer URL">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 3a5 5 0 1 1-4.9 6h1.55A3.5 3.5 0 1 0 8 4.5V7L4.5 3.75 8 .5V3z" /></svg>
+                  </button>
+                </div>
               </div>
               <div class="settings-test-row">
                 <button class="btn btn-secondary btn-small" type="button" data-test-chain="testnet">Test connection</button>
