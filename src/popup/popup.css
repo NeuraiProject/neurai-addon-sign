@@ -73,7 +73,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -81,14 +81,16 @@ body {
 .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .logo h1 {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 
 /* The explorer's network pill */
@@ -108,6 +110,58 @@ body {
 
 .network-badge {
   margin-left: auto;
+  min-width: 0;
+  padding: 4px 9px;
+}
+
+/* Last resort when the header is short of room: the label gives way, the
+   dot, the signer and the buttons do not. The full name is in the tooltip. */
+#networkBadgeLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.network-badge .network-dot,
+.network-badge .signer-badge,
+.header-action-btn {
+  flex-shrink: 0;
+}
+
+/* The signer next to the network: Neurai HW or Neurai Connect */
+.signer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 2px;
+  padding-left: 7px;
+  border-left: 1px solid var(--nx-border-strong);
+  color: var(--nx-link);
+  font-weight: 600;
+  cursor: help;
+}
+
+.signer-icon {
+  display: none;
+  flex-shrink: 0;
+}
+
+.signer-badge[data-kind="hardware"] .signer-icon--hardware,
+.signer-badge[data-kind="connect"] .signer-icon--connect {
+  display: block;
+}
+
+.signer-badge[data-state="unknown"] {
+  color: var(--nx-muted);
+}
+
+.signer-badge[data-state="off"] {
+  color: var(--nx-subtle);
+}
+
+.signer-badge[data-state="off"] .signer-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 /* Square icon buttons of the header (the explorer's icon-btn) */
@@ -465,19 +519,6 @@ body {
   gap: 10px;
   padding: 10px 14px;
   border-radius: var(--radius-sm);
-}
-
-.hw-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  color: var(--text-primary);
-  transition: color 0.2s;
-}
-
-.hw-icon.hidden {
-  visibility: hidden;
 }
 
 .status-account-name {

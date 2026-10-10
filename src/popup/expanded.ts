@@ -35,6 +35,7 @@ import {
 import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
 import { bindResetButtons, elem, option, syncResetButtons } from '../shared/dom.js';
 import { renderQr } from '../shared/qr.js';
+import { signerBadge, type SignerBadge } from '../shared/signer-badge.js';
 import {
   formatAmountParts,
   renderAmount,
@@ -89,7 +90,7 @@ import {
   type HolderListing, type FreezeMode
 } from './expanded/holder-picker.js';
 import { restrictedCandidates, keepExistingAssets } from './expanded/restricted-assets.js';
-import { addressLines, accountChips, accountTileKind } from './expanded/receive.js';
+import { addressLines, accountChips } from './expanded/receive.js';
 import { checkRpcEndpoint, describeRpcCheck, rpcCheckTone } from './expanded/rpc-check.js';
 import { state } from './expanded/state.js';
 import { elements } from './expanded/elements.js';
@@ -105,8 +106,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
   let hwStatusInterval: ReturnType<typeof setInterval> | null = null;
   let copyAddressFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
   let copyQrFeedbackTimeout: ReturnType<typeof setTimeout> | null = null;
-  // The address the receive QR was drawn for: a new account redraws it.
-  let qrAddress = '';
+  // What the receive QR was drawn for (address and size): a new account or a
+  // card of another width redraws it.
+  let receiveQrKey = '';
+  const RECEIVE_QR_MAX = 264;
   const PAGE_SIZE = 5;
   const DEBUG_AUTHSCRIPT_SIGN = false;
   const DEBUG_ASSET_OPS = false;
@@ -246,6 +249,10 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       if (e.key === 'Escape' && !elements.addressQrModal?.classList.contains('hidden')) closeAddressQr();
     });
     elements.addressPrivacyBtn?.addEventListener('click', toggleAddressPrivacy);
+    // The card changes width with the window (and from 0 when it first shows).
+    if (elements.receiveQrWrap && 'ResizeObserver' in window) {
+      new ResizeObserver(() => drawReceiveQr()).observe(elements.receiveQrWrap);
+    }
     document.querySelectorAll<HTMLButtonElement>('.hero-actions [data-goto]').forEach((btn) => {
       btn.addEventListener('click', () => {
         switchPortfolioView(btn.dataset.goto!);
@@ -946,8 +953,37 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     elements.accountValue.textContent = 'Neurai_' + state.activeAccountId;
     renderAccountChips();
     renderReceiveAddress(state.wallet.address as string || '');
-    elements.headerSubtitle.classList.toggle('hidden', state.wallet.walletType !== 'hardware');
+    renderSignerBadge();
     updateChangeAccountButton();
+  }
+
+  /**
+   * Next to the network in the header: where an account without keys here
+   * signs (Neurai HW or Neurai Connect), and whether that signer is reachable.
+   */
+  function renderSignerBadge(): void {
+    const wallet = state.wallet as Record<string, unknown> | null;
+    const walletType = wallet?.walletType as string | undefined;
+    paintSignerBadge(signerBadge(walletType, walletType === 'hardware' ? { hwConnected: !!(hwDevice && hwDevice.connected) } : {}));
+    if (walletType !== 'connect') return;
+    readStoredConnectSession(C.CONNECT_STORAGE_PREFIX, String(wallet!.connectSessionTopic || ''))
+      .then((session) => {
+        if (!isConnectAccount()) return;
+        paintSignerBadge(signerBadge('connect', { sessionExpiresAt: session ? session.expiry * 1000 : 0 }));
+      })
+      .catch(() => { });
+  }
+
+  function paintSignerBadge(badge: SignerBadge | null): void {
+    const el = elements.signerBadge;
+    if (!el) return;
+    el.classList.toggle('hidden', !badge);
+    if (!badge) return;
+    el.dataset.kind = badge.kind;
+    el.dataset.state = badge.state;
+    el.title = badge.title;
+    el.setAttribute('aria-label', badge.title);
+    if (elements.signerLabel) elements.signerLabel.textContent = badge.label;
   }
 
   /** Family, wallet type and, for a followed NeuraiWallet account, its address count. */
@@ -958,12 +994,14 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     const followed = watchesConnectAccount(wallet) ? ownAddresses().length : 0;
     const chips = accountChips(walletFamily(wallet.network as string), walletType, followed);
     elements.accountChips?.replaceChildren(...chips.map((label) => elem('span', { class: 'account-chip' }, label)));
-    elements.accountTile?.setAttribute('data-kind', accountTileKind(walletType));
   }
 
-  /** The address in a few lines next to its QR code, as in the web wallet. */
+  /**
+   * The QR filling the card, and the address under it: on one line when it
+   * fits, in two halves when it does not.
+   */
   function renderReceiveAddress(address: string): void {
-    const lines = addressLines(address);
+    const lines = addressLines(address, 2);
     if (lines.length) {
       elements.addressValue.replaceChildren(...lines.map((line) => elem('span', {}, line)));
     } else {
@@ -971,10 +1009,20 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     }
     elements.addressQrText!.textContent = address || '--';
     elements.addressQrNetwork!.textContent = state.wallet ? networkLabel(state.wallet.network as string) : 'Receive';
-    if (address === qrAddress) return;
-    qrAddress = address;
-    if (!address || !elements.addressQr) return;
-    renderQr(elements.addressQr, address, 168, '../icons/icon128.png').catch(() => { });
+    drawReceiveQr();
+  }
+
+  /** As wide as the card allows, up to RECEIVE_QR_MAX; the white plate takes 10px. */
+  function drawReceiveQr(): void {
+    const address = (state.wallet?.address as string) || '';
+    const canvas = elements.addressQr;
+    if (!address || !canvas) return;
+    const room = (elements.receiveQrWrap?.clientWidth || 0) - 10;
+    const size = Math.max(160, Math.min(RECEIVE_QR_MAX, room > 0 ? room : RECEIVE_QR_MAX));
+    const key = `${address}@${size}`;
+    if (key === receiveQrKey) return;
+    receiveQrKey = key;
+    renderQr(canvas, address, size, '../icons/icon128.png').catch(() => { });
   }
 
   function openAddressQr(): void {
@@ -1062,6 +1110,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
     try {
       await refreshOwnAddresses();
       renderAccountChips();
+      if (isConnectAccount()) renderSignerBadge();
       const addresses = ownAddresses();
       const balanceData = await NeuraiReader.getNeuraiBalance(addresses);
       const balance = NeuraiReader.formatBalance(balanceData!.balance);
@@ -2806,6 +2855,9 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
       ? `Device holds ${deviceAddr}, but the active account is ${acctAddr}`
       : '';
 
+    const hwBadge = signerBadge('hardware', { hwConnected: isConnected && !mismatch });
+    paintSignerBadge(mismatch && hwBadge ? { ...hwBadge, title: `Neurai HW · ${mismatchDetail}` } : hwBadge);
+
     if (elements.hwStatusDot) {
       elements.hwStatusDot.style.background = mismatch ? warningColor : (isConnected ? successColor : dangerColor);
       elements.hwStatusDot.title = mismatch ? mismatchDetail : (isConnected ? 'Connected' : 'Disconnected');
@@ -2905,6 +2957,7 @@ import type { EncryptedSecret, Theme, WalletSettings } from '../types/index.js';
         updateTransactionTabsVisibility();
         updateDepinTabVisibility();
         renderConnectCard();
+        renderSignerBadge();
       }).catch(() => { });
     }
   });

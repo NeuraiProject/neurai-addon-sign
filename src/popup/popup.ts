@@ -11,7 +11,8 @@ import { computeTxid, resolveExplorerTxUrl } from '../shared/explorer.js';
 import { isTestnetNetwork, isPQNetwork, networkLabel, expectedGenesis } from '../shared/networks.js';
 import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
 import { runWalletMigrations } from '../shared/migrations.js';
-import { clearConnectStorage } from '../shared/neurai-connect.js';
+import { clearConnectStorage, readStoredConnectSession } from '../shared/neurai-connect.js';
+import { signerBadge, type SignerBadge } from '../shared/signer-badge.js';
 import { refreshConnectAddresses, walletAddressSet, watchesConnectAccount } from '../shared/connect-account.js';
 import { checkedJsonRpc } from '../shared/chain-identity.js';
 import { bindResetButtons, elem, option, syncResetButtons } from '../shared/dom.js';
@@ -32,6 +33,8 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   const elements = {
     walletSection: document.getElementById('walletSection')!,
     networkBadge: document.getElementById('networkBadge')!,
+    networkBadgeLabel: document.getElementById('networkBadgeLabel')!,
+    signerBadge: document.getElementById('signerBadge'),
     openExpandedBtn: document.getElementById('openExpandedBtn')!,
     openSettingsBtn: document.getElementById('openSettingsBtn')!,
     settingsModal: document.getElementById('settingsModal')!,
@@ -75,7 +78,6 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     newAccountBtn: document.getElementById('newAccountBtn') as HTMLButtonElement | null,
     currentAccountDisplay: document.getElementById('currentAccountDisplay')!,
     lastUpdatedDisplay: document.getElementById('lastUpdatedDisplay'),
-    hwIcon: document.getElementById('hwIcon')!,
     addressDisplay: document.getElementById('addressDisplay')!,
     copyAddressBtn: document.getElementById('copyAddressBtn')!,
     xnaBalance: document.getElementById('xnaBalance')!,
@@ -596,14 +598,17 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
     updateAccountLabels();
 
     const isTestnet = isTestnetNetwork(state.network);
-    elements.networkBadge.querySelector('span:last-child')!.textContent = networkLabel(state.network);
+    // "Testnet ECDSA witness" does not fit next to the signer in the popup's
+    // header; the full name stays in the tooltip.
+    elements.networkBadgeLabel.textContent = networkLabel(state.network).replace(/ witness$/, '');
+    elements.networkBadge.title = networkLabel(state.network);
 
     if (isTestnet) NeuraiReader.setTestnet(); else NeuraiReader.setMainnet();
     applyReaderRpcForCurrentContext();
 
-    // Show HW icon only for hardware accounts.
+    // Where an account without keys here signs, next to the network.
     const isHw = state.walletType === 'hardware';
-    elements.hwIcon.classList.toggle('hidden', !isHw);
+    renderSignerBadge();
     renderLastUpdated();
     if (isHw) {
       startHwStatusMonitor();
@@ -629,7 +634,36 @@ import type { EncryptedSecret, WalletSettings } from '../types/index.js';
   }
 
   function setConnectionStatus(_connected?: boolean) {
-    elements.hwIcon.title = 'Hardware wallet';
+    // A Neurai Connect session can end while the popup is open.
+    if (state.walletType === 'connect') renderSignerBadge();
+  }
+
+  /**
+   * Neurai HW or Neurai Connect next to the network. The popup holds no ESP32
+   * link, so a hardware account shows where it signs, not whether it is
+   * connected; a Neurai Connect one shows whether its session is active.
+   */
+  function renderSignerBadge(): void {
+    paintSignerBadge(signerBadge(state.walletType));
+    if (state.walletType !== 'connect') return;
+    const wallet = state.accounts[state.activeAccountId] as Record<string, unknown> | null;
+    readStoredConnectSession(C.CONNECT_STORAGE_PREFIX, String(wallet?.connectSessionTopic || ''))
+      .then((session) => {
+        if (state.walletType !== 'connect') return;
+        paintSignerBadge(signerBadge('connect', { sessionExpiresAt: session ? session.expiry * 1000 : 0 }));
+      })
+      .catch(() => { });
+  }
+
+  function paintSignerBadge(badge: SignerBadge | null): void {
+    const el = elements.signerBadge;
+    if (!el) return;
+    el.classList.toggle('hidden', !badge);
+    if (!badge) return;
+    el.dataset.kind = badge.kind;
+    el.dataset.state = badge.state;
+    el.title = badge.title;
+    el.setAttribute('aria-label', badge.title);
   }
 
   function setLoadingStatus(loading: boolean) {

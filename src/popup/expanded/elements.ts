@@ -5,7 +5,8 @@ export const elements = {
   // Header
   openSettingsBtn: document.getElementById('openSettingsBtn') as HTMLButtonElement | null,
   refreshBtn: document.getElementById('refreshBtn')!,
-  headerSubtitle: document.getElementById('headerSubtitle')!,
+  signerBadge: document.getElementById('signerBadge'),
+  signerLabel: document.getElementById('signerLabel'),
   settingsModal: document.getElementById('settingsModal'),
   closeSettingsBtn: document.getElementById('closeSettingsBtn') as HTMLButtonElement | null,
   saveSettingsBtn: document.getElementById('saveSettingsBtn') as HTMLButtonElement | null,
@@ -74,7 +75,7 @@ export const elements = {
   accountValue: document.getElementById('accountValue')!,
   statusValue: document.getElementById('statusValue')!,
   addressValue: document.getElementById('addressValue')!,
-  accountTile: document.getElementById('accountTile'),
+  receiveQrWrap: document.querySelector('.receive-qr-wrap') as HTMLElement | null,
   accountChips: document.getElementById('accountChips'),
   receiveCard: document.getElementById('receiveCard'),
   addressQr: document.getElementById('addressQr') as HTMLCanvasElement | null,

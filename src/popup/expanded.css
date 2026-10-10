@@ -129,22 +129,40 @@ textarea {
   letter-spacing: -0.01em;
 }
 
-.topbar-subtitle {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-
-.topbar-device-indicator {
+/* The signer next to the network: Neurai HW or Neurai Connect */
+.signer-badge {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--nx-radius-sel);
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: var(--text-primary);
+  gap: 5px;
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--nx-border-strong);
+  color: var(--nx-link);
+  font-weight: 600;
+  cursor: help;
+}
+
+.signer-icon {
+  display: none;
+  flex-shrink: 0;
+}
+
+.signer-badge[data-kind="hardware"] .signer-icon--hardware,
+.signer-badge[data-kind="connect"] .signer-icon--connect {
+  display: block;
+}
+
+.signer-badge[data-state="unknown"] {
+  color: var(--nx-muted);
+}
+
+.signer-badge[data-state="off"] {
+  color: var(--nx-subtle);
+}
+
+.signer-badge[data-state="off"] .signer-label {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
 }
 
 .eyebrow {
@@ -212,19 +230,21 @@ textarea {
 
 /* ── Account and receive cards ──────────────────────────────────────────
  * The web wallet's home: identity, balance and the actions in one card, and
- * beside it the receive address in a few lines next to its QR code. */
+ * beside it the receive QR filling its card, the address underneath. */
 .hero-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 330px);
   gap: 20px;
   align-items: stretch;
 }
 
+/* The receive card sets the height: the balance takes the middle, the
+   actions sit at the bottom. */
 .account-card {
   padding: 22px 24px;
   display: grid;
+  grid-template-rows: auto 1fr auto;
   gap: 18px;
-  align-content: start;
 }
 
 .account-head {
@@ -239,29 +259,6 @@ textarea {
   align-items: center;
   gap: 14px;
   min-width: 0;
-}
-
-/* Where the keys live: this browser, an ESP32 or NeuraiWallet */
-.account-tile {
-  width: 48px;
-  height: 48px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--nx-primary-line);
-  background: var(--primary-soft);
-  color: var(--nx-link);
-}
-
-.account-tile-icon {
-  display: none;
-}
-
-.account-tile[data-kind="software"] .account-tile-icon--software,
-.account-tile[data-kind="hardware"] .account-tile-icon--hardware,
-.account-tile[data-kind="connect"] .account-tile-icon--connect {
-  display: block;
 }
 
 .account-title {
@@ -307,6 +304,7 @@ textarea {
 
 .balance-block {
   display: grid;
+  align-content: center;
   gap: 6px;
   padding-top: 18px;
   border-top: 1px solid var(--border);
@@ -353,44 +351,43 @@ textarea {
 }
 
 .receive-card {
-  position: relative;
-  padding: 20px 22px;
-  display: flex;
-  align-items: center;
-}
-
-.receive-body {
-  width: 100%;
+  padding: 16px 18px 18px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
-}
-
-.receive-text {
-  display: grid;
+  grid-template-rows: auto 1fr auto;
   justify-items: center;
   gap: 12px;
+}
+
+/* Eye on the left, title in the middle, Copy on the right */
+.receive-head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.receive-head .receive-privacy-btn {
+  justify-self: start;
+}
+
+.receive-head .copy-btn {
+  justify-self: end;
   min-width: 0;
-  text-align: center;
 }
 
 .receive-title {
   margin: 0;
   font-size: 14px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
-.address.receive-address {
-  padding: 0;
-  border: 0;
-  background: none;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.receive-address span {
-  display: block;
+/* As wide as the card: the QR is drawn to this width (expanded.ts). */
+.receive-qr-wrap {
+  width: 100%;
+  display: grid;
+  place-items: center;
 }
 
 /* White in both themes: an inverted code does not scan. */
@@ -405,6 +402,23 @@ textarea {
 
 .receive-qr canvas {
   display: block;
+  max-width: 100%;
+}
+
+/* Two halves, each unbreakable: one line when both fit, else two. */
+.address.receive-address {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.receive-address span {
+  display: inline-block;
+  white-space: nowrap;
 }
 
 .receive-qr:focus-visible,
@@ -414,11 +428,8 @@ textarea {
 }
 
 .receive-privacy-btn {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -445,7 +456,7 @@ textarea {
 
 .receive-card.is-private .receive-address,
 .receive-card.is-private .receive-qr canvas {
-  filter: blur(5px);
+  filter: blur(6px);
   user-select: none;
 }
 
@@ -1961,11 +1972,6 @@ textarea::placeholder {
   .settings-footer {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .receive-body {
-    grid-template-columns: 1fr;
-    justify-items: center;
   }
 
   .value-main {
