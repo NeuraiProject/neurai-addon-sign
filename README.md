@@ -130,6 +130,10 @@ The testnet was restarted from a new genesis block, `0000008b384aeffecdab182575d
 
 Ships `@neuraiproject/neurai-scripts` 0.10.0 and `@neuraiproject/neurai-sign-transaction` 3.2.0. Order covenants now bind their fill branches to input 0, which stops a buyer from draining an order through a foreign input 0. The covenant-cancel approval only accepts orders with that binding; orders built with earlier libraries must be cancelled with 0.15.0. ECDSA witness sellers (`tnq1r…`) cancel with their account key, and the approval names the refund destination by the account's address when it is the account's own script, in every address family.
 
+### Version-3 previous transactions (0.15.2)
+
+Ships `@neuraiproject/neurai-sign-esp32` 0.7.2. Privacy pools and state threads create Neurai version-3 transactions (NIP-014 reference inputs). A PSBT carries every previous transaction, and the earlier library could not read version 3, so signing over Neurai Connect (or with NeuraiHW) a transaction that spent one of their outputs failed with "Transaction has unexpected data". The PSBT is now built and finalized with the Neurai transaction codec. NeuraiWallet must read version-3 previous transactions too before it can sign such a request.
+
 ## Neurai Connect accounts
 
 In the onboarding, **Connect NeuraiWallet** adds the NeuraiWallet mobile app as an account. It works like WalletConnect:

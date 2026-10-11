@@ -2863,7 +2863,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @throws {Error} If the R or S length is zero or invalid.
      * @throws {Error} If the R or S value is negative or excessively padded.
      */
-    function decode$i(buffer) {
+    function decode$h(buffer) {
       if (buffer.length < 8) throw new Error('DER sequence length is too short');
       if (buffer.length > 72) throw new Error('DER sequence length is too long');
       if (buffer[0] !== 0x30) throw new Error('Expected DER sequence');
@@ -2911,7 +2911,7 @@ var NeuraiSignESP32Bundle = (function () {
      *  62300 => 0x00f35c
      * -62300 => 0xff0ca4
      */
-    function encode$j(r, s) {
+    function encode$i(r, s) {
       const lenR = r.length;
       const lenS = s.length;
       if (lenR === 0) throw new Error('R length is zero');
@@ -3061,19 +3061,25 @@ var NeuraiSignESP32Bundle = (function () {
       OPS[(OPS['OP_INVALIDOPCODE'] = 255)] = 'OP_INVALIDOPCODE';
     })(OPS$7 || (OPS$7 = {}));
 
-    const HEX_STRINGS$2 = "0123456789abcdefABCDEF";
-    const HEX_CODES$1 = HEX_STRINGS$2.split("").map((c) => c.codePointAt(0));
-    const HEX_CODEPOINTS$1 = Array(256)
+    const HEX_STRINGS$1 = "0123456789abcdefABCDEF";
+    const HEX_CODES = HEX_STRINGS$1.split("").map((c) => c.codePointAt(0));
+    const HEX_CODEPOINTS = Array(256)
         .fill(true)
         .map((_, i) => {
         const s = String.fromCodePoint(i);
-        const index = HEX_STRINGS$2.indexOf(s);
+        const index = HEX_STRINGS$1.indexOf(s);
         // ABCDEF will use 10 - 15
         return index < 0 ? undefined : index < 16 ? index : index - 6;
     });
-    const ENCODER$1 = new TextEncoder();
-    const DECODER$1 = new TextDecoder();
-    function concat$1(arrays) {
+    const ENCODER = new TextEncoder();
+    const DECODER = new TextDecoder();
+    function toUtf8(bytes) {
+        return DECODER.decode(bytes);
+    }
+    function fromUtf8(s) {
+        return ENCODER.encode(s);
+    }
+    function concat(arrays) {
         const totalLength = arrays.reduce((a, b) => a + b.length, 0);
         const result = new Uint8Array(totalLength);
         let offset = 0;
@@ -3087,36 +3093,36 @@ var NeuraiSignESP32Bundle = (function () {
     // One optimizes for length of the bytes, and uses TextDecoder.
     // One optimizes for iteration count, and appends strings.
     // This removes the overhead of TextDecoder.
-    function toHex$1(bytes) {
+    function toHex(bytes) {
         const b = bytes || new Uint8Array();
-        return b.length > 512 ? _toHexLengthPerf$1(b) : _toHexIterPerf$1(b);
+        return b.length > 512 ? _toHexLengthPerf(b) : _toHexIterPerf(b);
     }
-    function _toHexIterPerf$1(bytes) {
+    function _toHexIterPerf(bytes) {
         let s = "";
         for (let i = 0; i < bytes.length; ++i) {
-            s += HEX_STRINGS$2[HEX_CODEPOINTS$1[HEX_CODES$1[bytes[i] >> 4]]];
-            s += HEX_STRINGS$2[HEX_CODEPOINTS$1[HEX_CODES$1[bytes[i] & 15]]];
+            s += HEX_STRINGS$1[HEX_CODEPOINTS[HEX_CODES[bytes[i] >> 4]]];
+            s += HEX_STRINGS$1[HEX_CODEPOINTS[HEX_CODES[bytes[i] & 15]]];
         }
         return s;
     }
-    function _toHexLengthPerf$1(bytes) {
+    function _toHexLengthPerf(bytes) {
         const hexBytes = new Uint8Array(bytes.length * 2);
         for (let i = 0; i < bytes.length; ++i) {
-            hexBytes[i * 2] = HEX_CODES$1[bytes[i] >> 4];
-            hexBytes[i * 2 + 1] = HEX_CODES$1[bytes[i] & 15];
+            hexBytes[i * 2] = HEX_CODES[bytes[i] >> 4];
+            hexBytes[i * 2 + 1] = HEX_CODES[bytes[i] & 15];
         }
-        return DECODER$1.decode(hexBytes);
+        return DECODER.decode(hexBytes);
     }
     // Mimics Buffer.from(x, 'hex') logic
     // Stops on first non-hex string and returns
     // https://github.com/nodejs/node/blob/v14.18.1/src/string_bytes.cc#L246-L261
-    function fromHex$1(hexString) {
-        const hexBytes = ENCODER$1.encode(hexString || "");
+    function fromHex(hexString) {
+        const hexBytes = ENCODER.encode(hexString || "");
         const resultBytes = new Uint8Array(Math.floor(hexBytes.length / 2));
         let i;
         for (i = 0; i < resultBytes.length; i++) {
-            const a = HEX_CODEPOINTS$1[hexBytes[i * 2]];
-            const b = HEX_CODEPOINTS$1[hexBytes[i * 2 + 1]];
+            const a = HEX_CODEPOINTS[hexBytes[i * 2]];
+            const b = HEX_CODEPOINTS[hexBytes[i * 2 + 1]];
             if (a === undefined || b === undefined) {
                 break;
             }
@@ -3124,7 +3130,10 @@ var NeuraiSignESP32Bundle = (function () {
         }
         return i === resultBytes.length ? resultBytes : resultBytes.slice(0, i);
     }
-    function fromBase64$1(base64) {
+    function toBase64(bytes) {
+        return btoa(String.fromCharCode(...bytes));
+    }
+    function fromBase64(base64) {
         const binaryString = atob(base64);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -3133,7 +3142,7 @@ var NeuraiSignESP32Bundle = (function () {
         return bytes;
     }
     // Same behavior as Buffer.compare()
-    function compare$1(v1, v2) {
+    function compare(v1, v2) {
         const minLength = Math.min(v1.length, v2.length);
         for (let i = 0; i < minLength; ++i) {
             if (v1[i] !== v2[i]) {
@@ -3152,7 +3161,7 @@ var NeuraiSignESP32Bundle = (function () {
         buffer[offset] = value;
         return offset + 1;
     }
-    function writeUInt16$2(buffer, offset, value, littleEndian) {
+    function writeUInt16$1(buffer, offset, value, littleEndian) {
         if (offset + 2 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3170,7 +3179,7 @@ var NeuraiSignESP32Bundle = (function () {
         }
         return offset + 2;
     }
-    function writeUInt32$2(buffer, offset, value, littleEndian) {
+    function writeUInt32$1(buffer, offset, value, littleEndian) {
         if (offset + 4 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3192,7 +3201,7 @@ var NeuraiSignESP32Bundle = (function () {
         }
         return offset + 4;
     }
-    function writeUInt64$2(buffer, offset, value, littleEndian) {
+    function writeUInt64$1(buffer, offset, value, littleEndian) {
         if (offset + 8 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3222,13 +3231,13 @@ var NeuraiSignESP32Bundle = (function () {
         }
         return offset + 8;
     }
-    function readUInt8$1(buffer, offset) {
+    function readUInt8(buffer, offset) {
         if (offset + 1 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
         return buffer[offset];
     }
-    function readUInt16$2(buffer, offset, littleEndian) {
+    function readUInt16$1(buffer, offset, littleEndian) {
         if (offset + 2 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3246,7 +3255,7 @@ var NeuraiSignESP32Bundle = (function () {
             return num;
         }
     }
-    function readUInt32$2(buffer, offset, littleEndian) {
+    function readUInt32$1(buffer, offset, littleEndian) {
         if (offset + 4 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3290,7 +3299,7 @@ var NeuraiSignESP32Bundle = (function () {
         }
         return offset + 4;
     }
-    function writeInt64$1(buffer, offset, value, littleEndian) {
+    function writeInt64(buffer, offset, value, littleEndian) {
         if (offset + 8 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3340,7 +3349,7 @@ var NeuraiSignESP32Bundle = (function () {
             return buffer[offset] <= 0x7f ? val : val - 0x100000000;
         }
     }
-    function readInt64$1(buffer, offset, littleEndian) {
+    function readInt64(buffer, offset, littleEndian) {
         if (offset + 8 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -3376,7 +3385,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @param i The number to calculate the encoding length for.
      * @returns The encoding length of the number.
      */
-    function encodingLength$2(i) {
+    function encodingLength$1(i) {
       return i < OPS$7.OP_PUSHDATA1 ? 1 : i <= 0xff ? 2 : i <= 0xffff ? 3 : 5;
     }
     /**
@@ -3389,8 +3398,8 @@ var NeuraiSignESP32Bundle = (function () {
      * @param offset - The offset at which to start writing the encoded buffer.
      * @returns The size of the encoded buffer.
      */
-    function encode$i(buffer, num, offset) {
-      const size = encodingLength$2(num);
+    function encode$h(buffer, num, offset) {
+      const size = encodingLength$1(num);
       // ~6 bit
       if (size === 1) {
         writeUInt8(buffer, offset, num);
@@ -3401,11 +3410,11 @@ var NeuraiSignESP32Bundle = (function () {
         // 16 bit
       } else if (size === 3) {
         writeUInt8(buffer, offset, OPS$7.OP_PUSHDATA2);
-        writeUInt16$2(buffer, offset + 1, num, 'LE');
+        writeUInt16$1(buffer, offset + 1, num, 'LE');
         // 32 bit
       } else {
         writeUInt8(buffer, offset, OPS$7.OP_PUSHDATA4);
-        writeUInt32$2(buffer, offset + 1, num, 'LE');
+        writeUInt32$1(buffer, offset + 1, num, 'LE');
       }
       return size;
     }
@@ -3415,8 +3424,8 @@ var NeuraiSignESP32Bundle = (function () {
      * @param offset - The offset within the buffer to start decoding.
      * @returns An object containing the opcode, number, and size, or null if decoding fails.
      */
-    function decode$h(buffer, offset) {
-      const opcode = readUInt8$1(buffer, offset);
+    function decode$g(buffer, offset) {
+      const opcode = readUInt8(buffer, offset);
       let num;
       let size;
       // ~6 bit
@@ -3426,18 +3435,18 @@ var NeuraiSignESP32Bundle = (function () {
         // 8 bit
       } else if (opcode === OPS$7.OP_PUSHDATA1) {
         if (offset + 2 > buffer.length) return null;
-        num = readUInt8$1(buffer, offset + 1);
+        num = readUInt8(buffer, offset + 1);
         size = 2;
         // 16 bit
       } else if (opcode === OPS$7.OP_PUSHDATA2) {
         if (offset + 3 > buffer.length) return null;
-        num = readUInt16$2(buffer, offset + 1, 'LE');
+        num = readUInt16$1(buffer, offset + 1, 'LE');
         size = 3;
         // 32 bit
       } else {
         if (offset + 5 > buffer.length) return null;
         if (opcode !== OPS$7.OP_PUSHDATA4) throw new Error('Unexpected opcode');
-        num = readUInt32$2(buffer, offset + 1, 'LE');
+        num = readUInt32$1(buffer, offset + 1, 'LE');
         size = 5;
       }
       return {
@@ -3457,7 +3466,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @throws {TypeError} If the script number overflows the maximum length.
      * @throws {Error} If the script number is not minimally encoded when minimal is true.
      */
-    function decode$g(buffer, maxLength, minimal) {
+    function decode$f(buffer, maxLength, minimal) {
       maxLength = maxLength || 4;
       minimal = minimal === undefined ? true : minimal;
       const length = buffer.length;
@@ -3471,8 +3480,8 @@ var NeuraiSignESP32Bundle = (function () {
       }
       // 40-bit
       if (length === 5) {
-        const a = readUInt32$2(buffer, 0, 'LE');
-        const b = readUInt8$1(buffer, 4);
+        const a = readUInt32$1(buffer, 0, 'LE');
+        const b = readUInt8(buffer, 4);
         if (b & 0x80) return -((b & -129) * 0x100000000 + a);
         return b * 0x100000000 + a;
       }
@@ -3504,7 +3513,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @param _number - The number to encode.
      * @returns The encoded number as a Uint8Array.
      */
-    function encode$h(_number) {
+    function encode$g(_number) {
       let value = Math.abs(_number);
       const size = scriptNumSize(value);
       const buffer = new Uint8Array(size);
@@ -3646,6 +3655,32 @@ var NeuraiSignESP32Bundle = (function () {
     }
 
     //#endregion
+    //#region src/utils/_getStandardProps/_getStandardProps.ts
+    const _standardCache = /* @__PURE__ */ new WeakMap();
+    /**
+    * Returns the Standard Schema properties.
+    *
+    * @param context The schema context.
+    *
+    * @returns The Standard Schema properties.
+    */
+    /* @__NO_SIDE_EFFECTS__ */
+    function _getStandardProps(context) {
+    	let cached = _standardCache.get(context);
+    	if (!cached) {
+    		cached = {
+    			version: 1,
+    			vendor: "valibot",
+    			validate(value$1) {
+    				return context["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig());
+    			}
+    		};
+    		_standardCache.set(context, cached);
+    	}
+    	return cached;
+    }
+
+    //#endregion
     //#region src/utils/_joinExpects/_joinExpects.ts
     /**
     * Joins multiple `expects` values with the given separator.
@@ -3662,29 +3697,6 @@ var NeuraiSignESP32Bundle = (function () {
     	const list = [...new Set(values$1)];
     	if (list.length > 1) return `(${list.join(` ${separator} `)})`;
     	return list[0] ?? "never";
-    }
-
-    //#endregion
-    //#region src/utils/_standardSchema/_standardSchema.ts
-    /**
-    * Eagerly creates and attaches the Standard Schema properties of a schema.
-    *
-    * Hint: The contextual `this` type includes the standard properties that are
-    * attached before the schema is returned.
-    *
-    * @param schema The schema to attach standard properties to.
-    *
-    * @returns The schema with standard properties attached.
-    *
-    * @internal
-    */
-    function _standardSchema(schema) {
-    	schema["~standard"] = {
-    		version: 1,
-    		vendor: "valibot",
-    		validate: (value$1) => schema["~run"]({ value: value$1 }, /* @__PURE__ */ getGlobalConfig())
-    	};
-    	return schema;
     }
 
     //#endregion
@@ -3865,24 +3877,27 @@ var NeuraiSignESP32Bundle = (function () {
     */
     /* @__NO_SIDE_EFFECTS__ */
     function any() {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "any",
     		reference: any,
     		expects: "any",
     		async: false,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset) {
     			dataset.typed = true;
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/array/array.ts
     /* @__NO_SIDE_EFFECTS__ */
     function array(item, message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "array",
     		reference: array,
@@ -3890,6 +3905,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		item,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			const input = dataset.value;
     			if (Array.isArray(input)) {
@@ -3923,33 +3941,36 @@ var NeuraiSignESP32Bundle = (function () {
     			} else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/bigint/bigint.ts
     /* @__NO_SIDE_EFFECTS__ */
     function bigint(message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "bigint",
     		reference: bigint,
     		expects: "bigint",
     		async: false,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (typeof dataset.value === "bigint") dataset.typed = true;
     			else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/custom/custom.ts
     /* @__NO_SIDE_EFFECTS__ */
     function custom(check$1, message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "custom",
     		reference: custom,
@@ -3957,19 +3978,22 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		check: check$1,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (this.check(dataset.value)) dataset.typed = true;
     			else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/instance/instance.ts
     /* @__NO_SIDE_EFFECTS__ */
     function instance(class_, message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "instance",
     		reference: instance,
@@ -3977,19 +4001,22 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		class: class_,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (dataset.value instanceof this.class) dataset.typed = true;
     			else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/nullable/nullable.ts
     /* @__NO_SIDE_EFFECTS__ */
     function nullable(wrapped, default_) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "nullable",
     		reference: nullable,
@@ -3997,6 +4024,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		wrapped,
     		default: default_,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (dataset.value === null) {
     				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -4007,14 +4037,14 @@ var NeuraiSignESP32Bundle = (function () {
     			}
     			return this.wrapped["~run"](dataset, config$1);
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/nullish/nullish.ts
     /* @__NO_SIDE_EFFECTS__ */
     function nullish(wrapped, default_) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "nullish",
     		reference: nullish,
@@ -4022,6 +4052,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		wrapped,
     		default: default_,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (dataset.value === null || dataset.value === void 0) {
     				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -4032,33 +4065,36 @@ var NeuraiSignESP32Bundle = (function () {
     			}
     			return this.wrapped["~run"](dataset, config$1);
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/number/number.ts
     /* @__NO_SIDE_EFFECTS__ */
     function number(message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "number",
     		reference: number,
     		expects: "number",
     		async: false,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (typeof dataset.value === "number" && !isNaN(dataset.value)) dataset.typed = true;
     			else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/object/object.ts
     /* @__NO_SIDE_EFFECTS__ */
     function object(entries$1, message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "object",
     		reference: object,
@@ -4066,6 +4102,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		entries: entries$1,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			const input = dataset.value;
     			if (input && typeof input === "object") {
@@ -4116,14 +4155,14 @@ var NeuraiSignESP32Bundle = (function () {
     			} else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/optional/optional.ts
     /* @__NO_SIDE_EFFECTS__ */
     function optional(wrapped, default_) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "optional",
     		reference: optional,
@@ -4131,6 +4170,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		wrapped,
     		default: default_,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (dataset.value === void 0) {
     				if (this.default !== void 0) dataset.value = /* @__PURE__ */ getDefault(this, dataset, config$1);
@@ -4141,33 +4183,36 @@ var NeuraiSignESP32Bundle = (function () {
     			}
     			return this.wrapped["~run"](dataset, config$1);
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/string/string.ts
     /* @__NO_SIDE_EFFECTS__ */
     function string(message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "string",
     		reference: string,
     		expects: "string",
     		async: false,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			if (typeof dataset.value === "string") dataset.typed = true;
     			else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
     //#region src/schemas/tuple/tuple.ts
     /* @__NO_SIDE_EFFECTS__ */
     function tuple(items, message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "tuple",
     		reference: tuple,
@@ -4175,6 +4220,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		items,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			const input = dataset.value;
     			if (Array.isArray(input)) {
@@ -4208,7 +4256,7 @@ var NeuraiSignESP32Bundle = (function () {
     			} else _addIssue(this, "type", dataset, config$1);
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
@@ -4234,7 +4282,7 @@ var NeuraiSignESP32Bundle = (function () {
     //#region src/schemas/union/union.ts
     /* @__NO_SIDE_EFFECTS__ */
     function union(options, message$1) {
-    	return _standardSchema({
+    	return {
     		kind: "schema",
     		type: "union",
     		reference: union,
@@ -4242,6 +4290,9 @@ var NeuraiSignESP32Bundle = (function () {
     		async: false,
     		options,
     		message: message$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			let validDataset;
     			let typedDatasets;
@@ -4266,7 +4317,7 @@ var NeuraiSignESP32Bundle = (function () {
     			else _addIssue(this, "type", dataset, config$1, { issues: /* @__PURE__ */ _subIssues(untypedDatasets) });
     			return dataset;
     		}
-    	});
+    	};
     }
 
     //#endregion
@@ -4292,19 +4343,25 @@ var NeuraiSignESP32Bundle = (function () {
     function partial(schema, keys) {
     	const entries$1 = {};
     	for (const key in schema.entries) entries$1[key] = /* @__PURE__ */ optional(schema.entries[key]) ;
-    	return _standardSchema({
+    	return {
     		...schema,
-    		entries: entries$1
-    	});
+    		entries: entries$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		}
+    	};
     }
 
     //#endregion
     //#region src/methods/pipe/pipe.ts
     /* @__NO_SIDE_EFFECTS__ */
     function pipe(...pipe$1) {
-    	return _standardSchema({
+    	return {
     		...pipe$1[0],
     		pipe: pipe$1,
+    		get "~standard"() {
+    			return /* @__PURE__ */ _getStandardProps(this);
+    		},
     		"~run"(dataset, config$1) {
     			for (const item of pipe$1) if (item.kind !== "metadata") {
     				if (dataset.issues && (item.kind === "schema" || item.kind === "transformation")) {
@@ -4315,11 +4372,11 @@ var NeuraiSignESP32Bundle = (function () {
     			}
     			return dataset;
     		}
-    	});
+    	};
     }
 
     const ZERO32 = new Uint8Array(32);
-    const EC_P = fromHex$1(
+    const EC_P = fromHex(
       'fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f',
     );
     const NBufferSchemaFactory = size =>
@@ -4333,7 +4390,7 @@ var NeuraiSignESP32Bundle = (function () {
     function stacksEqual(a, b) {
       if (a.length !== b.length) return false;
       return a.every((x, i) => {
-        return compare$1(x, b[i]) === 0;
+        return compare(x, b[i]) === 0;
       });
     }
     /**
@@ -4346,14 +4403,14 @@ var NeuraiSignESP32Bundle = (function () {
       if (p.length < 33) return false;
       const t = p[0];
       const x = p.slice(1, 33);
-      if (compare$1(ZERO32, x) === 0) return false;
-      if (compare$1(x, EC_P) >= 0) return false;
+      if (compare(ZERO32, x) === 0) return false;
+      if (compare(x, EC_P) >= 0) return false;
       if ((t === 0x02 || t === 0x03) && p.length === 33) {
         return true;
       }
       const y = p.slice(33);
-      if (compare$1(ZERO32, y) === 0) return false;
-      if (compare$1(y, EC_P) >= 0) return false;
+      if (compare(ZERO32, y) === 0) return false;
+      if (compare(y, EC_P) >= 0) return false;
       if (t === 0x04 && p.length === 65) return true;
       return false;
     }
@@ -4410,7 +4467,7 @@ var NeuraiSignESP32Bundle = (function () {
       while (x[i] === 0) ++i;
       if (i === x.length) return ZERO$1;
       x = x.slice(i);
-      if (x[0] & 0x80) return concat$1([ZERO$1, x]);
+      if (x[0] & 0x80) return concat([ZERO$1, x]);
       return x;
     }
     /**
@@ -4434,15 +4491,15 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The decoded ScriptSignature object.
      * @throws Error if the hashType is invalid.
      */
-    function decode$f(buffer) {
-      const hashType = readUInt8$1(buffer, buffer.length - 1);
+    function decode$e(buffer) {
+      const hashType = readUInt8(buffer, buffer.length - 1);
       if (!isDefinedHashType(hashType)) {
         throw new Error('Invalid hashType ' + hashType);
       }
-      const decoded = decode$i(buffer.subarray(0, -1));
+      const decoded = decode$h(buffer.subarray(0, -1));
       const r = fromDER(decoded.r);
       const s = fromDER(decoded.s);
-      const signature = concat$1([r, s]);
+      const signature = concat([r, s]);
       return { signature, hashType };
     }
     /**
@@ -4452,7 +4509,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The encoded buffer.
      * @throws Error if the hashType is invalid.
      */
-    function encode$g(signature, hashType) {
+    function encode$f(signature, hashType) {
       parse(
         object({
           signature: NBufferSchemaFactory(64),
@@ -4467,13 +4524,13 @@ var NeuraiSignESP32Bundle = (function () {
       writeUInt8(hashTypeBuffer, 0, hashType);
       const r = toDER(signature.slice(0, 32));
       const s = toDER(signature.slice(32, 64));
-      return concat$1([encode$j(r, s), hashTypeBuffer]);
+      return concat([encode$i(r, s), hashTypeBuffer]);
     }
 
     var scriptSignature = /*#__PURE__*/Object.freeze({
         __proto__: null,
-        decode: decode$f,
-        encode: encode$g
+        decode: decode$e,
+        encode: encode$f
     });
 
     /**
@@ -4583,7 +4640,7 @@ var NeuraiSignESP32Bundle = (function () {
           if (chunk.length === 1 && asMinimalOP(chunk) !== undefined) {
             return accum + 1;
           }
-          return accum + encodingLength$2(chunk.length) + chunk.length;
+          return accum + encodingLength$1(chunk.length) + chunk.length;
         }
         return accum + 1;
       }, 0);
@@ -4598,7 +4655,7 @@ var NeuraiSignESP32Bundle = (function () {
             offset += 1;
             return;
           }
-          offset += encode$i(buffer, chunk.length, offset);
+          offset += encode$h(buffer, chunk.length, offset);
           buffer.set(chunk, offset);
           offset += chunk.length;
           // opcode
@@ -4624,7 +4681,7 @@ var NeuraiSignESP32Bundle = (function () {
       while (i < buffer.length) {
         const opcode = buffer[i];
         if (opcode > OPS$7.OP_0 && opcode <= OPS$7.OP_PUSHDATA4) {
-          const d = decode$h(buffer, i);
+          const d = decode$g(buffer, i);
           // did reading a pushDataInt fail?
           if (d === null) return null;
           i += d.size;
@@ -4663,7 +4720,7 @@ var NeuraiSignESP32Bundle = (function () {
         .map(chunk => {
           if (singleChunkIsBuffer(chunk)) {
             const op = asMinimalOP(chunk);
-            if (op === undefined) return toHex$1(chunk);
+            if (op === undefined) return toHex(chunk);
             chunk = op;
           }
           // opcode!
@@ -4683,7 +4740,7 @@ var NeuraiSignESP32Bundle = (function () {
       return chunks.map(op => {
         if (singleChunkIsBuffer(op)) return op;
         if (op === OPS$7.OP_0) return new Uint8Array(0);
-        return encode$h(op - OP_INT_BASE$1);
+        return encode$g(op - OP_INT_BASE$1);
       });
     }
     /**
@@ -4754,7 +4811,7 @@ var NeuraiSignESP32Bundle = (function () {
     const OPS$6 = OPS$7;
     const OP_INT_BASE = OPS$6.OP_RESERVED; // OP_1 - 1
     function encodeSmallOrScriptNum(n) {
-      return n <= 16 ? OP_INT_BASE + n : encode$h(n);
+      return n <= 16 ? OP_INT_BASE + n : encode$g(n);
     }
     function decodeSmallOrScriptNum(chunk) {
       if (typeof chunk === 'number') {
@@ -4762,12 +4819,12 @@ var NeuraiSignESP32Bundle = (function () {
         if (val < 1 || val > 16)
           throw new TypeError(`Invalid opcode: expected OP_1–OP_16, got ${chunk}`);
         return val;
-      } else return decode$g(chunk);
+      } else return decode$f(chunk);
     }
     function isSmallOrScriptNum(chunk) {
       if (typeof chunk === 'number')
         return chunk - OP_INT_BASE >= 1 && chunk - OP_INT_BASE <= 16;
-      else return Number.isInteger(decode$g(chunk));
+      else return Number.isInteger(decode$f(chunk));
     }
     // input: OP_0 [signatures ...]
     // output: m [pubKeys ...] n OP_CHECKMULTISIG
@@ -4974,11 +5031,11 @@ var NeuraiSignESP32Bundle = (function () {
           if (a.output[a.output.length - 1] !== OPS$5.OP_CHECKSIG)
             throw new TypeError('Output is invalid');
           if (!isPoint(o.pubkey)) throw new TypeError('Output pubkey is invalid');
-          if (a.pubkey && compare$1(a.pubkey, o.pubkey) !== 0)
+          if (a.pubkey && compare(a.pubkey, o.pubkey) !== 0)
             throw new TypeError('Pubkey mismatch');
         }
         if (a.signature) {
-          if (a.input && compare$1(a.input, o.input) !== 0)
+          if (a.input && compare(a.input, o.input) !== 0)
             throw new TypeError('Signature mismatch');
         }
         if (a.input) {
@@ -5002,43 +5059,43 @@ var NeuraiSignESP32Bundle = (function () {
     // Makes the utils un-importable in browsers without a bundler.
     // Once node.js 18 is deprecated (2025-04-30), we can just drop the import.
     /** Checks if something is Uint8Array. Be careful: nodejs Buffer will return true. */
-    function isBytes(a) {
+    function isBytes$1(a) {
         return a instanceof Uint8Array || (ArrayBuffer.isView(a) && a.constructor.name === 'Uint8Array');
     }
     /** Asserts something is Uint8Array. */
-    function abytes(b, ...lengths) {
-        if (!isBytes(b))
+    function abytes$1(b, ...lengths) {
+        if (!isBytes$1(b))
             throw new Error('Uint8Array expected');
         if (lengths.length > 0 && !lengths.includes(b.length))
             throw new Error('Uint8Array expected of length ' + lengths + ', got length=' + b.length);
     }
     /** Asserts a hash instance has not been destroyed / finished */
-    function aexists(instance, checkFinished = true) {
+    function aexists$1(instance, checkFinished = true) {
         if (instance.destroyed)
             throw new Error('Hash instance has been destroyed');
         if (checkFinished && instance.finished)
             throw new Error('Hash#digest() has already been called');
     }
     /** Asserts output is properly-sized byte array */
-    function aoutput(out, instance) {
-        abytes(out);
+    function aoutput$1(out, instance) {
+        abytes$1(out);
         const min = instance.outputLen;
         if (out.length < min) {
             throw new Error('digestInto() expects output buffer of length at least ' + min);
         }
     }
     /** Zeroize a byte array. Warning: JS provides no guarantees. */
-    function clean(...arrays) {
+    function clean$1(...arrays) {
         for (let i = 0; i < arrays.length; i++) {
             arrays[i].fill(0);
         }
     }
     /** Create DataView of an array for easy byte-level manipulation. */
-    function createView(arr) {
+    function createView$1(arr) {
         return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
     }
     /** The rotate right (circular right shift) operation for uint32 */
-    function rotr(word, shift) {
+    function rotr$1(word, shift) {
         return (word << (32 - shift)) | (word >>> shift);
     }
     /** The rotate left (circular left shift) operation for uint32 */
@@ -5062,14 +5119,14 @@ var NeuraiSignESP32Bundle = (function () {
     function toBytes(data) {
         if (typeof data === 'string')
             data = utf8ToBytes(data);
-        abytes(data);
+        abytes$1(data);
         return data;
     }
     /** For runtime check if class implements interface */
     class Hash {
     }
     /** Wraps hash function, creating an interface on top of it */
-    function createHasher(hashCons) {
+    function createHasher$1(hashCons) {
         const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
         const tmp = hashCons();
         hashC.outputLen = tmp.outputLen;
@@ -5096,18 +5153,18 @@ var NeuraiSignESP32Bundle = (function () {
         view.setUint32(byteOffset + l, wl, isLE);
     }
     /** Choice: a ? b : c */
-    function Chi(a, b, c) {
+    function Chi$1(a, b, c) {
         return (a & b) ^ (~a & c);
     }
     /** Majority function, true if any two inputs is true. */
-    function Maj(a, b, c) {
+    function Maj$1(a, b, c) {
         return (a & b) ^ (a & c) ^ (b & c);
     }
     /**
      * Merkle-Damgard hash construction base class.
      * Could be used to create MD5, RIPEMD, SHA1, SHA2.
      */
-    class HashMD extends Hash {
+    let HashMD$1 = class HashMD extends Hash {
         constructor(blockLen, outputLen, padOffset, isLE) {
             super();
             this.finished = false;
@@ -5119,19 +5176,19 @@ var NeuraiSignESP32Bundle = (function () {
             this.padOffset = padOffset;
             this.isLE = isLE;
             this.buffer = new Uint8Array(blockLen);
-            this.view = createView(this.buffer);
+            this.view = createView$1(this.buffer);
         }
         update(data) {
-            aexists(this);
+            aexists$1(this);
             data = toBytes(data);
-            abytes(data);
+            abytes$1(data);
             const { view, buffer, blockLen } = this;
             const len = data.length;
             for (let pos = 0; pos < len;) {
                 const take = Math.min(blockLen - this.pos, len - pos);
                 // Fast path: we have at least one block in input, cast it to view and process
                 if (take === blockLen) {
-                    const dataView = createView(data);
+                    const dataView = createView$1(data);
                     for (; blockLen <= len - pos; pos += blockLen)
                         this.process(dataView, pos);
                     continue;
@@ -5149,8 +5206,8 @@ var NeuraiSignESP32Bundle = (function () {
             return this;
         }
         digestInto(out) {
-            aexists(this);
-            aoutput(out, this);
+            aexists$1(this);
+            aoutput$1(out, this);
             this.finished = true;
             // Padding
             // We can avoid allocation of buffer for padding completely if it
@@ -5159,7 +5216,7 @@ var NeuraiSignESP32Bundle = (function () {
             let { pos } = this;
             // append the bit '1' to the message
             buffer[pos++] = 0b10000000;
-            clean(this.buffer.subarray(pos));
+            clean$1(this.buffer.subarray(pos));
             // we have less than padOffset left in buffer, so we cannot put length in
             // current block, need process it and pad again
             if (this.padOffset > blockLen - pos) {
@@ -5174,7 +5231,7 @@ var NeuraiSignESP32Bundle = (function () {
             // So we just write lowest 64 bits of that value.
             setBigUint64(view, blockLen - 8, BigInt(this.length * 8), isLE);
             this.process(view, 0);
-            const oview = createView(out);
+            const oview = createView$1(out);
             const len = this.outputLen;
             // NOTE: we do division by 4 later, which should be fused in single op with modulo by JIT
             if (len % 4)
@@ -5208,13 +5265,13 @@ var NeuraiSignESP32Bundle = (function () {
         clone() {
             return this._cloneInto();
         }
-    }
+    };
     /**
      * Initial SHA-2 state: fractional parts of square roots of first 16 primes 2..53.
      * Check out `test/misc/sha2-gen-iv.js` for recomputation guide.
      */
     /** Initial SHA256 state. Bits 0..32 of frac part of sqrt of primes 2..19 */
-    const SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+    const SHA256_IV$1 = /* @__PURE__ */ Uint32Array.from([
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
     ]);
 
@@ -5275,7 +5332,7 @@ var NeuraiSignESP32Bundle = (function () {
     }
     // Reusable temporary buffer
     const BUF_160 = /* @__PURE__ */ new Uint32Array(16);
-    class RIPEMD160 extends HashMD {
+    class RIPEMD160 extends HashMD$1 {
         constructor() {
             super(64, 20, 8, true);
             this.h0 = 0x67452301 | 0;
@@ -5321,11 +5378,11 @@ var NeuraiSignESP32Bundle = (function () {
             this.set((this.h1 + cl + dr) | 0, (this.h2 + dl + er) | 0, (this.h3 + el + ar) | 0, (this.h4 + al + br) | 0, (this.h0 + bl + cr) | 0);
         }
         roundClean() {
-            clean(BUF_160);
+            clean$1(BUF_160);
         }
         destroy() {
             this.destroyed = true;
-            clean(this.buffer);
+            clean$1(this.buffer);
             this.set(0, 0, 0, 0, 0);
         }
     }
@@ -5334,7 +5391,7 @@ var NeuraiSignESP32Bundle = (function () {
      * * https://homes.esat.kuleuven.be/~bosselae/ripemd160.html
      * * https://homes.esat.kuleuven.be/~bosselae/ripemd160/pdf/AB-9601/AB-9601.pdf
      */
-    const ripemd160$1 = /* @__PURE__ */ createHasher(() => new RIPEMD160());
+    const ripemd160$1 = /* @__PURE__ */ createHasher$1(() => new RIPEMD160());
 
     /**
      * RIPEMD-160 legacy hash function.
@@ -5358,7 +5415,7 @@ var NeuraiSignESP32Bundle = (function () {
      * First 32 bits of fractional parts of the cube roots of the first 64 primes 2..311)
      */
     // prettier-ignore
-    const SHA256_K = /* @__PURE__ */ Uint32Array.from([
+    const SHA256_K$1 = /* @__PURE__ */ Uint32Array.from([
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
         0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
         0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -5369,20 +5426,20 @@ var NeuraiSignESP32Bundle = (function () {
         0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
     ]);
     /** Reusable temporary buffer. "W" comes straight from spec. */
-    const SHA256_W = /* @__PURE__ */ new Uint32Array(64);
-    class SHA256 extends HashMD {
+    const SHA256_W$1 = /* @__PURE__ */ new Uint32Array(64);
+    class SHA256 extends HashMD$1 {
         constructor(outputLen = 32) {
             super(64, outputLen, 8, false);
             // We cannot use array here since array allows indexing by variable
             // which means optimizer/compiler cannot use registers.
-            this.A = SHA256_IV[0] | 0;
-            this.B = SHA256_IV[1] | 0;
-            this.C = SHA256_IV[2] | 0;
-            this.D = SHA256_IV[3] | 0;
-            this.E = SHA256_IV[4] | 0;
-            this.F = SHA256_IV[5] | 0;
-            this.G = SHA256_IV[6] | 0;
-            this.H = SHA256_IV[7] | 0;
+            this.A = SHA256_IV$1[0] | 0;
+            this.B = SHA256_IV$1[1] | 0;
+            this.C = SHA256_IV$1[2] | 0;
+            this.D = SHA256_IV$1[3] | 0;
+            this.E = SHA256_IV$1[4] | 0;
+            this.F = SHA256_IV$1[5] | 0;
+            this.G = SHA256_IV$1[6] | 0;
+            this.H = SHA256_IV$1[7] | 0;
         }
         get() {
             const { A, B, C, D, E, F, G, H } = this;
@@ -5402,21 +5459,21 @@ var NeuraiSignESP32Bundle = (function () {
         process(view, offset) {
             // Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array
             for (let i = 0; i < 16; i++, offset += 4)
-                SHA256_W[i] = view.getUint32(offset, false);
+                SHA256_W$1[i] = view.getUint32(offset, false);
             for (let i = 16; i < 64; i++) {
-                const W15 = SHA256_W[i - 15];
-                const W2 = SHA256_W[i - 2];
-                const s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ (W15 >>> 3);
-                const s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >>> 10);
-                SHA256_W[i] = (s1 + SHA256_W[i - 7] + s0 + SHA256_W[i - 16]) | 0;
+                const W15 = SHA256_W$1[i - 15];
+                const W2 = SHA256_W$1[i - 2];
+                const s0 = rotr$1(W15, 7) ^ rotr$1(W15, 18) ^ (W15 >>> 3);
+                const s1 = rotr$1(W2, 17) ^ rotr$1(W2, 19) ^ (W2 >>> 10);
+                SHA256_W$1[i] = (s1 + SHA256_W$1[i - 7] + s0 + SHA256_W$1[i - 16]) | 0;
             }
             // Compression function main loop, 64 rounds
             let { A, B, C, D, E, F, G, H } = this;
             for (let i = 0; i < 64; i++) {
-                const sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25);
-                const T1 = (H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i]) | 0;
-                const sigma0 = rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22);
-                const T2 = (sigma0 + Maj(A, B, C)) | 0;
+                const sigma1 = rotr$1(E, 6) ^ rotr$1(E, 11) ^ rotr$1(E, 25);
+                const T1 = (H + sigma1 + Chi$1(E, F, G) + SHA256_K$1[i] + SHA256_W$1[i]) | 0;
+                const sigma0 = rotr$1(A, 2) ^ rotr$1(A, 13) ^ rotr$1(A, 22);
+                const T2 = (sigma0 + Maj$1(A, B, C)) | 0;
                 H = G;
                 G = F;
                 F = E;
@@ -5438,11 +5495,11 @@ var NeuraiSignESP32Bundle = (function () {
             this.set(A, B, C, D, E, F, G, H);
         }
         roundClean() {
-            clean(SHA256_W);
+            clean$1(SHA256_W$1);
         }
         destroy() {
             this.set(0, 0, 0, 0, 0, 0, 0, 0);
-            clean(this.buffer);
+            clean$1(this.buffer);
         }
     }
     /**
@@ -5452,7 +5509,7 @@ var NeuraiSignESP32Bundle = (function () {
      * To break sha256 using birthday attack, attackers need to try 2^128 hashes.
      * BTC network is doing 2^70 hashes/sec (2^95 hashes/year) as per 2025.
      */
-    const sha256$2 = /* @__PURE__ */ createHasher(() => new SHA256());
+    const sha256$3 = /* @__PURE__ */ createHasher$1(() => new SHA256());
 
     /**
      * SHA2-256 a.k.a. sha256. In JS, it is the fastest hash, even faster than Blake3.
@@ -5465,7 +5522,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @deprecated
      */
     /** @deprecated Use import from `noble/hashes/sha2` module */
-    const sha256$1 = sha256$2;
+    const sha256$2 = sha256$3;
 
     /**
      * A module for hashing functions.
@@ -5480,7 +5537,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The HASH160 of the input buffer.
      */
     function hash160$1(buffer) {
-      return ripemd160(sha256$1(buffer));
+      return ripemd160(sha256$2(buffer));
     }
     /**
      * Computes the double SHA-256 hash of the given buffer.
@@ -5488,8 +5545,8 @@ var NeuraiSignESP32Bundle = (function () {
      * @param buffer - The input data to be hashed.
      * @returns The double SHA-256 hash of the input buffer.
      */
-    function hash256$1(buffer) {
-      return sha256$1(sha256$1(buffer));
+    function hash256$2(buffer) {
+      return sha256$2(sha256$2(buffer));
     }
     /**
      * A collection of tagged hash prefixes used in various BIP (Bitcoin Improvement Proposals)
@@ -5572,7 +5629,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The resulting tagged hash as a `Uint8Array`.
      */
     function taggedHash$1(prefix, data) {
-      return sha256$1(concat$1([TAGGED_HASH_PREFIXES[prefix], data]));
+      return sha256$2(concat([TAGGED_HASH_PREFIXES[prefix], data]));
     }
 
     // base-x encoding / decoding
@@ -5580,7 +5637,7 @@ var NeuraiSignESP32Bundle = (function () {
     // Copyright (c) 2014-2018 The Bitcoin Core developers (base58.cpp)
     // Distributed under the MIT software license, see the accompanying
     // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
-    function base (ALPHABET) {
+    function base$1 (ALPHABET) {
       if (ALPHABET.length >= 255) { throw new TypeError('Alphabet too long') }
       const BASE_MAP = new Uint8Array(256);
       for (let j = 0; j < BASE_MAP.length; j++) {
@@ -5699,8 +5756,8 @@ var NeuraiSignESP32Bundle = (function () {
       }
     }
 
-    var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    var base58 = base(ALPHABET);
+    var ALPHABET$1 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    var base58 = base$1(ALPHABET$1);
 
     function bs58checkBase (checksumFn) {
         // Encode a buffer as a base58-check encoded string
@@ -5748,7 +5805,7 @@ var NeuraiSignESP32Bundle = (function () {
 
     // SHA256(SHA256(buffer))
     function sha256x2(buffer) {
-        return sha256$1(sha256$1(buffer));
+        return sha256$2(sha256$2(buffer));
     }
     var bs58check = bs58checkBase(sha256x2);
 
@@ -5783,7 +5840,7 @@ var NeuraiSignESP32Bundle = (function () {
       );
       const _address = value(() => {
         const payload = bs58check.decode(a.address);
-        const version = readUInt8$1(payload, 0);
+        const version = readUInt8(payload, 0);
         const hash = payload.slice(1);
         return { version, hash };
       });
@@ -5841,7 +5898,7 @@ var NeuraiSignESP32Bundle = (function () {
           hash = _address().hash;
         }
         if (a.hash) {
-          if (hash.length > 0 && compare$1(hash, a.hash) !== 0)
+          if (hash.length > 0 && compare(hash, a.hash) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = a.hash;
         }
@@ -5856,13 +5913,13 @@ var NeuraiSignESP32Bundle = (function () {
           )
             throw new TypeError('Output is invalid');
           const hash2 = a.output.slice(3, 23);
-          if (hash.length > 0 && compare$1(hash, hash2) !== 0)
+          if (hash.length > 0 && compare(hash, hash2) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = hash2;
         }
         if (a.pubkey) {
           const pkh = hash160$1(a.pubkey);
-          if (hash.length > 0 && compare$1(hash, pkh) !== 0)
+          if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = pkh;
         }
@@ -5872,12 +5929,12 @@ var NeuraiSignESP32Bundle = (function () {
           if (!isCanonicalScriptSignature(chunks[0]))
             throw new TypeError('Input has invalid signature');
           if (!isPoint(chunks[1])) throw new TypeError('Input has invalid pubkey');
-          if (a.signature && compare$1(a.signature, chunks[0]) !== 0)
+          if (a.signature && compare(a.signature, chunks[0]) !== 0)
             throw new TypeError('Signature mismatch');
-          if (a.pubkey && compare$1(a.pubkey, chunks[1]) !== 0)
+          if (a.pubkey && compare(a.pubkey, chunks[1]) !== 0)
             throw new TypeError('Pubkey mismatch');
           const pkh = hash160$1(chunks[1]);
-          if (hash.length > 0 && compare$1(hash, pkh) !== 0)
+          if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
         }
       }
@@ -5928,7 +5985,7 @@ var NeuraiSignESP32Bundle = (function () {
       const o = { network };
       const _address = value(() => {
         const payload = bs58check.decode(a.address);
-        const version = readUInt8$1(payload, 0);
+        const version = readUInt8(payload, 0);
         const hash = payload.slice(1);
         return { version, hash };
       });
@@ -5993,7 +6050,7 @@ var NeuraiSignESP32Bundle = (function () {
           hash = _address().hash;
         }
         if (a.hash) {
-          if (hash.length > 0 && compare$1(hash, a.hash) !== 0)
+          if (hash.length > 0 && compare(hash, a.hash) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = a.hash;
         }
@@ -6006,7 +6063,7 @@ var NeuraiSignESP32Bundle = (function () {
           )
             throw new TypeError('Output is invalid');
           const hash2 = a.output.slice(2, 22);
-          if (hash.length > 0 && compare$1(hash, hash2) !== 0)
+          if (hash.length > 0 && compare(hash, hash2) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = hash2;
         }
@@ -6027,7 +6084,7 @@ var NeuraiSignESP32Bundle = (function () {
               );
             // match hash against other sources
             const hash2 = hash160$1(redeem.output);
-            if (hash.length > 0 && compare$1(hash, hash2) !== 0)
+            if (hash.length > 0 && compare(hash, hash2) !== 0)
               throw new TypeError('Hash mismatch');
             else hash = hash2;
           }
@@ -6058,10 +6115,10 @@ var NeuraiSignESP32Bundle = (function () {
             const redeem = _redeem();
             if (
               a.redeem.output &&
-              compare$1(a.redeem.output, redeem.output) !== 0
+              compare(a.redeem.output, redeem.output) !== 0
             )
               throw new TypeError('Redeem.output mismatch');
-            if (a.redeem.input && compare$1(a.redeem.input, redeem.input) !== 0)
+            if (a.redeem.input && compare(a.redeem.input, redeem.input) !== 0)
               throw new TypeError('Redeem.input mismatch');
           }
           checkRedeem(a.redeem);
@@ -6078,15 +6135,15 @@ var NeuraiSignESP32Bundle = (function () {
       return Object.assign(o, a);
     }
 
-    var dist$1 = {};
+    var dist$2 = {};
 
-    var hasRequiredDist$1;
+    var hasRequiredDist$2;
 
-    function requireDist$1 () {
-    	if (hasRequiredDist$1) return dist$1;
-    	hasRequiredDist$1 = 1;
-    	Object.defineProperty(dist$1, "__esModule", { value: true });
-    	dist$1.bech32m = dist$1.bech32 = void 0;
+    function requireDist$2 () {
+    	if (hasRequiredDist$2) return dist$2;
+    	hasRequiredDist$2 = 1;
+    	Object.defineProperty(dist$2, "__esModule", { value: true });
+    	dist$2.bech32m = dist$2.bech32 = void 0;
     	const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
     	const ALPHABET_MAP = {};
     	for (let z = 0; z < ALPHABET.length; z++) {
@@ -6252,12 +6309,12 @@ var NeuraiSignESP32Bundle = (function () {
     	        fromWords,
     	    };
     	}
-    	dist$1.bech32 = getLibraryFromEncoding('bech32');
-    	dist$1.bech32m = getLibraryFromEncoding('bech32m');
-    	return dist$1;
+    	dist$2.bech32 = getLibraryFromEncoding('bech32');
+    	dist$2.bech32m = getLibraryFromEncoding('bech32m');
+    	return dist$2;
     }
 
-    var distExports$1 = requireDist$1();
+    var distExports$1 = requireDist$2();
 
     const OPS$2 = OPS$7;
     const EMPTY_BUFFER$2 = new Uint8Array(0);
@@ -6349,7 +6406,7 @@ var NeuraiSignESP32Bundle = (function () {
           hash = _address().data;
         }
         if (a.hash) {
-          if (hash.length > 0 && compare$1(hash, a.hash) !== 0)
+          if (hash.length > 0 && compare(hash, a.hash) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = a.hash;
         }
@@ -6360,13 +6417,13 @@ var NeuraiSignESP32Bundle = (function () {
             a.output[1] !== 0x14
           )
             throw new TypeError('Output is invalid');
-          if (hash.length > 0 && compare$1(hash, a.output.slice(2)) !== 0)
+          if (hash.length > 0 && compare(hash, a.output.slice(2)) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = a.output.slice(2);
         }
         if (a.pubkey) {
           const pkh = hash160$1(a.pubkey);
-          if (hash.length > 0 && compare$1(hash, pkh) !== 0)
+          if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = pkh;
           if (!isPoint(a.pubkey) || a.pubkey.length !== 33)
@@ -6378,13 +6435,13 @@ var NeuraiSignESP32Bundle = (function () {
             throw new TypeError('Witness has invalid signature');
           if (!isPoint(a.witness[1]) || a.witness[1].length !== 33)
             throw new TypeError('Witness has invalid pubkey');
-          if (a.signature && compare$1(a.signature, a.witness[0]) !== 0)
+          if (a.signature && compare(a.signature, a.witness[0]) !== 0)
             throw new TypeError('Signature mismatch');
           // if (a.pubkey && !a.pubkey.equals(a.witness[1]))
-          if (a.pubkey && compare$1(a.pubkey, a.witness[1]) !== 0)
+          if (a.pubkey && compare(a.pubkey, a.witness[1]) !== 0)
             throw new TypeError('Pubkey mismatch');
           const pkh = hash160$1(a.witness[1]);
-          if (hash.length > 0 && compare$1(hash, pkh) !== 0)
+          if (hash.length > 0 && compare(hash, pkh) !== 0)
             throw new TypeError('Hash mismatch');
         }
       }
@@ -6464,7 +6521,7 @@ var NeuraiSignESP32Bundle = (function () {
       prop(o, 'hash', () => {
         if (a.output) return a.output.slice(2);
         if (a.address) return _address().data;
-        if (o.redeem && o.redeem.output) return sha256$1(o.redeem.output);
+        if (o.redeem && o.redeem.output) return sha256$2(o.redeem.output);
       });
       prop(o, 'output', () => {
         if (!o.hash) return;
@@ -6521,7 +6578,7 @@ var NeuraiSignESP32Bundle = (function () {
           hash = _address().data;
         }
         if (a.hash) {
-          if (hash.length > 0 && compare$1(hash, a.hash) !== 0)
+          if (hash.length > 0 && compare(hash, a.hash) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = a.hash;
         }
@@ -6533,7 +6590,7 @@ var NeuraiSignESP32Bundle = (function () {
           )
             throw new TypeError('Output is invalid');
           const hash2 = a.output.slice(2);
-          if (hash.length > 0 && compare$1(hash, hash2) !== 0)
+          if (hash.length > 0 && compare(hash, hash2) !== 0)
             throw new TypeError('Hash mismatch');
           else hash = hash2;
         }
@@ -6562,8 +6619,8 @@ var NeuraiSignESP32Bundle = (function () {
                 'Redeem.output unspendable with more than 201 non-push ops',
               );
             // match hash against other sources
-            const hash2 = sha256$1(a.redeem.output);
-            if (hash.length > 0 && compare$1(hash, hash2) !== 0)
+            const hash2 = sha256$2(a.redeem.output);
+            if (hash.length > 0 && compare(hash, hash2) !== 0)
               throw new TypeError('Hash mismatch');
             else hash = hash2;
           }
@@ -6592,7 +6649,7 @@ var NeuraiSignESP32Bundle = (function () {
           if (
             a.redeem &&
             a.redeem.output &&
-            compare$1(a.redeem.output, wScript) !== 0
+            compare(a.redeem.output, wScript) !== 0
           )
             throw new TypeError('Witness and redeem.output mismatch');
           if (
@@ -6621,19 +6678,19 @@ var NeuraiSignESP32Bundle = (function () {
       return _ECCLIB_CACHE.eccLib;
     }
 
-    const HEX_STRINGS$1 = "0123456789abcdefABCDEF";
-    HEX_STRINGS$1.split("").map((c) => c.codePointAt(0));
+    const HEX_STRINGS = "0123456789abcdefABCDEF";
+    HEX_STRINGS.split("").map((c) => c.codePointAt(0));
     Array(256)
         .fill(true)
         .map((_, i) => {
         const s = String.fromCodePoint(i);
-        const index = HEX_STRINGS$1.indexOf(s);
+        const index = HEX_STRINGS.indexOf(s);
         // ABCDEF will use 10 - 15
         return index < 0 ? undefined : index < 16 ? index : index - 6;
     });
     new TextEncoder();
     new TextDecoder();
-    function writeUInt16$1(buffer, offset, value, littleEndian) {
+    function writeUInt16(buffer, offset, value, littleEndian) {
         if (offset + 2 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -6650,7 +6707,7 @@ var NeuraiSignESP32Bundle = (function () {
             buffer[offset + 1] = value & 0xff;
         }
     }
-    function writeUInt32$1(buffer, offset, value, littleEndian) {
+    function writeUInt32(buffer, offset, value, littleEndian) {
         if (offset + 4 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -6671,7 +6728,7 @@ var NeuraiSignESP32Bundle = (function () {
             buffer[offset + 3] = value & 0xff;
         }
     }
-    function writeUInt64$1(buffer, offset, value, littleEndian) {
+    function writeUInt64(buffer, offset, value, littleEndian) {
         if (offset + 8 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -6700,7 +6757,7 @@ var NeuraiSignESP32Bundle = (function () {
             buffer[offset + 7] = Number(value & 0xffn);
         }
     }
-    function readUInt16$1(buffer, offset, littleEndian) {
+    function readUInt16(buffer, offset, littleEndian) {
         if (offset + 2 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -6718,7 +6775,7 @@ var NeuraiSignESP32Bundle = (function () {
             return num;
         }
     }
-    function readUInt32$1(buffer, offset, littleEndian) {
+    function readUInt32(buffer, offset, littleEndian) {
         if (offset + 4 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -6740,7 +6797,7 @@ var NeuraiSignESP32Bundle = (function () {
             return num;
         }
     }
-    function readUInt64$1(buffer, offset, littleEndian) {
+    function readUInt64(buffer, offset, littleEndian) {
         if (offset + 8 > buffer.length) {
             throw new Error("Offset is outside the bounds of Uint8Array");
         }
@@ -6771,27 +6828,27 @@ var NeuraiSignESP32Bundle = (function () {
         }
     }
 
-    const checkUInt64$1 = (n) => {
+    const checkUInt64 = (n) => {
         if (n < 0 || n > 0xffffffffffffffffn) {
             throw new RangeError('value out of range');
         }
     };
-    function checkUInt53$1(n) {
+    function checkUInt53(n) {
         if (n < 0 || n > Number.MAX_SAFE_INTEGER || n % 1 !== 0)
             throw new RangeError('value out of range');
     }
-    function checkUint53OrUint64$1(n) {
+    function checkUint53OrUint64(n) {
         if (typeof n === 'number')
-            checkUInt53$1(n);
+            checkUInt53(n);
         else
-            checkUInt64$1(n);
+            checkUInt64(n);
     }
-    function encode$f(n, buffer, offset) {
-        checkUint53OrUint64$1(n);
+    function encode$e(n, buffer, offset) {
+        checkUint53OrUint64(n);
         if (offset === undefined)
             offset = 0;
         if (buffer === undefined) {
-            buffer = new Uint8Array(encodingLength$1(n));
+            buffer = new Uint8Array(encodingLength(n));
         }
         let bytes = 0;
         // 8 bit
@@ -6802,24 +6859,24 @@ var NeuraiSignESP32Bundle = (function () {
         }
         else if (n <= 0xffff) {
             buffer.set([0xfd], offset);
-            writeUInt16$1(buffer, offset + 1, Number(n), 'LE');
+            writeUInt16(buffer, offset + 1, Number(n), 'LE');
             bytes = 3;
             // 32 bit
         }
         else if (n <= 0xffffffff) {
             buffer.set([0xfe], offset);
-            writeUInt32$1(buffer, offset + 1, Number(n), 'LE');
+            writeUInt32(buffer, offset + 1, Number(n), 'LE');
             bytes = 5;
             // 64 bit
         }
         else {
             buffer.set([0xff], offset);
-            writeUInt64$1(buffer, offset + 1, BigInt(n), 'LE');
+            writeUInt64(buffer, offset + 1, BigInt(n), 'LE');
             bytes = 9;
         }
         return { buffer, bytes };
     }
-    function decode$e(buffer, offset) {
+    function decode$d(buffer, offset) {
         if (offset === undefined)
             offset = 0;
         const first = buffer.at(offset);
@@ -6831,7 +6888,7 @@ var NeuraiSignESP32Bundle = (function () {
             // 16 bit
         }
         else if (first === 0xfd) {
-            const val = readUInt16$1(buffer, offset + 1, 'LE');
+            const val = readUInt16(buffer, offset + 1, 'LE');
             return {
                 numberValue: val,
                 bigintValue: BigInt(val),
@@ -6840,7 +6897,7 @@ var NeuraiSignESP32Bundle = (function () {
             // 32 bit
         }
         else if (first === 0xfe) {
-            const val = readUInt32$1(buffer, offset + 1, 'LE');
+            const val = readUInt32(buffer, offset + 1, 'LE');
             return {
                 numberValue: val,
                 bigintValue: BigInt(val),
@@ -6849,12 +6906,12 @@ var NeuraiSignESP32Bundle = (function () {
             // 64 bit
         }
         else {
-            const number = readUInt64$1(buffer, offset + 1, 'LE');
+            const number = readUInt64(buffer, offset + 1, 'LE');
             return { numberValue: number <= Number.MAX_SAFE_INTEGER ? Number(number) : null, bigintValue: number, bytes: 9 };
         }
     }
-    function encodingLength$1(n) {
-        checkUint53OrUint64$1(n);
+    function encodingLength(n) {
+        checkUint53OrUint64(n);
         return n < 0xfd ? 1 : n <= 0xffff ? 3 : n <= 0xffffffff ? 5 : 9;
     }
 
@@ -6916,16 +6973,16 @@ var NeuraiSignESP32Bundle = (function () {
         this.offset = writeInt32(this.buffer, this.offset, i, 'LE');
       }
       writeInt64(i) {
-        this.offset = writeInt64$1(this.buffer, this.offset, BigInt(i), 'LE');
+        this.offset = writeInt64(this.buffer, this.offset, BigInt(i), 'LE');
       }
       writeUInt32(i) {
-        this.offset = writeUInt32$2(this.buffer, this.offset, i, 'LE');
+        this.offset = writeUInt32$1(this.buffer, this.offset, i, 'LE');
       }
       writeUInt64(i) {
-        this.offset = writeUInt64$2(this.buffer, this.offset, BigInt(i), 'LE');
+        this.offset = writeUInt64$1(this.buffer, this.offset, BigInt(i), 'LE');
       }
       writeVarInt(i) {
-        const { bytes } = encode$f(i, this.buffer, this.offset);
+        const { bytes } = encode$e(i, this.buffer, this.offset);
         this.offset += bytes;
       }
       writeSlice(slice) {
@@ -6965,7 +7022,7 @@ var NeuraiSignESP32Bundle = (function () {
         ]);
       }
       readUInt8() {
-        const result = readUInt8$1(this.buffer, this.offset);
+        const result = readUInt8(this.buffer, this.offset);
         this.offset++;
         return result;
       }
@@ -6975,17 +7032,17 @@ var NeuraiSignESP32Bundle = (function () {
         return result;
       }
       readUInt32() {
-        const result = readUInt32$2(this.buffer, this.offset, 'LE');
+        const result = readUInt32$1(this.buffer, this.offset, 'LE');
         this.offset += 4;
         return result;
       }
       readInt64() {
-        const result = readInt64$1(this.buffer, this.offset, 'LE');
+        const result = readInt64(this.buffer, this.offset, 'LE');
         this.offset += 8;
         return result;
       }
       readVarInt() {
-        const { bigintValue, bytes } = decode$e(this.buffer, this.offset);
+        const { bigintValue, bytes } = decode$d(this.buffer, this.offset);
         this.offset += bytes;
         return bigintValue;
       }
@@ -7029,7 +7086,7 @@ var NeuraiSignESP32Bundle = (function () {
       let kj = leafHash;
       for (let j = 0; j < m; j++) {
         const ej = controlBlock.slice(33 + 32 * j, 65 + 32 * j);
-        if (compare$1(kj, ej) < 0) {
+        if (compare(kj, ej) < 0) {
           kj = tapBranchHash(kj, ej);
         } else {
           kj = tapBranchHash(ej, kj);
@@ -7045,7 +7102,7 @@ var NeuraiSignESP32Bundle = (function () {
       if (isTapleaf(scriptTree)) return { hash: tapleafHash(scriptTree) };
       const hashes = [toHashTree(scriptTree[0]), toHashTree(scriptTree[1])];
       // hashes.sort((a, b) => a.hash.compare(b.hash));
-      hashes.sort((a, b) => compare$1(a.hash, b.hash));
+      hashes.sort((a, b) => compare(a.hash, b.hash));
       const [left, right] = hashes;
       return {
         hash: tapBranchHash(left.hash, right.hash),
@@ -7067,7 +7124,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (leftPath !== undefined) return [...leftPath, node.right.hash];
         const rightPath = findScriptPath(node.right, hash);
         if (rightPath !== undefined) return [...rightPath, node.left.hash];
-      } else if (compare$1(node.hash, hash) === 0) {
+      } else if (compare(node.hash, hash) === 0) {
         return [];
       }
       return undefined;
@@ -7081,7 +7138,7 @@ var NeuraiSignESP32Bundle = (function () {
       const version = leaf.version || LEAF_VERSION_TAPSCRIPT;
       return taggedHash$1(
         'TapLeaf',
-        concat$1([Uint8Array.from([version]), serializeScript(leaf.output)]),
+        concat([Uint8Array.from([version]), serializeScript(leaf.output)]),
       );
     }
     /**
@@ -7096,7 +7153,7 @@ var NeuraiSignESP32Bundle = (function () {
     function tapTweakHash(pubKey, h) {
       return taggedHash$1(
         'TapTweak',
-        concat$1(h ? [pubKey, h] : [pubKey]),
+        concat(h ? [pubKey, h] : [pubKey]),
       );
     }
     /**
@@ -7125,7 +7182,7 @@ var NeuraiSignESP32Bundle = (function () {
      * @returns The TapBranch hash of the concatenated buffers.
      */
     function tapBranchHash(a, b) {
-      return taggedHash$1('TapBranch', concat$1([a, b]));
+      return taggedHash$1('TapBranch', concat([a, b]));
     }
     /**
      * Serializes a script by encoding its length as a varint and concatenating it with the script.
@@ -7135,10 +7192,10 @@ var NeuraiSignESP32Bundle = (function () {
      */
     function serializeScript(s) {
       /* global BigInt */
-      const varintLen = encodingLength$1(s.length);
+      const varintLen = encodingLength(s.length);
       const buffer = new Uint8Array(varintLen);
-      encode$f(s.length, buffer);
-      return concat$1([buffer, s]);
+      encode$e(s.length, buffer);
+      return concat([buffer, s]);
     }
 
     const OPS = OPS$7;
@@ -7287,7 +7344,7 @@ var NeuraiSignESP32Bundle = (function () {
           if (!path) return;
           const outputKey = tweakKey(a.internalPubkey, hashTree.hash);
           if (!outputKey) return;
-          const controlBock = concat$1(
+          const controlBock = concat(
             [
               Uint8Array.from([o.redeemVersion | outputKey.parity]),
               a.internalPubkey,
@@ -7310,7 +7367,7 @@ var NeuraiSignESP32Bundle = (function () {
           pubkey = _address().data;
         }
         if (a.pubkey) {
-          if (pubkey.length > 0 && compare$1(pubkey, a.pubkey) !== 0)
+          if (pubkey.length > 0 && compare(pubkey, a.pubkey) !== 0)
             throw new TypeError('Pubkey mismatch');
           else pubkey = a.pubkey;
         }
@@ -7321,13 +7378,13 @@ var NeuraiSignESP32Bundle = (function () {
             a.output[1] !== 0x20
           )
             throw new TypeError('Output is invalid');
-          if (pubkey.length > 0 && compare$1(pubkey, a.output.slice(2)) !== 0)
+          if (pubkey.length > 0 && compare(pubkey, a.output.slice(2)) !== 0)
             throw new TypeError('Pubkey mismatch');
           else pubkey = a.output.slice(2);
         }
         if (a.internalPubkey) {
           const tweakedKey = tweakKey(a.internalPubkey, o.hash);
-          if (pubkey.length > 0 && compare$1(pubkey, tweakedKey.x) !== 0)
+          if (pubkey.length > 0 && compare(pubkey, tweakedKey.x) !== 0)
             throw new TypeError('Pubkey mismatch');
           else pubkey = tweakedKey.x;
         }
@@ -7337,7 +7394,7 @@ var NeuraiSignESP32Bundle = (function () {
         }
         const hashTree = _hashTree();
         if (a.hash && hashTree) {
-          if (compare$1(a.hash, hashTree.hash) !== 0)
+          if (compare(a.hash, hashTree.hash) !== 0)
             throw new TypeError('Hash mismatch');
         }
         if (a.redeem && a.redeem.output && hashTree) {
@@ -7361,7 +7418,7 @@ var NeuraiSignESP32Bundle = (function () {
             // output redeem is constructed from the witness
             if (
               o.redeem.output &&
-              compare$1(a.redeem.output, o.redeem.output) !== 0
+              compare(a.redeem.output, o.redeem.output) !== 0
             )
               throw new TypeError('Redeem.output and witness mismatch');
           }
@@ -7376,7 +7433,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (witness && witness.length) {
           if (witness.length === 1) {
             // key spending
-            if (a.signature && compare$1(a.signature, witness[0]) !== 0)
+            if (a.signature && compare(a.signature, witness[0]) !== 0)
               throw new TypeError('Signature mismatch');
           } else {
             // script path spending
@@ -7397,7 +7454,7 @@ var NeuraiSignESP32Bundle = (function () {
             const internalPubkey = controlBlock.slice(1, 33);
             if (
               a.internalPubkey &&
-              compare$1(a.internalPubkey, internalPubkey) !== 0
+              compare(a.internalPubkey, internalPubkey) !== 0
             )
               throw new TypeError('Internal pubkey mismatch');
             if (!getEccLib().isXOnlyPoint(internalPubkey))
@@ -7410,7 +7467,7 @@ var NeuraiSignESP32Bundle = (function () {
             if (!outputKey)
               // todo: needs test data
               throw new TypeError('Invalid outputKey for p2tr witness');
-            if (pubkey.length && compare$1(pubkey, outputKey.x) !== 0)
+            if (pubkey.length && compare(pubkey, outputKey.x) !== 0)
               throw new TypeError('Pubkey mismatch for p2tr witness');
             if (outputKey.parity !== (controlBlock[0] & 1))
               throw new Error('Incorrect parity');
@@ -7471,7 +7528,7 @@ var NeuraiSignESP32Bundle = (function () {
       // TODO: 4.0.0, move to "toOutputScript"
       if (payload.length < 21) throw new TypeError(address + ' is too short');
       if (payload.length > 21) throw new TypeError(address + ' is too long');
-      const version = readUInt8$1(payload, 0);
+      const version = readUInt8(payload, 0);
       const hash = payload.slice(1);
       return { version, hash };
     }
@@ -7615,12 +7672,12 @@ var NeuraiSignESP32Bundle = (function () {
 
     function varSliceSize(someScript) {
       const length = someScript.length;
-      return encodingLength$1(length) + length;
+      return encodingLength(length) + length;
     }
     function vectorSize(someVector) {
       const length = someVector.length;
       return (
-        encodingLength$1(length) +
+        encodingLength(length) +
         someVector.reduce((sum, witness) => {
           return sum + varSliceSize(witness);
         }, 0)
@@ -7628,13 +7685,13 @@ var NeuraiSignESP32Bundle = (function () {
     }
     const EMPTY_BUFFER = new Uint8Array(0);
     const EMPTY_WITNESS = [];
-    const ZERO = fromHex$1(
+    const ZERO = fromHex(
       '0000000000000000000000000000000000000000000000000000000000000000',
     );
-    const ONE = fromHex$1(
+    const ONE = fromHex(
       '0000000000000000000000000000000000000000000000000000000000000001',
     );
-    const VALUE_UINT64_MAX = fromHex$1('ffffffffffffffff');
+    const VALUE_UINT64_MAX = fromHex('ffffffffffffffff');
     const BLANK_OUTPUT = {
       script: EMPTY_BUFFER,
       valueBuffer: VALUE_UINT64_MAX,
@@ -7703,7 +7760,7 @@ var NeuraiSignESP32Bundle = (function () {
         return tx;
       }
       static fromHex(hex) {
-        return Transaction.fromBuffer(fromHex$1(hex), false);
+        return Transaction.fromBuffer(fromHex(hex), false);
       }
       static isCoinbaseHash(buffer) {
         parse(Hash256bitSchema, buffer);
@@ -7780,8 +7837,8 @@ var NeuraiSignESP32Bundle = (function () {
         const hasWitnesses = _ALLOW_WITNESS && this.hasWitnesses();
         return (
           (hasWitnesses ? 10 : 8) +
-          encodingLength$1(this.ins.length) +
-          encodingLength$1(this.outs.length) +
+          encodingLength(this.ins.length) +
+          encodingLength(this.outs.length) +
           this.ins.reduce((sum, input) => {
             return sum + 40 + varSliceSize(input.script);
           }, 0) +
@@ -7879,7 +7936,7 @@ var NeuraiSignESP32Bundle = (function () {
         const buffer = new Uint8Array(txTmp.byteLength(false) + 4);
         writeInt32(buffer, buffer.length - 4, hashType, 'LE');
         txTmp.__toBuffer(buffer, 0, false);
-        return hash256$1(buffer);
+        return hash256$2(buffer);
       }
       hashForWitnessV1(inIndex, prevOutScripts, values, hashType, leafHash, annex) {
         // https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#common-signature-message
@@ -7917,20 +7974,20 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeSlice(txIn.hash);
             bufferWriter.writeUInt32(txIn.index);
           });
-          hashPrevouts = sha256$1(bufferWriter.end());
+          hashPrevouts = sha256$2(bufferWriter.end());
           bufferWriter = BufferWriter.withCapacity(8 * this.ins.length);
           values.forEach(value => bufferWriter.writeInt64(value));
-          hashAmounts = sha256$1(bufferWriter.end());
+          hashAmounts = sha256$2(bufferWriter.end());
           bufferWriter = BufferWriter.withCapacity(
             prevOutScripts.map(varSliceSize).reduce((a, b) => a + b),
           );
           prevOutScripts.forEach(prevOutScript =>
             bufferWriter.writeVarSlice(prevOutScript),
           );
-          hashScriptPubKeys = sha256$1(bufferWriter.end());
+          hashScriptPubKeys = sha256$2(bufferWriter.end());
           bufferWriter = BufferWriter.withCapacity(4 * this.ins.length);
           this.ins.forEach(txIn => bufferWriter.writeUInt32(txIn.sequence));
-          hashSequences = sha256$1(bufferWriter.end());
+          hashSequences = sha256$2(bufferWriter.end());
         }
         if (!(isNone || isSingle)) {
           if (!this.outs.length)
@@ -7943,7 +8000,7 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeInt64(out.value);
             bufferWriter.writeVarSlice(out.script);
           });
-          hashOutputs = sha256$1(bufferWriter.end());
+          hashOutputs = sha256$2(bufferWriter.end());
         } else if (isSingle && inIndex < this.outs.length) {
           const output = this.outs[inIndex];
           const bufferWriter = BufferWriter.withCapacity(
@@ -7951,7 +8008,7 @@ var NeuraiSignESP32Bundle = (function () {
           );
           bufferWriter.writeInt64(output.value);
           bufferWriter.writeVarSlice(output.script);
-          hashOutputs = sha256$1(bufferWriter.end());
+          hashOutputs = sha256$2(bufferWriter.end());
         }
         const spendType = (leafHash ? 2 : 0) + (annex ? 1 : 0);
         // Length calculation from:
@@ -7991,7 +8048,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (annex) {
           const bufferWriter = BufferWriter.withCapacity(varSliceSize(annex));
           bufferWriter.writeVarSlice(annex);
-          sigMsgWriter.writeSlice(sha256$1(bufferWriter.end()));
+          sigMsgWriter.writeSlice(sha256$2(bufferWriter.end()));
         }
         // Output
         if (isSingle) {
@@ -8007,7 +8064,7 @@ var NeuraiSignESP32Bundle = (function () {
         // https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#cite_note-19
         return taggedHash$1(
           'TapSighash',
-          concat$1([Uint8Array.from([0x00]), sigMsgWriter.end()]),
+          concat([Uint8Array.from([0x00]), sigMsgWriter.end()]),
         );
       }
       hashForWitnessV0(inIndex, prevOutScript, value, hashType) {
@@ -8032,7 +8089,7 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeSlice(txIn.hash);
             bufferWriter.writeUInt32(txIn.index);
           });
-          hashPrevouts = hash256$1(tbuffer);
+          hashPrevouts = hash256$2(tbuffer);
         }
         if (
           !(hashType & Transaction.SIGHASH_ANYONECANPAY) &&
@@ -8044,7 +8101,7 @@ var NeuraiSignESP32Bundle = (function () {
           this.ins.forEach(txIn => {
             bufferWriter.writeUInt32(txIn.sequence);
           });
-          hashSequence = hash256$1(tbuffer);
+          hashSequence = hash256$2(tbuffer);
         }
         if (
           (hashType & 0x1f) !== Transaction.SIGHASH_SINGLE &&
@@ -8059,7 +8116,7 @@ var NeuraiSignESP32Bundle = (function () {
             bufferWriter.writeInt64(out.value);
             bufferWriter.writeVarSlice(out.script);
           });
-          hashOutputs = hash256$1(tbuffer);
+          hashOutputs = hash256$2(tbuffer);
         } else if (
           (hashType & 0x1f) === Transaction.SIGHASH_SINGLE &&
           inIndex < this.outs.length
@@ -8069,7 +8126,7 @@ var NeuraiSignESP32Bundle = (function () {
           bufferWriter = new BufferWriter(tbuffer, 0);
           bufferWriter.writeInt64(output.value);
           bufferWriter.writeVarSlice(output.script);
-          hashOutputs = hash256$1(tbuffer);
+          hashOutputs = hash256$2(tbuffer);
         }
         tbuffer = new Uint8Array(156 + varSliceSize(prevOutScript));
         bufferWriter = new BufferWriter(tbuffer, 0);
@@ -8085,22 +8142,22 @@ var NeuraiSignESP32Bundle = (function () {
         bufferWriter.writeSlice(hashOutputs);
         bufferWriter.writeUInt32(this.locktime);
         bufferWriter.writeUInt32(hashType);
-        return hash256$1(tbuffer);
+        return hash256$2(tbuffer);
       }
       getHash(forWitness) {
         // wtxid for coinbase is always 32 bytes of 0x00
         if (forWitness && this.isCoinbase()) return new Uint8Array(32);
-        return hash256$1(this.__toBuffer(undefined, undefined, forWitness));
+        return hash256$2(this.__toBuffer(undefined, undefined, forWitness));
       }
       getId() {
         // transaction hash's are displayed in reverse order
-        return toHex$1(reverseBuffer(this.getHash(false)));
+        return toHex(reverseBuffer(this.getHash(false)));
       }
       toBuffer(buffer, initialOffset) {
         return this.__toBuffer(buffer, initialOffset, true);
       }
       toHex() {
-        return toHex$1(this.toBuffer(undefined, undefined));
+        return toHex(this.toBuffer(undefined, undefined));
       }
       setInputScript(index, scriptSig) {
         parse(tuple([number(), BufferSchema]), [index, scriptSig]);
@@ -8187,305 +8244,8 @@ var NeuraiSignESP32Bundle = (function () {
         'TAP_BIP32_DERIVATION';
     })(OutputTypes || (OutputTypes = {}));
 
-    const HEX_STRINGS = "0123456789abcdefABCDEF";
-    const HEX_CODES = HEX_STRINGS.split("").map((c) => c.codePointAt(0));
-    const HEX_CODEPOINTS = Array(256)
-        .fill(true)
-        .map((_, i) => {
-        const s = String.fromCodePoint(i);
-        const index = HEX_STRINGS.indexOf(s);
-        // ABCDEF will use 10 - 15
-        return index < 0 ? undefined : index < 16 ? index : index - 6;
-    });
-    const ENCODER = new TextEncoder();
-    const DECODER = new TextDecoder();
-    function toUtf8(bytes) {
-        return DECODER.decode(bytes);
-    }
-    function fromUtf8(s) {
-        return ENCODER.encode(s);
-    }
-    function concat(arrays) {
-        const totalLength = arrays.reduce((a, b) => a + b.length, 0);
-        const result = new Uint8Array(totalLength);
-        let offset = 0;
-        for (const array of arrays) {
-            result.set(array, offset);
-            offset += array.length;
-        }
-        return result;
-    }
-    // There are two implementations.
-    // One optimizes for length of the bytes, and uses TextDecoder.
-    // One optimizes for iteration count, and appends strings.
-    // This removes the overhead of TextDecoder.
-    function toHex(bytes) {
-        const b = bytes || new Uint8Array();
-        return b.length > 512 ? _toHexLengthPerf(b) : _toHexIterPerf(b);
-    }
-    function _toHexIterPerf(bytes) {
-        let s = "";
-        for (let i = 0; i < bytes.length; ++i) {
-            s += HEX_STRINGS[HEX_CODEPOINTS[HEX_CODES[bytes[i] >> 4]]];
-            s += HEX_STRINGS[HEX_CODEPOINTS[HEX_CODES[bytes[i] & 15]]];
-        }
-        return s;
-    }
-    function _toHexLengthPerf(bytes) {
-        const hexBytes = new Uint8Array(bytes.length * 2);
-        for (let i = 0; i < bytes.length; ++i) {
-            hexBytes[i * 2] = HEX_CODES[bytes[i] >> 4];
-            hexBytes[i * 2 + 1] = HEX_CODES[bytes[i] & 15];
-        }
-        return DECODER.decode(hexBytes);
-    }
-    // Mimics Buffer.from(x, 'hex') logic
-    // Stops on first non-hex string and returns
-    // https://github.com/nodejs/node/blob/v14.18.1/src/string_bytes.cc#L246-L261
-    function fromHex(hexString) {
-        const hexBytes = ENCODER.encode(hexString || "");
-        const resultBytes = new Uint8Array(Math.floor(hexBytes.length / 2));
-        let i;
-        for (i = 0; i < resultBytes.length; i++) {
-            const a = HEX_CODEPOINTS[hexBytes[i * 2]];
-            const b = HEX_CODEPOINTS[hexBytes[i * 2 + 1]];
-            if (a === undefined || b === undefined) {
-                break;
-            }
-            resultBytes[i] = (a << 4) | b;
-        }
-        return i === resultBytes.length ? resultBytes : resultBytes.slice(0, i);
-    }
-    function toBase64(bytes) {
-        return btoa(String.fromCharCode(...bytes));
-    }
-    function fromBase64(base64) {
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return bytes;
-    }
-    // Same behavior as Buffer.compare()
-    function compare(v1, v2) {
-        const minLength = Math.min(v1.length, v2.length);
-        for (let i = 0; i < minLength; ++i) {
-            if (v1[i] !== v2[i]) {
-                return v1[i] < v2[i] ? -1 : 1;
-            }
-        }
-        return v1.length === v2.length ? 0 : v1.length > v2.length ? 1 : -1;
-    }
-    function writeUInt16(buffer, offset, value, littleEndian) {
-        if (offset + 2 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (value > 0xffff) {
-            throw new Error(`The value of "value" is out of range. It must be >= 0 and <= ${0xffff}. Received ${value}`);
-        }
-        if (littleEndian === "LE") {
-            buffer[offset] = value & 0xff;
-            buffer[offset + 1] = (value >> 8) & 0xff;
-        }
-        else {
-            buffer[offset] = (value >> 8) & 0xff;
-            buffer[offset + 1] = value & 0xff;
-        }
-        return offset + 2;
-    }
-    function writeUInt32(buffer, offset, value, littleEndian) {
-        if (offset + 4 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (value > 0xffffffff) {
-            throw new Error(`The value of "value" is out of range. It must be >= 0 and <= ${0xffffffff}. Received ${value}`);
-        }
-        if (littleEndian === "LE") {
-            buffer[offset] = value & 0xff;
-            buffer[offset + 1] = (value >> 8) & 0xff;
-            buffer[offset + 2] = (value >> 16) & 0xff;
-            buffer[offset + 3] = (value >> 24) & 0xff;
-        }
-        else {
-            buffer[offset] = (value >> 24) & 0xff;
-            buffer[offset + 1] = (value >> 16) & 0xff;
-            buffer[offset + 2] = (value >> 8) & 0xff;
-            buffer[offset + 3] = value & 0xff;
-        }
-        return offset + 4;
-    }
-    function writeUInt64(buffer, offset, value, littleEndian) {
-        if (offset + 8 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (value > 0xffffffffffffffffn) {
-            throw new Error(`The value of "value" is out of range. It must be >= 0 and <= ${0xffffffffffffffffn}. Received ${value}`);
-        }
-        if (littleEndian === "LE") {
-            buffer[offset] = Number(value & 0xffn);
-            buffer[offset + 1] = Number((value >> 8n) & 0xffn);
-            buffer[offset + 2] = Number((value >> 16n) & 0xffn);
-            buffer[offset + 3] = Number((value >> 24n) & 0xffn);
-            buffer[offset + 4] = Number((value >> 32n) & 0xffn);
-            buffer[offset + 5] = Number((value >> 40n) & 0xffn);
-            buffer[offset + 6] = Number((value >> 48n) & 0xffn);
-            buffer[offset + 7] = Number((value >> 56n) & 0xffn);
-        }
-        else {
-            buffer[offset] = Number((value >> 56n) & 0xffn);
-            buffer[offset + 1] = Number((value >> 48n) & 0xffn);
-            buffer[offset + 2] = Number((value >> 40n) & 0xffn);
-            buffer[offset + 3] = Number((value >> 32n) & 0xffn);
-            buffer[offset + 4] = Number((value >> 24n) & 0xffn);
-            buffer[offset + 5] = Number((value >> 16n) & 0xffn);
-            buffer[offset + 6] = Number((value >> 8n) & 0xffn);
-            buffer[offset + 7] = Number(value & 0xffn);
-        }
-        return offset + 8;
-    }
-    function readUInt8(buffer, offset) {
-        if (offset + 1 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        return buffer[offset];
-    }
-    function readUInt16(buffer, offset, littleEndian) {
-        if (offset + 2 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (littleEndian === "LE") {
-            let num = 0;
-            num = (num << 8) + buffer[offset + 1];
-            num = (num << 8) + buffer[offset];
-            return num;
-        }
-        else {
-            let num = 0;
-            num = (num << 8) + buffer[offset];
-            num = (num << 8) + buffer[offset + 1];
-            return num;
-        }
-    }
-    function readUInt32(buffer, offset, littleEndian) {
-        if (offset + 4 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (littleEndian === "LE") {
-            let num = 0;
-            num = ((num << 8) + buffer[offset + 3]) >>> 0;
-            num = ((num << 8) + buffer[offset + 2]) >>> 0;
-            num = ((num << 8) + buffer[offset + 1]) >>> 0;
-            num = ((num << 8) + buffer[offset]) >>> 0;
-            return num;
-        }
-        else {
-            let num = 0;
-            num = ((num << 8) + buffer[offset]) >>> 0;
-            num = ((num << 8) + buffer[offset + 1]) >>> 0;
-            num = ((num << 8) + buffer[offset + 2]) >>> 0;
-            num = ((num << 8) + buffer[offset + 3]) >>> 0;
-            return num;
-        }
-    }
-    function readUInt64(buffer, offset, littleEndian) {
-        if (offset + 8 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (littleEndian === "LE") {
-            let num = 0n;
-            num = (num << 8n) + BigInt(buffer[offset + 7]);
-            num = (num << 8n) + BigInt(buffer[offset + 6]);
-            num = (num << 8n) + BigInt(buffer[offset + 5]);
-            num = (num << 8n) + BigInt(buffer[offset + 4]);
-            num = (num << 8n) + BigInt(buffer[offset + 3]);
-            num = (num << 8n) + BigInt(buffer[offset + 2]);
-            num = (num << 8n) + BigInt(buffer[offset + 1]);
-            num = (num << 8n) + BigInt(buffer[offset]);
-            return num;
-        }
-        else {
-            let num = 0n;
-            num = (num << 8n) + BigInt(buffer[offset]);
-            num = (num << 8n) + BigInt(buffer[offset + 1]);
-            num = (num << 8n) + BigInt(buffer[offset + 2]);
-            num = (num << 8n) + BigInt(buffer[offset + 3]);
-            num = (num << 8n) + BigInt(buffer[offset + 4]);
-            num = (num << 8n) + BigInt(buffer[offset + 5]);
-            num = (num << 8n) + BigInt(buffer[offset + 6]);
-            num = (num << 8n) + BigInt(buffer[offset + 7]);
-            return num;
-        }
-    }
-    function writeInt64(buffer, offset, value, littleEndian) {
-        if (offset + 8 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        if (value > 0x7fffffffffffffffn || value < -0x8000000000000000n) {
-            throw new Error(`The value of "value" is out of range. It must be >= ${-0x8000000000000000n} and <= ${0x7fffffffffffffffn}. Received ${value}`);
-        }
-        littleEndian = littleEndian.toUpperCase();
-        if (littleEndian === "LE") {
-            buffer[offset] = Number(value & 0xffn);
-            buffer[offset + 1] = Number((value >> 8n) & 0xffn);
-            buffer[offset + 2] = Number((value >> 16n) & 0xffn);
-            buffer[offset + 3] = Number((value >> 24n) & 0xffn);
-            buffer[offset + 4] = Number((value >> 32n) & 0xffn);
-            buffer[offset + 5] = Number((value >> 40n) & 0xffn);
-            buffer[offset + 6] = Number((value >> 48n) & 0xffn);
-            buffer[offset + 7] = Number((value >> 56n) & 0xffn);
-        }
-        else {
-            buffer[offset] = Number((value >> 56n) & 0xffn);
-            buffer[offset + 1] = Number((value >> 48n) & 0xffn);
-            buffer[offset + 2] = Number((value >> 40n) & 0xffn);
-            buffer[offset + 3] = Number((value >> 32n) & 0xffn);
-            buffer[offset + 4] = Number((value >> 24n) & 0xffn);
-            buffer[offset + 5] = Number((value >> 16n) & 0xffn);
-            buffer[offset + 6] = Number((value >> 8n) & 0xffn);
-            buffer[offset + 7] = Number(value & 0xffn);
-        }
-        return offset + 8;
-    }
-    function readInt64(buffer, offset, littleEndian) {
-        if (offset + 8 > buffer.length) {
-            throw new Error("Offset is outside the bounds of Uint8Array");
-        }
-        littleEndian = littleEndian.toUpperCase();
-        let num = 0n;
-        if (littleEndian === "LE") {
-            num = (num << 8n) + BigInt(buffer[offset + 7]);
-            num = (num << 8n) + BigInt(buffer[offset + 6]);
-            num = (num << 8n) + BigInt(buffer[offset + 5]);
-            num = (num << 8n) + BigInt(buffer[offset + 4]);
-            num = (num << 8n) + BigInt(buffer[offset + 3]);
-            num = (num << 8n) + BigInt(buffer[offset + 2]);
-            num = (num << 8n) + BigInt(buffer[offset + 1]);
-            num = (num << 8n) + BigInt(buffer[offset]);
-            return buffer[offset + 7] <= 0x7f ? num : num - 0x10000000000000000n;
-        }
-        else {
-            let num = 0n;
-            num = (num << 8n) + BigInt(buffer[offset]);
-            num = (num << 8n) + BigInt(buffer[offset + 1]);
-            num = (num << 8n) + BigInt(buffer[offset + 2]);
-            num = (num << 8n) + BigInt(buffer[offset + 3]);
-            num = (num << 8n) + BigInt(buffer[offset + 4]);
-            num = (num << 8n) + BigInt(buffer[offset + 5]);
-            num = (num << 8n) + BigInt(buffer[offset + 6]);
-            num = (num << 8n) + BigInt(buffer[offset + 7]);
-            return buffer[offset] <= 0x7f ? num : num - 0x10000000000000000n;
-        }
-    }
-
     const range$3 = n => [...Array(n).keys()];
-    function decode$d(keyVal) {
+    function decode$c(keyVal) {
       if (keyVal.key[0] !== GlobalTypes.GLOBAL_XPUB) {
         throw new Error(
           'Decode Error: could not decode globalXpub with key 0x' +
@@ -8510,14 +8270,14 @@ var NeuraiSignESP32Bundle = (function () {
         path: 'm',
       };
       for (const i of range$3(keyVal.value.length / 4 - 1)) {
-        const val = readUInt32(keyVal.value, i * 4 + 4, 'LE');
+        const val = readUInt32$1(keyVal.value, i * 4 + 4, 'LE');
         const isHard = !!(val & 0x80000000);
         const idx = val & 0x7fffffff;
         data.path += '/' + idx.toString(10) + (isHard ? "'" : '');
       }
       return data;
     }
-    function encode$e(data) {
+    function encode$d(data) {
       const head = new Uint8Array([GlobalTypes.GLOBAL_XPUB]);
       const key = concat([head, data.extendedPubkey]);
       const splitPath = data.path.split('/');
@@ -8528,7 +8288,7 @@ var NeuraiSignESP32Bundle = (function () {
         const isHard = level.slice(-1) === "'";
         let num = 0x7fffffff & parseInt(isHard ? level.slice(0, -1) : level, 10);
         if (isHard) num += 0x80000000;
-        writeUInt32(value, offset, num, 'LE');
+        writeUInt32$1(value, offset, num, 'LE');
         offset += 4;
       });
       return {
@@ -8566,12 +8326,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAddToArray: canAddToArray$3,
         check: check$c,
-        decode: decode$d,
-        encode: encode$e,
+        decode: decode$c,
+        encode: encode$d,
         expected: expected$c
     });
 
-    function encode$d(data) {
+    function encode$c(data) {
       return {
         key: new Uint8Array([GlobalTypes.UNSIGNED_TX]),
         value: data.toBuffer(),
@@ -8580,10 +8340,10 @@ var NeuraiSignESP32Bundle = (function () {
 
     var unsignedTx = /*#__PURE__*/Object.freeze({
         __proto__: null,
-        encode: encode$d
+        encode: encode$c
     });
 
-    function decode$c(keyVal) {
+    function decode$b(keyVal) {
       if (keyVal.key[0] !== InputTypes.FINAL_SCRIPTSIG) {
         throw new Error(
           'Decode Error: could not decode finalScriptSig with key 0x' +
@@ -8592,7 +8352,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       return keyVal.value;
     }
-    function encode$c(data) {
+    function encode$b(data) {
       const key = new Uint8Array([InputTypes.FINAL_SCRIPTSIG]);
       return {
         key,
@@ -8611,12 +8371,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$8,
         check: check$b,
-        decode: decode$c,
-        encode: encode$c,
+        decode: decode$b,
+        encode: encode$b,
         expected: expected$b
     });
 
-    function decode$b(keyVal) {
+    function decode$a(keyVal) {
       if (keyVal.key[0] !== InputTypes.FINAL_SCRIPTWITNESS) {
         throw new Error(
           'Decode Error: could not decode finalScriptWitness with key 0x' +
@@ -8625,7 +8385,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       return keyVal.value;
     }
-    function encode$b(data) {
+    function encode$a(data) {
       const key = new Uint8Array([InputTypes.FINAL_SCRIPTWITNESS]);
       return {
         key,
@@ -8646,12 +8406,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$7,
         check: check$a,
-        decode: decode$b,
-        encode: encode$b,
+        decode: decode$a,
+        encode: encode$a,
         expected: expected$a
     });
 
-    function decode$a(keyVal) {
+    function decode$9(keyVal) {
       if (keyVal.key[0] !== InputTypes.NON_WITNESS_UTXO) {
         throw new Error(
           'Decode Error: could not decode nonWitnessUtxo with key 0x' +
@@ -8660,7 +8420,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       return keyVal.value;
     }
-    function encode$a(data) {
+    function encode$9(data) {
       return {
         key: new Uint8Array([InputTypes.NON_WITNESS_UTXO]),
         value: data,
@@ -8678,12 +8438,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$6,
         check: check$9,
-        decode: decode$a,
-        encode: encode$a,
+        decode: decode$9,
+        encode: encode$9,
         expected: expected$9
     });
 
-    function decode$9(keyVal) {
+    function decode$8(keyVal) {
       if (keyVal.key[0] !== InputTypes.PARTIAL_SIG) {
         throw new Error(
           'Decode Error: could not decode partialSig with key 0x' +
@@ -8705,7 +8465,7 @@ var NeuraiSignESP32Bundle = (function () {
         signature: keyVal.value,
       };
     }
-    function encode$9(pSig) {
+    function encode$8(pSig) {
       const head = new Uint8Array([InputTypes.PARTIAL_SIG]);
       return {
         key: concat([head, pSig.pubkey]),
@@ -8748,12 +8508,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAddToArray: canAddToArray$2,
         check: check$8,
-        decode: decode$9,
-        encode: encode$9,
+        decode: decode$8,
+        encode: encode$8,
         expected: expected$8
     });
 
-    function decode$8(keyVal) {
+    function decode$7(keyVal) {
       if (keyVal.key[0] !== InputTypes.POR_COMMITMENT) {
         throw new Error(
           'Decode Error: could not decode porCommitment with key 0x' +
@@ -8762,7 +8522,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       return toUtf8(keyVal.value);
     }
-    function encode$8(data) {
+    function encode$7(data) {
       const key = new Uint8Array([InputTypes.POR_COMMITMENT]);
       return {
         key,
@@ -8781,24 +8541,24 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$5,
         check: check$7,
-        decode: decode$8,
-        encode: encode$8,
+        decode: decode$7,
+        encode: encode$7,
         expected: expected$7
     });
 
-    function decode$7(keyVal) {
+    function decode$6(keyVal) {
       if (keyVal.key[0] !== InputTypes.SIGHASH_TYPE) {
         throw new Error(
           'Decode Error: could not decode sighashType with key 0x' +
             toHex(keyVal.key),
         );
       }
-      return Number(readUInt32(keyVal.value, 0, 'LE'));
+      return Number(readUInt32$1(keyVal.value, 0, 'LE'));
     }
-    function encode$7(data) {
+    function encode$6(data) {
       const key = Uint8Array.from([InputTypes.SIGHASH_TYPE]);
       const value = new Uint8Array(4);
-      writeUInt32(value, 0, data, 'LE');
+      writeUInt32$1(value, 0, data, 'LE');
       return {
         key,
         value,
@@ -8816,12 +8576,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$4,
         check: check$6,
-        decode: decode$7,
-        encode: encode$7,
+        decode: decode$6,
+        encode: encode$6,
         expected: expected$6
     });
 
-    function decode$6(keyVal) {
+    function decode$5(keyVal) {
       if (keyVal.key[0] !== InputTypes.TAP_KEY_SIG || keyVal.key.length !== 1) {
         throw new Error(
           'Decode Error: could not decode tapKeySig with key 0x' +
@@ -8835,7 +8595,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       return keyVal.value;
     }
-    function encode$6(value) {
+    function encode$5(value) {
       const key = Uint8Array.from([InputTypes.TAP_KEY_SIG]);
       return { key, value };
     }
@@ -8853,12 +8613,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$3,
         check: check$5,
-        decode: decode$6,
-        encode: encode$6,
+        decode: decode$5,
+        encode: encode$5,
         expected: expected$5
     });
 
-    function decode$5(keyVal) {
+    function decode$4(keyVal) {
       if (keyVal.key[0] !== InputTypes.TAP_LEAF_SCRIPT) {
         throw new Error(
           'Decode Error: could not decode tapLeafScript with key 0x' +
@@ -8882,7 +8642,7 @@ var NeuraiSignESP32Bundle = (function () {
       const controlBlock = keyVal.key.slice(1);
       return { controlBlock, script, leafVersion };
     }
-    function encode$5(tScript) {
+    function encode$4(tScript) {
       const head = Uint8Array.from([InputTypes.TAP_LEAF_SCRIPT]);
       const verBuf = Uint8Array.from([tScript.leafVersion]);
       return {
@@ -8914,12 +8674,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAddToArray: canAddToArray$1,
         check: check$4,
-        decode: decode$5,
-        encode: encode$5,
+        decode: decode$4,
+        encode: encode$4,
         expected: expected$4
     });
 
-    function decode$4(keyVal) {
+    function decode$3(keyVal) {
       if (keyVal.key[0] !== InputTypes.TAP_MERKLE_ROOT || keyVal.key.length !== 1) {
         throw new Error(
           'Decode Error: could not decode tapMerkleRoot with key 0x' +
@@ -8931,7 +8691,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       return keyVal.value;
     }
-    function encode$4(value) {
+    function encode$3(value) {
       const key = Uint8Array.from([InputTypes.TAP_MERKLE_ROOT]);
       return { key, value };
     }
@@ -8947,12 +8707,12 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAdd: canAdd$2,
         check: check$3,
-        decode: decode$4,
-        encode: encode$4,
+        decode: decode$3,
+        encode: encode$3,
         expected: expected$3
     });
 
-    function decode$3(keyVal) {
+    function decode$2(keyVal) {
       if (keyVal.key[0] !== InputTypes.TAP_SCRIPT_SIG) {
         throw new Error(
           'Decode Error: could not decode tapScriptSig with key 0x' +
@@ -8978,7 +8738,7 @@ var NeuraiSignESP32Bundle = (function () {
         signature: keyVal.value,
       };
     }
-    function encode$3(tSig) {
+    function encode$2(tSig) {
       const head = Uint8Array.from([InputTypes.TAP_SCRIPT_SIG]);
       return {
         key: concat([head, tSig.pubkey, tSig.leafHash]),
@@ -9014,97 +8774,10 @@ var NeuraiSignESP32Bundle = (function () {
         __proto__: null,
         canAddToArray: canAddToArray,
         check: check$2,
-        decode: decode$3,
-        encode: encode$3,
+        decode: decode$2,
+        encode: encode$2,
         expected: expected$2
     });
-
-    const checkUInt64 = (n) => {
-        if (n < 0 || n > 0xffffffffffffffffn) {
-            throw new RangeError('value out of range');
-        }
-    };
-    function checkUInt53(n) {
-        if (n < 0 || n > Number.MAX_SAFE_INTEGER || n % 1 !== 0)
-            throw new RangeError('value out of range');
-    }
-    function checkUint53OrUint64(n) {
-        if (typeof n === 'number')
-            checkUInt53(n);
-        else
-            checkUInt64(n);
-    }
-    function encode$2(n, buffer, offset) {
-        checkUint53OrUint64(n);
-        if (offset === undefined)
-            offset = 0;
-        if (buffer === undefined) {
-            buffer = new Uint8Array(encodingLength(n));
-        }
-        let bytes = 0;
-        // 8 bit
-        if (n < 0xfd) {
-            buffer.set([Number(n)], offset);
-            bytes = 1;
-            // 16 bit
-        }
-        else if (n <= 0xffff) {
-            buffer.set([0xfd], offset);
-            writeUInt16(buffer, offset + 1, Number(n), 'LE');
-            bytes = 3;
-            // 32 bit
-        }
-        else if (n <= 0xffffffff) {
-            buffer.set([0xfe], offset);
-            writeUInt32(buffer, offset + 1, Number(n), 'LE');
-            bytes = 5;
-            // 64 bit
-        }
-        else {
-            buffer.set([0xff], offset);
-            writeUInt64(buffer, offset + 1, BigInt(n), 'LE');
-            bytes = 9;
-        }
-        return { buffer, bytes };
-    }
-    function decode$2(buffer, offset) {
-        if (offset === undefined)
-            offset = 0;
-        const first = buffer.at(offset);
-        if (first === undefined)
-            throw new Error('buffer too small');
-        // 8 bit
-        if (first < 0xfd) {
-            return { numberValue: first, bigintValue: BigInt(first), bytes: 1 };
-            // 16 bit
-        }
-        else if (first === 0xfd) {
-            const val = readUInt16(buffer, offset + 1, 'LE');
-            return {
-                numberValue: val,
-                bigintValue: BigInt(val),
-                bytes: 3
-            };
-            // 32 bit
-        }
-        else if (first === 0xfe) {
-            const val = readUInt32(buffer, offset + 1, 'LE');
-            return {
-                numberValue: val,
-                bigintValue: BigInt(val),
-                bytes: 5
-            };
-            // 64 bit
-        }
-        else {
-            const number = readUInt64(buffer, offset + 1, 'LE');
-            return { numberValue: number <= Number.MAX_SAFE_INTEGER ? Number(number) : null, bigintValue: number, bytes: 9 };
-        }
-    }
-    function encodingLength(n) {
-        checkUint53OrUint64(n);
-        return n < 0xfd ? 1 : n <= 0xffff ? 3 : n <= 0xffffffff ? 5 : 9;
-    }
 
     function decode$1(keyVal) {
       if (keyVal.key[0] !== InputTypes.WITNESS_UTXO) {
@@ -9115,7 +8788,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       const value = readInt64(keyVal.value, 0, 'LE');
       let _offset = 8;
-      const { numberValue: scriptLen, bytes } = decode$2(
+      const { numberValue: scriptLen, bytes } = decode$d(
         keyVal.value,
         _offset,
       );
@@ -9134,7 +8807,7 @@ var NeuraiSignESP32Bundle = (function () {
       const varuintlen = encodingLength(script.length);
       const result = new Uint8Array(8 + varuintlen + script.length);
       writeInt64(result, 0, BigInt(value), 'LE');
-      encode$2(script.length, result, 8);
+      encode$e(script.length, result, 8);
       result.set(script, 8 + varuintlen);
       return {
         key: Uint8Array.from([InputTypes.WITNESS_UTXO]),
@@ -9170,7 +8843,7 @@ var NeuraiSignESP32Bundle = (function () {
       while (_offset < keyVal.value.length) {
         const depth = keyVal.value[_offset++];
         const leafVersion = keyVal.value[_offset++];
-        const { numberValue: scriptLen, bytes } = decode$2(
+        const { numberValue: scriptLen, bytes } = decode$d(
           keyVal.value,
           _offset,
         );
@@ -9189,7 +8862,7 @@ var NeuraiSignESP32Bundle = (function () {
       const bufs = [].concat(
         ...tree.leaves.map(tapLeaf => [
           Uint8Array.of(tapLeaf.depth, tapLeaf.leafVersion),
-          encode$2(BigInt(tapLeaf.script.length)).buffer,
+          encode$e(BigInt(tapLeaf.script.length)).buffer,
           tapLeaf.script,
         ]),
       );
@@ -9255,7 +8928,7 @@ var NeuraiSignESP32Bundle = (function () {
           path: 'm',
         };
         for (const i of range$2(keyVal.value.length / 4 - 1)) {
-          const val = readUInt32(keyVal.value, i * 4 + 4, 'LE');
+          const val = readUInt32$1(keyVal.value, i * 4 + 4, 'LE');
           const isHard = !!(val & 0x80000000);
           const idx = val & 0x7fffffff;
           data.path += '/' + idx.toString(10) + (isHard ? "'" : '');
@@ -9273,7 +8946,7 @@ var NeuraiSignESP32Bundle = (function () {
           const isHard = level.slice(-1) === "'";
           let num = 0x7fffffff & parseInt(isHard ? level.slice(0, -1) : level, 10);
           if (isHard) num += 0x80000000;
-          writeUInt32(value, offset, num, 'LE');
+          writeUInt32$1(value, offset, num, 'LE');
           offset += 4;
         });
         return {
@@ -9365,7 +9038,7 @@ var NeuraiSignESP32Bundle = (function () {
     function makeConverter$2(TYPE_BYTE) {
       const parent = makeConverter$4(TYPE_BYTE, isValidBIP340Key);
       function decode(keyVal) {
-        const { numberValue: nHashes, bytes: nHashesLen } = decode$2(
+        const { numberValue: nHashes, bytes: nHashesLen } = decode$d(
           keyVal.value,
         );
         const base = parent.decode({
@@ -9382,7 +9055,7 @@ var NeuraiSignESP32Bundle = (function () {
         const base = parent.encode(data);
         const nHashesLen = encodingLength(data.leafHashes.length);
         const nHashesBuf = new Uint8Array(nHashesLen);
-        encode$2(data.leafHashes.length, nHashesBuf);
+        encode$e(data.leafHashes.length, nHashesBuf);
         const value = concat([nHashesBuf, ...data.leafHashes, base.value]);
         return { ...base, value };
       }
@@ -9544,9 +9217,9 @@ var NeuraiSignESP32Bundle = (function () {
       const keyVarIntLen = encodingLength(keyLen);
       const valVarIntLen = encodingLength(valLen);
       const buffer = new Uint8Array(keyVarIntLen + keyLen + valVarIntLen + valLen);
-      encode$2(keyLen, buffer, 0);
+      encode$e(keyLen, buffer, 0);
       buffer.set(keyVal.key, keyVarIntLen);
-      encode$2(valLen, buffer, keyVarIntLen + keyLen);
+      encode$e(valLen, buffer, keyVarIntLen + keyLen);
       buffer.set(keyVal.value, keyVarIntLen + keyLen + valVarIntLen);
       return buffer;
     }
@@ -9554,14 +9227,14 @@ var NeuraiSignESP32Bundle = (function () {
     function psbtFromBuffer(buffer, txGetter) {
       let offset = 0;
       function varSlice() {
-        const { numberValue: keyLen, bytes } = decode$2(buffer, offset);
+        const { numberValue: keyLen, bytes } = decode$d(buffer, offset);
         offset += bytes;
         const key = buffer.slice(offset, offset + Number(keyLen));
         offset += Number(keyLen);
         return key;
       }
       function readUInt32BE() {
-        const num = readUInt32(buffer, offset, 'BE');
+        const num = readUInt32$1(buffer, offset, 'BE');
         offset += 4;
         return num;
       }
@@ -10294,13 +9967,13 @@ var NeuraiSignESP32Bundle = (function () {
     function witnessStackToScriptWitness$1(witness) {
       let buffer = new Uint8Array(0);
       function writeSlice(slice) {
-        buffer = concat$1([buffer, slice]);
+        buffer = concat([buffer, slice]);
       }
       function writeVarInt(i) {
         const currentLen = buffer.length;
-        const varintLen = encodingLength$1(i);
-        buffer = concat$1([buffer, new Uint8Array(varintLen)]);
-        encode$f(i, buffer, currentLen);
+        const varintLen = encodingLength(i);
+        buffer = concat([buffer, new Uint8Array(varintLen)]);
+        encode$e(i, buffer, currentLen);
       }
       function writeVarSlice(slice) {
         writeVarInt(slice.length);
@@ -10328,9 +10001,9 @@ var NeuraiSignESP32Bundle = (function () {
       return decompiled.findIndex(element => {
         if (typeof element === 'number') return false;
         return (
-          compare$1(pubkey, element) === 0 ||
-          compare$1(pubkeyHash, element) === 0 ||
-          compare$1(pubkeyXOnly, element) === 0
+          compare(pubkey, element) === 0 ||
+          compare(pubkeyHash, element) === 0 ||
+          compare(pubkeyXOnly, element) === 0
         );
       });
     }
@@ -10467,7 +10140,7 @@ var NeuraiSignESP32Bundle = (function () {
       const sighashTypeByte = sighashType
         ? Uint8Array.from([sighashType])
         : Uint8Array.from([]);
-      return concat$1([sig, sighashTypeByte]);
+      return concat([sig, sighashTypeByte]);
     }
     /**
      * Checks if a PSBT input is a taproot input.
@@ -10533,7 +10206,7 @@ var NeuraiSignESP32Bundle = (function () {
       if (tapInternalKey) {
         const { script: scriptPubkey } = outputData;
         const script = getTaprootScripPubkey(tapInternalKey, tapTree);
-        if (scriptPubkey && compare$1(script, scriptPubkey) !== 0)
+        if (scriptPubkey && compare(script, scriptPubkey) !== 0)
           throw new Error('Error adding output. Script or address mismatch.');
       }
     }
@@ -10750,7 +10423,7 @@ var NeuraiSignESP32Bundle = (function () {
         version: tapLeaf.leafVersion,
       });
       const rootHash = rootHashFromPath(tapLeaf.controlBlock, leafHash);
-      return compare$1(rootHash, merkleRoot) === 0;
+      return compare(rootHash, merkleRoot) === 0;
     }
     /**
      * Sorts the signatures in the input's tapScriptSig array based on their position in the tapLeaf script.
@@ -10767,7 +10440,7 @@ var NeuraiSignESP32Bundle = (function () {
       return (
         (input.tapScriptSig || [])
           // .filter(tss => tss.leafHash.equals(leafHash))
-          .filter(tss => compare$1(tss.leafHash, leafHash) === 0)
+          .filter(tss => compare(tss.leafHash, leafHash) === 0)
           .map(tss => addPubkeyPositionInScript(tapLeaf.script, tss))
           .sort((t1, t2) => t2.positionInScript - t1.positionInScript)
           .map(t => t.signature)
@@ -10819,10 +10492,10 @@ var NeuraiSignESP32Bundle = (function () {
         output: leaf.script,
         version: leaf.leafVersion,
       });
-      const whiteListedHash = !hash || compare$1(leafHash, hash) === 0;
+      const whiteListedHash = !hash || compare(leafHash, hash) === 0;
       return (
         whiteListedHash &&
-        tapScriptSig.find(tss => compare$1(tss.leafHash, leafHash) === 0) !==
+        tapScriptSig.find(tss => compare(tss.leafHash, leafHash) === 0) !==
           undefined
       );
     }
@@ -10899,11 +10572,11 @@ var NeuraiSignESP32Bundle = (function () {
     class Psbt {
       data;
       static fromBase64(data, opts = {}) {
-        const buffer = fromBase64$1(data);
+        const buffer = fromBase64(data);
         return this.fromBuffer(buffer, opts);
       }
       static fromHex(data, opts = {}) {
-        const buffer = fromHex$1(data);
+        const buffer = fromHex(data);
         return this.fromBuffer(buffer, opts);
       }
       static fromBuffer(buffer, opts = {}) {
@@ -11251,7 +10924,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (typeof validator !== 'function')
           throw new Error('Need validator function to validate signatures');
         const mySigs = pubkey
-          ? partialSig.filter(sig => compare$1(sig.pubkey, pubkey) === 0)
+          ? partialSig.filter(sig => compare(sig.pubkey, pubkey) === 0)
           : partialSig;
         if (mySigs.length < 1) throw new Error('No signatures for this pubkey');
         const results = [];
@@ -11315,7 +10988,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (tapScriptSig) {
           for (const tapSig of tapScriptSig) {
             const tapSigHash = allHashses.find(
-              h => compare$1(h.pubkey, tapSig.pubkey) === 0,
+              h => compare(h.pubkey, tapSig.pubkey) === 0,
             );
             if (tapSigHash) {
               const isValidTapScriptSig = validator(
@@ -11663,7 +11336,7 @@ var NeuraiSignESP32Bundle = (function () {
         );
         if (!hashesForSig || !hashesForSig.length)
           throw new Error(
-            `Can not sign for input #${inputIndex} with the key ${toHex$1(keyPair.publicKey)}`,
+            `Can not sign for input #${inputIndex} with the key ${toHex(keyPair.publicKey)}`,
           );
         return hashesForSig;
       }
@@ -11760,7 +11433,7 @@ var NeuraiSignESP32Bundle = (function () {
         }
         const hash =
           typeof input.hash === 'string'
-            ? reverseBuffer(fromHex$1(input.hash))
+            ? reverseBuffer(fromHex(input.hash))
             : input.hash;
         this.tx.addInput(hash, input.index, input.sequence);
       }
@@ -11805,7 +11478,7 @@ var NeuraiSignESP32Bundle = (function () {
           .map(pkey => {
             const pubkey = compressPubkey(pkey);
             return partialSig.find(
-              pSig => compare$1(pSig.pubkey, pubkey) === 0,
+              pSig => compare(pSig.pubkey, pubkey) === 0,
             );
           })
           .filter(v => !!v);
@@ -11820,8 +11493,8 @@ var NeuraiSignESP32Bundle = (function () {
     }
     function bip32DerivationIsMine(root) {
       return d => {
-        if (compare$1(root.fingerprint, d.masterFingerprint)) return false;
-        if (compare$1(root.derivePath(d.path).publicKey, d.pubkey))
+        if (compare(root.fingerprint, d.masterFingerprint)) return false;
+        if (compare(root.derivePath(d.path).publicKey, d.pubkey))
           return false;
         return true;
       };
@@ -11872,7 +11545,7 @@ var NeuraiSignESP32Bundle = (function () {
     function checkScriptForPubkey(pubkey, script, action) {
       if (!pubkeyInScript(pubkey, script)) {
         throw new Error(
-          `Can not ${action} for this input with the key ${toHex$1(pubkey)}`,
+          `Can not ${action} for this input with the key ${toHex(pubkey)}`,
         );
       }
     }
@@ -11895,7 +11568,7 @@ var NeuraiSignESP32Bundle = (function () {
     }
     function checkTxInputCache(cache, input) {
       const key =
-        toHex$1(reverseBuffer(Uint8Array.from(input.hash))) + ':' + input.index;
+        toHex(reverseBuffer(Uint8Array.from(input.hash))) + ':' + input.index;
       if (cache.__TX_IN_CACHE[key]) throw new Error('Duplicate input detected.');
       cache.__TX_IN_CACHE[key] = 1;
     }
@@ -11904,7 +11577,7 @@ var NeuraiSignESP32Bundle = (function () {
         const redeemScriptOutput = payment({
           redeem: { output: redeemScript },
         }).output;
-        if (compare$1(scriptPubKey, redeemScriptOutput)) {
+        if (compare(scriptPubKey, redeemScriptOutput)) {
           throw new Error(
             `${paymentScriptName} for ${ioType} #${inputIndex} doesn't match the scriptPubKey in the prevout`,
           );
@@ -12009,7 +11682,7 @@ var NeuraiSignESP32Bundle = (function () {
       let hash;
       let prevout;
       if (input.nonWitnessUtxo) {
-        const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache$1(
+        const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache(
           cache,
           input,
           inputIndex,
@@ -12017,7 +11690,7 @@ var NeuraiSignESP32Bundle = (function () {
         const prevoutHash = unsignedTx.ins[inputIndex].hash;
         const utxoHash = nonWitnessUtxoTx.getHash();
         // If a non-witness UTXO is provided, its hash must match the hash specified in the prevout
-        if (compare$1(prevoutHash, utxoHash) !== 0) {
+        if (compare(prevoutHash, utxoHash) !== 0) {
           throw new Error(
             `Non-witness UTXO hash for input #${inputIndex} doesn't match the hash specified in the prevout`,
           );
@@ -12062,7 +11735,7 @@ var NeuraiSignESP32Bundle = (function () {
         )
           throw new Error(
             `Input #${inputIndex} has witnessUtxo but non-segwit script: ` +
-              `${toHex$1(meaningfulScript)}`,
+              `${toHex(meaningfulScript)}`,
           );
         if (!forValidate && cache.__UNSAFE_SIGN_NONSEGWIT !== false)
           console.warn(
@@ -12183,7 +11856,7 @@ var NeuraiSignESP32Bundle = (function () {
       if (keySpend) {
         const outputKey =
           getPrevoutTaprootKey(inputIndex, input, cache) || Uint8Array.from([]);
-        if (compare$1(toXOnly(pubkey), outputKey) === 0) {
+        if (compare(toXOnly(pubkey), outputKey) === 0) {
           const tapKeyHash = unsignedTx.hashForWitnessV1(
             inputIndex,
             signingScripts,
@@ -12205,7 +11878,7 @@ var NeuraiSignESP32Bundle = (function () {
         .filter(
           tapLeaf =>
             !tapLeafHashToSign ||
-            compare$1(tapLeafHashToSign, tapLeaf.hash) === 0,
+            compare(tapLeafHashToSign, tapLeaf.hash) === 0,
         )
         .map(tapLeaf => {
           const tapScriptHash = unsignedTx.hashForWitnessV1(
@@ -12281,7 +11954,7 @@ var NeuraiSignESP32Bundle = (function () {
         res.script = input.redeemScript;
       } else {
         if (input.nonWitnessUtxo) {
-          const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache$1(
+          const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache(
             cache,
             input,
             inputIndex,
@@ -12304,7 +11977,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       const myDerivations = input.bip32Derivation
         .map(bipDv => {
-          if (compare$1(bipDv.masterFingerprint, hdKeyPair.fingerprint) === 0) {
+          if (compare(bipDv.masterFingerprint, hdKeyPair.fingerprint) === 0) {
             return bipDv;
           } else {
             return;
@@ -12318,7 +11991,7 @@ var NeuraiSignESP32Bundle = (function () {
       }
       const signers = myDerivations.map(bipDv => {
         const node = hdKeyPair.derivePath(bipDv.path);
-        if (compare$1(bipDv.pubkey, node.publicKey) !== 0) {
+        if (compare(bipDv.pubkey, node.publicKey) !== 0) {
           throw new Error('pubkey did not match bip32Derivation');
         }
         return node;
@@ -12333,7 +12006,7 @@ var NeuraiSignESP32Bundle = (function () {
           // filter partialSig array by pubkey being equal
           return (
             partialSig.filter(ps => {
-              return compare$1(ps.pubkey, pk) === 0;
+              return compare(ps.pubkey, pk) === 0;
             })[0] || {}
           ).signature;
           // Any pubkey without a match will return undefined
@@ -12348,8 +12021,8 @@ var NeuraiSignESP32Bundle = (function () {
         return buffer.slice(offset - n, offset);
       }
       function readVarInt() {
-        const vi = decode$e(buffer, offset);
-        offset += encodingLength$1(vi.bigintValue);
+        const vi = decode$d(buffer, offset);
+        offset += encodingLength(vi.bigintValue);
         return vi.numberValue;
       }
       function readVarSlice() {
@@ -12420,7 +12093,7 @@ var NeuraiSignESP32Bundle = (function () {
         if (input.witnessUtxo) {
           inputAmount += input.witnessUtxo.value;
         } else if (input.nonWitnessUtxo) {
-          const nwTx = nonWitnessUtxoTxFromCache$1(cache, input, idx);
+          const nwTx = nonWitnessUtxoTxFromCache(cache, input, idx);
           const vout = tx.ins[idx].index;
           const out = nwTx.outs[vout];
           inputAmount += out.value;
@@ -12436,7 +12109,7 @@ var NeuraiSignESP32Bundle = (function () {
       cache.__EXTRACTED_TX = tx;
       cache.__FEE_RATE = Math.floor(Number(fee / BigInt(bytes)));
     }
-    function nonWitnessUtxoTxFromCache$1(cache, input, inputIndex) {
+    function nonWitnessUtxoTxFromCache(cache, input, inputIndex) {
       const c = cache.__NON_WITNESS_UTXO_TX_CACHE;
       if (!c[inputIndex]) {
         addNonWitnessTxCache(cache, input, inputIndex);
@@ -12454,7 +12127,7 @@ var NeuraiSignESP32Bundle = (function () {
           value: input.witnessUtxo.value,
         };
       } else if (input.nonWitnessUtxo !== undefined) {
-        const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache$1(
+        const nonWitnessUtxoTx = nonWitnessUtxoTxFromCache(
           cache,
           input,
           inputIndex,
@@ -12583,6 +12256,1126 @@ var NeuraiSignESP32Bundle = (function () {
     }
     function range(n) {
       return [...Array(n).keys()];
+    }
+
+    /** Exact monetary primitives. This module has no runtime dependencies. */
+    /** Normalize a raw integer without preserving an already rounded number. */
+    function toRawInteger(value, label = 'amount') {
+        if (typeof value === 'bigint')
+            return value;
+        if (typeof value === 'number' && Number.isSafeInteger(value))
+            return BigInt(value);
+        if (typeof value === 'string' && /^-?\d+$/.test(value) && value.length <= 100)
+            return BigInt(value);
+        throw new Error(`${label}: expected an exact integer; use bigint or an integer string for large values`);
+    }
+
+    function ensureHex(hex, label = 'hex') {
+        const normalized = String(hex || '').trim().toLowerCase();
+        if (!/^[0-9a-f]*$/.test(normalized) || normalized.length % 2 !== 0) {
+            throw new Error(`Invalid ${label}: expected even-length hex string`);
+        }
+        return normalized;
+    }
+    function hexToBytes(hex) {
+        const normalized = ensureHex(hex);
+        const bytes = new Uint8Array(normalized.length / 2);
+        for (let i = 0; i < normalized.length; i += 2) {
+            bytes[i / 2] = Number.parseInt(normalized.slice(i, i + 2), 16);
+        }
+        return bytes;
+    }
+    function bytesToHex(bytes) {
+        return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+    }
+    function concatBytes(...parts) {
+        const total = parts.reduce((sum, part) => sum + part.length, 0);
+        const out = new Uint8Array(total);
+        let offset = 0;
+        for (const part of parts) {
+            out.set(part, offset);
+            offset += part.length;
+        }
+        return out;
+    }
+    function reverseBytes(bytes) {
+        return Uint8Array.from(Array.from(bytes).reverse());
+    }
+    function u32LE(value) {
+        if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+            throw new Error(`uint32 out of range: ${value}`);
+        }
+        const out = new Uint8Array(4);
+        const view = new DataView(out.buffer);
+        view.setUint32(0, value, true);
+        return out;
+    }
+    function u64LE(value) {
+        const bigintValue = toRawInteger(value);
+        if (bigintValue < 0n || bigintValue > 0xffffffffffffffffn) {
+            throw new Error(`uint64 out of range: ${bigintValue}`);
+        }
+        const out = new Uint8Array(8);
+        let remaining = bigintValue;
+        for (let i = 0; i < 8; i += 1) {
+            out[i] = Number(remaining & 0xffn);
+            remaining >>= 8n;
+        }
+        return out;
+    }
+    function compactSize(value) {
+        const bigintValue = toRawInteger(value);
+        if (bigintValue < 0n)
+            throw new Error('CompactSize cannot encode negative numbers');
+        if (bigintValue < 253n) {
+            return Uint8Array.of(Number(bigintValue));
+        }
+        if (bigintValue <= 0xffffn) {
+            return concatBytes(Uint8Array.of(0xfd), u16LE(Number(bigintValue)));
+        }
+        if (bigintValue <= 0xffffffffn) {
+            return concatBytes(Uint8Array.of(0xfe), u32LE(Number(bigintValue)));
+        }
+        return concatBytes(Uint8Array.of(0xff), u64LE(bigintValue));
+    }
+    function u16LE(value) {
+        if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+            throw new Error(`uint16 out of range: ${value}`);
+        }
+        const out = new Uint8Array(2);
+        const view = new DataView(out.buffer);
+        view.setUint16(0, value, true);
+        return out;
+    }
+
+    // base-x encoding / decoding
+    // Copyright (c) 2018 base-x contributors
+    // Copyright (c) 2014-2018 The Bitcoin Core developers (base58.cpp)
+    // Distributed under the MIT software license, see the accompanying
+    // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
+    function base (ALPHABET) {
+      if (ALPHABET.length >= 255) { throw new TypeError('Alphabet too long') }
+      const BASE_MAP = new Uint8Array(256);
+      for (let j = 0; j < BASE_MAP.length; j++) {
+        BASE_MAP[j] = 255;
+      }
+      for (let i = 0; i < ALPHABET.length; i++) {
+        const x = ALPHABET.charAt(i);
+        const xc = x.charCodeAt(0);
+        if (BASE_MAP[xc] !== 255) { throw new TypeError(x + ' is ambiguous') }
+        BASE_MAP[xc] = i;
+      }
+      const BASE = ALPHABET.length;
+      const LEADER = ALPHABET.charAt(0);
+      const FACTOR = Math.log(BASE) / Math.log(256); // log(BASE) / log(256), rounded up
+      const iFACTOR = Math.log(256) / Math.log(BASE); // log(256) / log(BASE), rounded up
+      function encode (source) {
+        // eslint-disable-next-line no-empty
+        if (source instanceof Uint8Array) ; else if (ArrayBuffer.isView(source)) {
+          source = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+        } else if (Array.isArray(source)) {
+          source = Uint8Array.from(source);
+        }
+        if (!(source instanceof Uint8Array)) { throw new TypeError('Expected Uint8Array') }
+        if (source.length === 0) { return '' }
+        // Skip & count leading zeroes.
+        let zeroes = 0;
+        let length = 0;
+        let pbegin = 0;
+        const pend = source.length;
+        while (pbegin !== pend && source[pbegin] === 0) {
+          pbegin++;
+          zeroes++;
+        }
+        // Allocate enough space in big-endian base58 representation.
+        const size = ((pend - pbegin) * iFACTOR + 1) >>> 0;
+        const b58 = new Uint8Array(size);
+        // Process the bytes.
+        while (pbegin !== pend) {
+          let carry = source[pbegin];
+          // Apply "b58 = b58 * 256 + ch".
+          let i = 0;
+          for (let it1 = size - 1; (carry !== 0 || i < length) && (it1 !== -1); it1--, i++) {
+            carry += (256 * b58[it1]) >>> 0;
+            b58[it1] = (carry % BASE) >>> 0;
+            carry = (carry / BASE) >>> 0;
+          }
+          if (carry !== 0) { throw new Error('Non-zero carry') }
+          length = i;
+          pbegin++;
+        }
+        // Skip leading zeroes in base58 result.
+        let it2 = size - length;
+        while (it2 !== size && b58[it2] === 0) {
+          it2++;
+        }
+        // Translate the result into a string.
+        let str = LEADER.repeat(zeroes);
+        for (; it2 < size; ++it2) { str += ALPHABET.charAt(b58[it2]); }
+        return str
+      }
+      function decodeUnsafe (source) {
+        if (typeof source !== 'string') { throw new TypeError('Expected String') }
+        if (source.length === 0) { return new Uint8Array() }
+        let psz = 0;
+        // Skip and count leading '1's.
+        let zeroes = 0;
+        let length = 0;
+        while (source[psz] === LEADER) {
+          zeroes++;
+          psz++;
+        }
+        // Allocate enough space in big-endian base256 representation.
+        const size = (((source.length - psz) * FACTOR) + 1) >>> 0; // log(58) / log(256), rounded up.
+        const b256 = new Uint8Array(size);
+        // Process the characters.
+        while (psz < source.length) {
+          // Find code of next character
+          const charCode = source.charCodeAt(psz);
+          // Base map can not be indexed using char code
+          if (charCode > 255) { return }
+          // Decode character
+          let carry = BASE_MAP[charCode];
+          // Invalid character
+          if (carry === 255) { return }
+          let i = 0;
+          for (let it3 = size - 1; (carry !== 0 || i < length) && (it3 !== -1); it3--, i++) {
+            carry += (BASE * b256[it3]) >>> 0;
+            b256[it3] = (carry % 256) >>> 0;
+            carry = (carry / 256) >>> 0;
+          }
+          if (carry !== 0) { throw new Error('Non-zero carry') }
+          length = i;
+          psz++;
+        }
+        // Skip leading zeroes in b256.
+        let it4 = size - length;
+        while (it4 !== size && b256[it4] === 0) {
+          it4++;
+        }
+        const vch = new Uint8Array(zeroes + (size - it4));
+        let j = zeroes;
+        while (it4 !== size) {
+          vch[j++] = b256[it4++];
+        }
+        return vch
+      }
+      function decode (string) {
+        const buffer = decodeUnsafe(string);
+        if (buffer) { return buffer }
+        throw new Error('Non-base' + BASE + ' character')
+      }
+      return {
+        encode,
+        decodeUnsafe,
+        decode
+      }
+    }
+
+    var ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    base(ALPHABET);
+
+    var dist$1 = {};
+
+    var hasRequiredDist$1;
+
+    function requireDist$1 () {
+    	if (hasRequiredDist$1) return dist$1;
+    	hasRequiredDist$1 = 1;
+    	Object.defineProperty(dist$1, "__esModule", { value: true });
+    	dist$1.bech32m = dist$1.bech32 = void 0;
+    	const ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    	const ALPHABET_MAP = {};
+    	for (let z = 0; z < ALPHABET.length; z++) {
+    	    const x = ALPHABET.charAt(z);
+    	    ALPHABET_MAP[x] = z;
+    	}
+    	function polymodStep(pre) {
+    	    const b = pre >> 25;
+    	    return (((pre & 0x1ffffff) << 5) ^
+    	        (-((b >> 0) & 1) & 0x3b6a57b2) ^
+    	        (-((b >> 1) & 1) & 0x26508e6d) ^
+    	        (-((b >> 2) & 1) & 0x1ea119fa) ^
+    	        (-((b >> 3) & 1) & 0x3d4233dd) ^
+    	        (-((b >> 4) & 1) & 0x2a1462b3));
+    	}
+    	function prefixChk(prefix) {
+    	    let chk = 1;
+    	    for (let i = 0; i < prefix.length; ++i) {
+    	        const c = prefix.charCodeAt(i);
+    	        if (c < 33 || c > 126)
+    	            return 'Invalid prefix (' + prefix + ')';
+    	        chk = polymodStep(chk) ^ (c >> 5);
+    	    }
+    	    chk = polymodStep(chk);
+    	    for (let i = 0; i < prefix.length; ++i) {
+    	        const v = prefix.charCodeAt(i);
+    	        chk = polymodStep(chk) ^ (v & 0x1f);
+    	    }
+    	    return chk;
+    	}
+    	function convert(data, inBits, outBits, pad) {
+    	    let value = 0;
+    	    let bits = 0;
+    	    const maxV = (1 << outBits) - 1;
+    	    const result = [];
+    	    for (let i = 0; i < data.length; ++i) {
+    	        value = (value << inBits) | data[i];
+    	        bits += inBits;
+    	        while (bits >= outBits) {
+    	            bits -= outBits;
+    	            result.push((value >> bits) & maxV);
+    	        }
+    	    }
+    	    if (pad) {
+    	        if (bits > 0) {
+    	            result.push((value << (outBits - bits)) & maxV);
+    	        }
+    	    }
+    	    else {
+    	        if (bits >= inBits)
+    	            return 'Excess padding';
+    	        if ((value << (outBits - bits)) & maxV)
+    	            return 'Non-zero padding';
+    	    }
+    	    return result;
+    	}
+    	function toWords(bytes) {
+    	    return convert(bytes, 8, 5, true);
+    	}
+    	function fromWordsUnsafe(words) {
+    	    const res = convert(words, 5, 8, false);
+    	    if (Array.isArray(res))
+    	        return res;
+    	}
+    	function fromWords(words) {
+    	    const res = convert(words, 5, 8, false);
+    	    if (Array.isArray(res))
+    	        return res;
+    	    throw new Error(res);
+    	}
+    	function getLibraryFromEncoding(encoding) {
+    	    let ENCODING_CONST;
+    	    if (encoding === 'bech32') {
+    	        ENCODING_CONST = 1;
+    	    }
+    	    else {
+    	        ENCODING_CONST = 0x2bc830a3;
+    	    }
+    	    function encode(prefix, words, LIMIT) {
+    	        LIMIT = LIMIT || 90;
+    	        if (prefix.length + 7 + words.length > LIMIT)
+    	            throw new TypeError('Exceeds length limit');
+    	        prefix = prefix.toLowerCase();
+    	        // determine chk mod
+    	        let chk = prefixChk(prefix);
+    	        if (typeof chk === 'string')
+    	            throw new Error(chk);
+    	        let result = prefix + '1';
+    	        for (let i = 0; i < words.length; ++i) {
+    	            const x = words[i];
+    	            if (x >> 5 !== 0)
+    	                throw new Error('Non 5-bit word');
+    	            chk = polymodStep(chk) ^ x;
+    	            result += ALPHABET.charAt(x);
+    	        }
+    	        for (let i = 0; i < 6; ++i) {
+    	            chk = polymodStep(chk);
+    	        }
+    	        chk ^= ENCODING_CONST;
+    	        for (let i = 0; i < 6; ++i) {
+    	            const v = (chk >> ((5 - i) * 5)) & 0x1f;
+    	            result += ALPHABET.charAt(v);
+    	        }
+    	        return result;
+    	    }
+    	    function __decode(str, LIMIT) {
+    	        LIMIT = LIMIT || 90;
+    	        if (str.length < 8)
+    	            return str + ' too short';
+    	        if (str.length > LIMIT)
+    	            return 'Exceeds length limit';
+    	        // don't allow mixed case
+    	        const lowered = str.toLowerCase();
+    	        const uppered = str.toUpperCase();
+    	        if (str !== lowered && str !== uppered)
+    	            return 'Mixed-case string ' + str;
+    	        str = lowered;
+    	        const split = str.lastIndexOf('1');
+    	        if (split === -1)
+    	            return 'No separator character for ' + str;
+    	        if (split === 0)
+    	            return 'Missing prefix for ' + str;
+    	        const prefix = str.slice(0, split);
+    	        const wordChars = str.slice(split + 1);
+    	        if (wordChars.length < 6)
+    	            return 'Data too short';
+    	        let chk = prefixChk(prefix);
+    	        if (typeof chk === 'string')
+    	            return chk;
+    	        const words = [];
+    	        for (let i = 0; i < wordChars.length; ++i) {
+    	            const c = wordChars.charAt(i);
+    	            const v = ALPHABET_MAP[c];
+    	            if (v === undefined)
+    	                return 'Unknown character ' + c;
+    	            chk = polymodStep(chk) ^ v;
+    	            // not in the checksum?
+    	            if (i + 6 >= wordChars.length)
+    	                continue;
+    	            words.push(v);
+    	        }
+    	        if (chk !== ENCODING_CONST)
+    	            return 'Invalid checksum for ' + str;
+    	        return { prefix, words };
+    	    }
+    	    function decodeUnsafe(str, LIMIT) {
+    	        const res = __decode(str, LIMIT);
+    	        if (typeof res === 'object')
+    	            return res;
+    	    }
+    	    function decode(str, LIMIT) {
+    	        const res = __decode(str, LIMIT);
+    	        if (typeof res === 'object')
+    	            return res;
+    	        throw new Error(res);
+    	    }
+    	    return {
+    	        decodeUnsafe,
+    	        decode,
+    	        encode,
+    	        toWords,
+    	        fromWordsUnsafe,
+    	        fromWords,
+    	    };
+    	}
+    	dist$1.bech32 = getLibraryFromEncoding('bech32');
+    	dist$1.bech32m = getLibraryFromEncoding('bech32m');
+    	return dist$1;
+    }
+
+    requireDist$1();
+
+    /**
+     * Checks if something is Uint8Array. Be careful: nodejs Buffer will return true.
+     * @param a - value to test
+     * @returns `true` when the value is a Uint8Array-compatible view.
+     * @example
+     * Check whether a value is a Uint8Array-compatible view.
+     * ```ts
+     * isBytes(new Uint8Array([1, 2, 3]));
+     * ```
+     */
+    function isBytes(a) {
+        // Plain `instanceof Uint8Array` is too strict for some Buffer / proxy / cross-realm cases.
+        // The fallback still requires a real ArrayBuffer view, so plain
+        // JSON-deserialized `{ constructor: ... }` spoofing is rejected, and
+        // `BYTES_PER_ELEMENT === 1` keeps the fallback on byte-oriented views.
+        return (a instanceof Uint8Array ||
+            (ArrayBuffer.isView(a) &&
+                a.constructor.name === 'Uint8Array' &&
+                'BYTES_PER_ELEMENT' in a &&
+                a.BYTES_PER_ELEMENT === 1));
+    }
+    /**
+     * Asserts something is Uint8Array.
+     * @param value - value to validate
+     * @param length - optional exact length constraint
+     * @param title - label included in thrown errors
+     * @returns The validated byte array.
+     * @throws On wrong argument types. {@link TypeError}
+     * @throws On wrong argument ranges or values. {@link RangeError}
+     * @example
+     * Validate that a value is a byte array.
+     * ```ts
+     * abytes(new Uint8Array([1, 2, 3]));
+     * ```
+     */
+    function abytes(value, length, title = '') {
+        const bytes = isBytes(value);
+        const len = value?.length;
+        const needsLen = length !== undefined;
+        if (!bytes || (needsLen)) {
+            const prefix = title && `"${title}" `;
+            const ofLen = '';
+            const got = bytes ? `length=${len}` : `type=${typeof value}`;
+            const message = prefix + 'expected Uint8Array' + ofLen + ', got ' + got;
+            if (!bytes)
+                throw new TypeError(message);
+            throw new RangeError(message);
+        }
+        return value;
+    }
+    /**
+     * Asserts a hash instance has not been destroyed or finished.
+     * @param instance - hash instance to validate
+     * @param checkFinished - whether to reject finalized instances
+     * @throws If the hash instance has already been destroyed or finalized. {@link Error}
+     * @example
+     * Validate that a hash instance is still usable.
+     * ```ts
+     * import { aexists } from '@noble/hashes/utils.js';
+     * import { sha256 } from '@noble/hashes/sha2.js';
+     * const hash = sha256.create();
+     * aexists(hash);
+     * ```
+     */
+    function aexists(instance, checkFinished = true) {
+        if (instance.destroyed)
+            throw new Error('Hash instance has been destroyed');
+        if (checkFinished && instance.finished)
+            throw new Error('Hash#digest() has already been called');
+    }
+    /**
+     * Asserts output is a sufficiently-sized byte array.
+     * @param out - destination buffer
+     * @param instance - hash instance providing output length
+     * Oversized buffers are allowed; downstream code only promises to fill the first `outputLen` bytes.
+     * @throws On wrong argument types. {@link TypeError}
+     * @throws On wrong argument ranges or values. {@link RangeError}
+     * @example
+     * Validate a caller-provided digest buffer.
+     * ```ts
+     * import { aoutput } from '@noble/hashes/utils.js';
+     * import { sha256 } from '@noble/hashes/sha2.js';
+     * const hash = sha256.create();
+     * aoutput(new Uint8Array(hash.outputLen), hash);
+     * ```
+     */
+    function aoutput(out, instance) {
+        abytes(out, undefined, 'digestInto() output');
+        const min = instance.outputLen;
+        if (out.length < min) {
+            throw new RangeError('"digestInto() output" expected to be of length >=' + min);
+        }
+    }
+    /**
+     * Zeroizes typed arrays in place. Warning: JS provides no guarantees.
+     * @param arrays - arrays to overwrite with zeros
+     * @example
+     * Zeroize sensitive buffers in place.
+     * ```ts
+     * clean(new Uint8Array([1, 2, 3]));
+     * ```
+     */
+    function clean(...arrays) {
+        for (let i = 0; i < arrays.length; i++) {
+            arrays[i].fill(0);
+        }
+    }
+    /**
+     * Creates a DataView for byte-level manipulation.
+     * @param arr - source typed array
+     * @returns DataView over the same buffer region.
+     * @example
+     * Create a DataView over an existing buffer.
+     * ```ts
+     * createView(new Uint8Array(4));
+     * ```
+     */
+    function createView(arr) {
+        return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+    }
+    /**
+     * Rotate-right operation for uint32 values.
+     * @param word - source word
+     * @param shift - shift amount in bits
+     * @returns Rotated word.
+     * @example
+     * Rotate a 32-bit word to the right.
+     * ```ts
+     * rotr(0x12345678, 8);
+     * ```
+     */
+    function rotr(word, shift) {
+        return (word << (32 - shift)) | (word >>> shift);
+    }
+    /**
+     * Creates a callable hash function from a stateful class constructor.
+     * @param hashCons - hash constructor or factory
+     * @param info - optional metadata such as DER OID
+     * @returns Frozen callable hash wrapper with `.create()`.
+     *   Wrapper construction eagerly calls `hashCons(undefined)` once to read
+     *   `outputLen` / `blockLen`, so constructor side effects happen at module
+     *   init time.
+     * @example
+     * Wrap a stateful hash constructor into a callable helper.
+     * ```ts
+     * import { createHasher } from '@noble/hashes/utils.js';
+     * import { sha256 } from '@noble/hashes/sha2.js';
+     * const wrapped = createHasher(sha256.create, { oid: sha256.oid });
+     * wrapped(new Uint8Array([1]));
+     * ```
+     */
+    function createHasher(hashCons, info = {}) {
+        const hashC = (msg, opts) => hashCons(opts)
+            .update(msg)
+            .digest();
+        const tmp = hashCons(undefined);
+        hashC.outputLen = tmp.outputLen;
+        hashC.blockLen = tmp.blockLen;
+        hashC.canXOF = tmp.canXOF;
+        hashC.create = (opts) => hashCons(opts);
+        Object.assign(hashC, info);
+        return Object.freeze(hashC);
+    }
+    /**
+     * Creates OID metadata for NIST hashes with prefix `06 09 60 86 48 01 65 03 04 02`.
+     * @param suffix - final OID byte for the selected hash.
+     *   The helper accepts any byte even though only the documented NIST hash
+     *   suffixes are meaningful downstream.
+     * @returns Object containing the DER-encoded OID.
+     * @example
+     * Build OID metadata for a NIST hash.
+     * ```ts
+     * oidNist(0x01);
+     * ```
+     */
+    const oidNist = (suffix) => ({
+        // Current NIST hashAlgs suffixes used here fit in one DER subidentifier octet.
+        // Larger suffix values would need base-128 OID encoding and a different length byte.
+        oid: Uint8Array.from([0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, suffix]),
+    });
+
+    /**
+     * Internal Merkle-Damgard hash utils.
+     * @module
+     */
+    /**
+     * Shared 32-bit conditional boolean primitive reused by SHA-256, SHA-1, and MD5 `F`.
+     * Returns bits from `b` when `a` is set, otherwise from `c`.
+     * The XOR form is equivalent to MD5's `F(X,Y,Z) = XY v not(X)Z` because the masked terms never
+     * set the same bit.
+     * @param a - selector word
+     * @param b - word chosen when selector bit is set
+     * @param c - word chosen when selector bit is clear
+     * @returns Mixed 32-bit word.
+     * @example
+     * Combine three words with the shared 32-bit choice primitive.
+     * ```ts
+     * Chi(0xffffffff, 0x12345678, 0x87654321);
+     * ```
+     */
+    function Chi(a, b, c) {
+        return (a & b) ^ (~a & c);
+    }
+    /**
+     * Shared 32-bit majority primitive reused by SHA-256 and SHA-1.
+     * Returns bits shared by at least two inputs.
+     * @param a - first input word
+     * @param b - second input word
+     * @param c - third input word
+     * @returns Mixed 32-bit word.
+     * @example
+     * Combine three words with the shared 32-bit majority primitive.
+     * ```ts
+     * Maj(0xffffffff, 0x12345678, 0x87654321);
+     * ```
+     */
+    function Maj(a, b, c) {
+        return (a & b) ^ (a & c) ^ (b & c);
+    }
+    /**
+     * Merkle-Damgard hash construction base class.
+     * Could be used to create MD5, RIPEMD, SHA1, SHA2.
+     * Accepts only byte-aligned `Uint8Array` input, even when the underlying spec describes bit
+     * strings with partial-byte tails.
+     * @param blockLen - internal block size in bytes
+     * @param outputLen - digest size in bytes
+     * @param padOffset - trailing length field size in bytes
+     * @param isLE - whether length and state words are encoded in little-endian
+     * @example
+     * Use a concrete subclass to get the shared Merkle-Damgard update/digest flow.
+     * ```ts
+     * import { _SHA1 } from '@noble/hashes/legacy.js';
+     * const hash = new _SHA1();
+     * hash.update(new Uint8Array([97, 98, 99]));
+     * hash.digest();
+     * ```
+     */
+    class HashMD {
+        blockLen;
+        outputLen;
+        canXOF = false;
+        padOffset;
+        isLE;
+        // For partial updates less than block size
+        buffer;
+        view;
+        finished = false;
+        length = 0;
+        pos = 0;
+        destroyed = false;
+        constructor(blockLen, outputLen, padOffset, isLE) {
+            this.blockLen = blockLen;
+            this.outputLen = outputLen;
+            this.padOffset = padOffset;
+            this.isLE = isLE;
+            this.buffer = new Uint8Array(blockLen);
+            this.view = createView(this.buffer);
+        }
+        update(data) {
+            aexists(this);
+            abytes(data);
+            const { view, buffer, blockLen } = this;
+            const len = data.length;
+            for (let pos = 0; pos < len;) {
+                const take = Math.min(blockLen - this.pos, len - pos);
+                // Fast path only when there is no buffered partial block: `take === blockLen` implies
+                // `this.pos === 0`, so we can process full blocks directly from the input view.
+                if (take === blockLen) {
+                    const dataView = createView(data);
+                    for (; blockLen <= len - pos; pos += blockLen)
+                        this.process(dataView, pos);
+                    continue;
+                }
+                buffer.set(data.subarray(pos, pos + take), this.pos);
+                this.pos += take;
+                pos += take;
+                if (this.pos === blockLen) {
+                    this.process(view, 0);
+                    this.pos = 0;
+                }
+            }
+            this.length += data.length;
+            this.roundClean();
+            return this;
+        }
+        digestInto(out) {
+            aexists(this);
+            aoutput(out, this);
+            this.finished = true;
+            // Padding
+            // We can avoid allocation of buffer for padding completely if it
+            // was previously not allocated here. But it won't change performance.
+            const { buffer, view, blockLen, isLE } = this;
+            let { pos } = this;
+            // append the bit '1' to the message
+            buffer[pos++] = 0b10000000;
+            clean(this.buffer.subarray(pos));
+            // we have less than padOffset left in buffer, so we cannot put length in
+            // current block, need process it and pad again
+            if (this.padOffset > blockLen - pos) {
+                this.process(view, 0);
+                pos = 0;
+            }
+            // Pad until full block byte with zeros
+            for (let i = pos; i < blockLen; i++)
+                buffer[i] = 0;
+            // `padOffset` reserves the whole length field. For SHA-384/512 the high 64 bits stay zero from
+            // the padding fill above, and JS will overflow before user input can make that half non-zero.
+            // So we only need to write the low 64 bits here.
+            view.setBigUint64(blockLen - 8, BigInt(this.length * 8), isLE);
+            this.process(view, 0);
+            const oview = createView(out);
+            const len = this.outputLen;
+            // NOTE: we do division by 4 later, which must be fused in single op with modulo by JIT
+            if (len % 4)
+                throw new Error('_sha2: outputLen must be aligned to 32bit');
+            const outLen = len / 4;
+            const state = this.get();
+            if (outLen > state.length)
+                throw new Error('_sha2: outputLen bigger than state');
+            for (let i = 0; i < outLen; i++)
+                oview.setUint32(4 * i, state[i], isLE);
+        }
+        digest() {
+            const { buffer, outputLen } = this;
+            this.digestInto(buffer);
+            // Copy before destroy(): subclasses wipe `buffer` during cleanup, but `digest()` must return
+            // fresh bytes to the caller.
+            const res = buffer.slice(0, outputLen);
+            this.destroy();
+            return res;
+        }
+        _cloneInto(to) {
+            to ||= new this.constructor();
+            to.set(...this.get());
+            const { blockLen, buffer, length, finished, destroyed, pos } = this;
+            to.destroyed = destroyed;
+            to.finished = finished;
+            to.length = length;
+            to.pos = pos;
+            // Only partial-block bytes need copying: when `length % blockLen === 0`, `pos === 0` and
+            // later `update()` / `digestInto()` overwrite `to.buffer` from the start before reading it.
+            if (length % blockLen)
+                to.buffer.set(buffer);
+            return to;
+        }
+        clone() {
+            return this._cloneInto();
+        }
+    }
+    /**
+     * Initial SHA-2 state: fractional parts of square roots of first 16 primes 2..53.
+     * Check out `test/misc/sha2-gen-iv.js` for recomputation guide.
+     */
+    /** Initial SHA256 state from RFC 6234 §6.1: the first 32 bits of the fractional parts of the
+     * square roots of the first eight prime numbers. Exported as a shared table; callers must treat
+     * it as read-only because constructors copy words from it by index. */
+    const SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ]);
+
+    /**
+     * SHA2 hash function. A.k.a. sha256, sha384, sha512, sha512_224, sha512_256.
+     * SHA256 is the fastest hash implementable in JS, even faster than Blake3.
+     * Check out {@link https://www.rfc-editor.org/rfc/rfc4634 | RFC 4634} and
+     * {@link https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf | FIPS 180-4}.
+     * @module
+     */
+    /**
+     * SHA-224 / SHA-256 round constants from RFC 6234 §5.1: the first 32 bits
+     * of the cube roots of the first 64 primes (2..311).
+     */
+    // prettier-ignore
+    const SHA256_K = /* @__PURE__ */ Uint32Array.from([
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ]);
+    /** Reusable SHA-224 / SHA-256 message schedule buffer `W_t` from RFC 6234 §6.2 step 1. */
+    const SHA256_W = /* @__PURE__ */ new Uint32Array(64);
+    /** Internal SHA-224 / SHA-256 compression engine from RFC 6234 §6.2. */
+    class SHA2_32B extends HashMD {
+        constructor(outputLen) {
+            super(64, outputLen, 8, false);
+        }
+        get() {
+            const { A, B, C, D, E, F, G, H } = this;
+            return [A, B, C, D, E, F, G, H];
+        }
+        // prettier-ignore
+        set(A, B, C, D, E, F, G, H) {
+            this.A = A | 0;
+            this.B = B | 0;
+            this.C = C | 0;
+            this.D = D | 0;
+            this.E = E | 0;
+            this.F = F | 0;
+            this.G = G | 0;
+            this.H = H | 0;
+        }
+        process(view, offset) {
+            // Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array
+            for (let i = 0; i < 16; i++, offset += 4)
+                SHA256_W[i] = view.getUint32(offset, false);
+            for (let i = 16; i < 64; i++) {
+                const W15 = SHA256_W[i - 15];
+                const W2 = SHA256_W[i - 2];
+                const s0 = rotr(W15, 7) ^ rotr(W15, 18) ^ (W15 >>> 3);
+                const s1 = rotr(W2, 17) ^ rotr(W2, 19) ^ (W2 >>> 10);
+                SHA256_W[i] = (s1 + SHA256_W[i - 7] + s0 + SHA256_W[i - 16]) | 0;
+            }
+            // Compression function main loop, 64 rounds
+            let { A, B, C, D, E, F, G, H } = this;
+            for (let i = 0; i < 64; i++) {
+                const sigma1 = rotr(E, 6) ^ rotr(E, 11) ^ rotr(E, 25);
+                const T1 = (H + sigma1 + Chi(E, F, G) + SHA256_K[i] + SHA256_W[i]) | 0;
+                const sigma0 = rotr(A, 2) ^ rotr(A, 13) ^ rotr(A, 22);
+                const T2 = (sigma0 + Maj(A, B, C)) | 0;
+                H = G;
+                G = F;
+                F = E;
+                E = (D + T1) | 0;
+                D = C;
+                C = B;
+                B = A;
+                A = (T1 + T2) | 0;
+            }
+            // Add the compressed chunk to the current hash value
+            A = (A + this.A) | 0;
+            B = (B + this.B) | 0;
+            C = (C + this.C) | 0;
+            D = (D + this.D) | 0;
+            E = (E + this.E) | 0;
+            F = (F + this.F) | 0;
+            G = (G + this.G) | 0;
+            H = (H + this.H) | 0;
+            this.set(A, B, C, D, E, F, G, H);
+        }
+        roundClean() {
+            clean(SHA256_W);
+        }
+        destroy() {
+            // HashMD callers route post-destroy usability through `destroyed`; zeroizing alone still leaves
+            // update()/digest() callable on reused instances.
+            this.destroyed = true;
+            this.set(0, 0, 0, 0, 0, 0, 0, 0);
+            clean(this.buffer);
+        }
+    }
+    /** Internal SHA-256 hash class grounded in RFC 6234 §6.2. */
+    class _SHA256 extends SHA2_32B {
+        // We cannot use array here since array allows indexing by variable
+        // which means optimizer/compiler cannot use registers.
+        A = SHA256_IV[0] | 0;
+        B = SHA256_IV[1] | 0;
+        C = SHA256_IV[2] | 0;
+        D = SHA256_IV[3] | 0;
+        E = SHA256_IV[4] | 0;
+        F = SHA256_IV[5] | 0;
+        G = SHA256_IV[6] | 0;
+        H = SHA256_IV[7] | 0;
+        constructor() {
+            super(32);
+        }
+    }
+    /**
+     * SHA2-256 hash function from RFC 4634. In JS it's the fastest: even faster than Blake3. Some info:
+     *
+     * - Trying 2^128 hashes would get 50% chance of collision, using birthday attack.
+     * - BTC network is doing 2^70 hashes/sec (2^95 hashes/year) as per 2025.
+     * - Each sha256 hash is executing 2^18 bit operations.
+     * - Good 2024 ASICs can do 200Th/sec with 3500 watts of power, corresponding to 2^36 hashes/joule.
+     * @param msg - message bytes to hash
+     * @returns Digest bytes.
+     * @example
+     * Hash a message with SHA2-256.
+     * ```ts
+     * sha256(new Uint8Array([97, 98, 99]));
+     * ```
+     */
+    const sha256$1 = /* @__PURE__ */ createHasher(() => new _SHA256(), 
+    /* @__PURE__ */ oidNist(0x01));
+
+    // Hard deserialization bound, mirroring the node (serialize.h MAX_SIZE):
+    // ReadCompactSize rejects anything above it, canonical or not.
+    const MAX_SIZE = 0x02000000;
+    function hash256$1(bytes) {
+        return sha256$1(sha256$1(bytes));
+    }
+    class ByteReader {
+        bytes;
+        offset = 0;
+        constructor(bytes) {
+            this.bytes = bytes;
+        }
+        need(count) {
+            if (count > this.bytes.length - this.offset) {
+                throw new Error(`Transaction hex truncated: need ${count} more byte(s) at offset ${this.offset}, ` +
+                    `${this.bytes.length - this.offset} remaining`);
+            }
+        }
+        readBytes(count) {
+            this.need(count);
+            const slice = this.bytes.subarray(this.offset, this.offset + count);
+            this.offset += count;
+            return slice;
+        }
+        readU8() {
+            return this.readBytes(1)[0];
+        }
+        readU32() {
+            const slice = this.readBytes(4);
+            return (slice[0] | (slice[1] << 8) | (slice[2] << 16) | (slice[3] << 24)) >>> 0;
+        }
+        readU64() {
+            const slice = this.readBytes(8);
+            let value = 0n;
+            for (let i = 7; i >= 0; i -= 1) {
+                value = (value << 8n) | BigInt(slice[i]);
+            }
+            return value;
+        }
+        // Canonical CompactSize with the node's range bound: the shortest encoding
+        // is mandatory and anything above MAX_SIZE throws, exactly like
+        // ReadCompactSize. Lengths are validated against the remaining bytes by the
+        // callers BEFORE any allocation or iteration.
+        readCompactSize() {
+            const first = this.readU8();
+            let value;
+            if (first < 0xfd) {
+                value = first;
+            }
+            else if (first === 0xfd) {
+                const slice = this.readBytes(2);
+                value = slice[0] | (slice[1] << 8);
+                if (value < 0xfd)
+                    throw new Error('Non-canonical CompactSize (0xfd form for value < 253)');
+            }
+            else if (first === 0xfe) {
+                value = this.readU32();
+                if (value < 0x10000)
+                    throw new Error('Non-canonical CompactSize (0xfe form for value < 0x10000)');
+            }
+            else {
+                const big = this.readU64();
+                if (big < 0x100000000n)
+                    throw new Error('Non-canonical CompactSize (0xff form for value < 2^32)');
+                if (big > BigInt(MAX_SIZE))
+                    throw new Error(`CompactSize exceeds MAX_SIZE: ${big}`);
+                value = Number(big);
+            }
+            if (value > MAX_SIZE) {
+                throw new Error(`CompactSize exceeds MAX_SIZE: ${value}`);
+            }
+            return value;
+        }
+        /** Read a length prefix that must fit in the remaining bytes at `bytesPerItem`. */
+        readCount(bytesPerItem, label) {
+            const count = this.readCompactSize();
+            if (count * bytesPerItem > this.bytes.length - this.offset) {
+                throw new Error(`Declared ${label} count ${count} does not fit in the remaining ` +
+                    `${this.bytes.length - this.offset} byte(s)`);
+            }
+            return count;
+        }
+        get finished() {
+            return this.offset === this.bytes.length;
+        }
+        get position() {
+            return this.offset;
+        }
+    }
+    function readOutpoint(reader) {
+        const txid = bytesToHex(reverseBytes(reader.readBytes(32)));
+        const vout = reader.readU32();
+        return { txid, vout };
+    }
+    function readInput(reader) {
+        const { txid, vout } = readOutpoint(reader);
+        const scriptLength = reader.readCount(1, 'scriptSig');
+        const scriptSigHex = bytesToHex(reader.readBytes(scriptLength));
+        const sequence = reader.readU32();
+        return { txid, vout, scriptSigHex, sequence };
+    }
+    function readOutput(reader) {
+        const valueSats = reader.readU64();
+        const scriptLength = reader.readCount(1, 'scriptPubKey');
+        const scriptPubKeyHex = bytesToHex(reader.readBytes(scriptLength));
+        return { valueSats, scriptPubKeyHex };
+    }
+    // Minimum serialized size per item, used only to bound counts before reading:
+    // input = outpoint(36) + compactSize(1) + sequence(4); output = value(8) +
+    // compactSize(1); witness element = compactSize(1).
+    const MIN_INPUT_SIZE = 41;
+    const MIN_OUTPUT_SIZE = 9;
+    function parseTransaction(hex) {
+        const reader = new ByteReader(hexToBytes(ensureHex(hex, 'transaction hex')));
+        // nVersion is a signed int32 (negative versions exist on-chain historically).
+        const version = reader.readU32() | 0;
+        const inputs = [];
+        const outputs = [];
+        let flags = 0;
+        const vinCount = reader.readCount(MIN_INPUT_SIZE, 'input');
+        if (vinCount === 0) {
+            // Either a dummy marker for the extended (witness) format, or a genuinely
+            // empty vin. Mirrors UnserializeTransaction: a flags byte follows; when it
+            // is non-zero the real vin/vout follow, when zero the vout is NOT read.
+            flags = reader.readU8();
+            if (flags !== 0) {
+                const realVinCount = reader.readCount(MIN_INPUT_SIZE, 'input');
+                for (let i = 0; i < realVinCount; i += 1)
+                    inputs.push(readInput(reader));
+                const voutCount = reader.readCount(MIN_OUTPUT_SIZE, 'output');
+                for (let i = 0; i < voutCount; i += 1)
+                    outputs.push(readOutput(reader));
+            }
+        }
+        else {
+            for (let i = 0; i < vinCount; i += 1)
+                inputs.push(readInput(reader));
+            const voutCount = reader.readCount(MIN_OUTPUT_SIZE, 'output');
+            for (let i = 0; i < voutCount; i += 1)
+                outputs.push(readOutput(reader));
+        }
+        // NIP-014: vrefin sits between vout and witness, v3 only (even when empty).
+        const vrefin = [];
+        if (version === 3) {
+            const refCount = reader.readCount(36, 'refinput');
+            for (let i = 0; i < refCount; i += 1)
+                vrefin.push(readOutpoint(reader));
+        }
+        if (flags & 1) {
+            flags ^= 1;
+            for (const input of inputs) {
+                const stackSize = reader.readCount(1, 'witness element');
+                const stack = [];
+                for (let i = 0; i < stackSize; i += 1) {
+                    const elementLength = reader.readCount(1, 'witness bytes');
+                    stack.push(bytesToHex(reader.readBytes(elementLength)));
+                }
+                input.witness = stack;
+            }
+        }
+        if (flags) {
+            throw new Error(`Unknown transaction optional data (flags 0x${flags.toString(16)})`);
+        }
+        const locktime = reader.readU32();
+        if (!reader.finished) {
+            throw new Error(`Trailing bytes after transaction (offset ${reader.position})`);
+        }
+        return { version, inputs, outputs, vrefin, locktime };
+    }
+    function serializeOutpoint(ref) {
+        const txid = hexToBytes(ensureHex(ref.txid, 'txid'));
+        if (txid.length !== 32) {
+            throw new Error(`Invalid txid: expected 32 bytes, got ${txid.length}`);
+        }
+        return concatBytes(reverseBytes(txid), u32LE(ref.vout));
+    }
+    function serializeCodecInput(input) {
+        const scriptSig = hexToBytes(ensureHex(input.scriptSigHex ?? '', 'scriptSigHex'));
+        return concatBytes(serializeOutpoint(input), compactSize(scriptSig.length), scriptSig, u32LE(input.sequence ?? 0xffffffff));
+    }
+    function serializeCodecOutput(output) {
+        const script = hexToBytes(ensureHex(output.scriptPubKeyHex, 'scriptPubKeyHex'));
+        return concatBytes(u64LE(output.valueSats), compactSize(script.length), script);
+    }
+    function inputHasWitness(input) {
+        return (input.witness?.length ?? 0) > 0;
+    }
+    function serializeTransaction(tx, options = {}) {
+        if (!Number.isInteger(tx.version) || tx.version < -2147483648 || tx.version > 0x7fffffff) {
+            throw new Error(`Transaction version out of int32 range: ${tx.version}`);
+        }
+        const vrefin = tx.vrefin ?? [];
+        if (tx.version !== 3 && vrefin.length > 0) {
+            throw new Error(`vrefin requires transaction version 3 (got version ${tx.version})`);
+        }
+        const withWitness = (options.includeWitness ?? true) && tx.inputs.some(inputHasWitness);
+        const parts = [u32LE(tx.version >>> 0)];
+        if (withWitness) {
+            // Extended format: dummy empty vin + flags byte.
+            parts.push(Uint8Array.of(0x00, 0x01));
+        }
+        parts.push(compactSize(tx.inputs.length));
+        for (const input of tx.inputs)
+            parts.push(serializeCodecInput(input));
+        parts.push(compactSize(tx.outputs.length));
+        for (const output of tx.outputs)
+            parts.push(serializeCodecOutput(output));
+        if (tx.version === 3) {
+            parts.push(compactSize(vrefin.length));
+            for (const ref of vrefin)
+                parts.push(serializeOutpoint(ref));
+        }
+        if (withWitness) {
+            // One stack per input, empty (CompactSize 0) where the input has none.
+            for (const input of tx.inputs) {
+                const stack = input.witness ?? [];
+                parts.push(compactSize(stack.length));
+                for (const element of stack) {
+                    const bytes = hexToBytes(ensureHex(element, 'witness element'));
+                    parts.push(compactSize(bytes.length), bytes);
+                }
+            }
+        }
+        parts.push(u32LE(tx.locktime));
+        return bytesToHex(concatBytes(...parts));
+    }
+    function toDecoded(txOrHex) {
+        return typeof txOrHex === 'string' ? parseTransaction(txOrHex) : txOrHex;
+    }
+    function computeTxid(txOrHex) {
+        const stripped = serializeTransaction(toDecoded(txOrHex), { includeWitness: false });
+        return bytesToHex(reverseBytes(hash256$1(hexToBytes(stripped))));
     }
 
     /**
@@ -12849,7 +13642,7 @@ var NeuraiSignESP32Bundle = (function () {
         return bufferExports.Buffer.from(input);
     }
     function sha256(data) {
-        return bufferExports.Buffer.from(sha256$1(data));
+        return bufferExports.Buffer.from(sha256$2(data));
     }
     function hash160(data) {
         return bufferExports.Buffer.from(hash160$1(data));
@@ -13189,6 +13982,11 @@ var NeuraiSignESP32Bundle = (function () {
      * `[0x02, sig, pubkey, 0x51]`. Generic AuthScript v1 and strict PQ v2 inputs
      * cannot be signed through a PSBT (see `buildUnsignedPQTransaction` /
      * `sign_tx` for v1).
+     *
+     * Previous transactions (`nonWitnessUtxo`) may be any Neurai transaction,
+     * version 3 included. bitcoinjs-lib cannot read those (see `previousOutput`),
+     * so this module never lets it parse a `nonWitnessUtxo`: inputs get it through
+     * the bip174 layer and are finalized without `Psbt.finalizeInput`.
      */
     const DEFAULT_FEE_RATE$1 = 1024;
     const TX_OVERHEAD$1 = 10;
@@ -13251,18 +14049,51 @@ var NeuraiSignESP32Bundle = (function () {
         });
         input.sighashType = normalizedSighashType;
     }
-    function nonWitnessUtxoTxFromCache(cache, input, inputIndex) {
-        const existing = cache.__NON_WITNESS_UTXO_TX_CACHE?.[inputIndex];
-        if (existing) {
-            return existing;
+    /** Display-order (RPC) txid of a bitcoinjs input hash. */
+    function displayTxid(hash) {
+        return bufferExports.Buffer.from(hash).reverse().toString("hex");
+    }
+    /**
+     * The output an input spends, read from its `nonWitnessUtxo` with the Neurai
+     * transaction codec. bitcoinjs-lib cannot read Neurai version-3 transactions:
+     * NIP-014 serializes their reference inputs (`vrefin`), even an empty list,
+     * after the outputs, and bitcoinjs-lib rejects the leftover bytes with
+     * "Transaction has unexpected data". The previous transaction must hash to the
+     * txid the input spends, so its amounts are the real ones. Returns null when
+     * it has no output `vout`.
+     */
+    function previousOutput(rawTx, txid, vout, inputIndex) {
+        const hex = bufferExports.Buffer.from(rawTx).toString("hex");
+        if (computeTxid(hex) !== txid.toLowerCase()) {
+            throw new Error(`Input #${inputIndex}: the previous transaction is not ${txid}`);
         }
-        if (!input.nonWitnessUtxo) {
-            throw new Error(`Missing nonWitnessUtxo for input #${inputIndex}`);
+        const output = parseTransaction(hex).outputs[vout];
+        return output ? { script: bufferExports.Buffer.from(output.scriptPubKeyHex, "hex"), value: output.valueSats } : null;
+    }
+    /**
+     * `psbt.addInput` with its previous transaction. The `nonWitnessUtxo` goes in
+     * through the bip174 layer: bitcoinjs-lib's `addInput` would parse it, which
+     * fails for version-3 transactions (see `previousOutput`, which checks it).
+     */
+    function addInputWithPreviousTx(psbt, inputData, rawTxHex) {
+        const inputIndex = psbt.inputCount;
+        const nonWitnessUtxo = bufferExports.Buffer.from(rawTxHex, "hex");
+        // bitcoinjs-lib takes the hash as a display txid or in internal byte order.
+        const txid = typeof inputData.hash === "string" ? inputData.hash : displayTxid(inputData.hash);
+        if (!previousOutput(nonWitnessUtxo, txid, inputData.index, inputIndex)) {
+            throw new Error(`Input #${inputIndex}: the previous transaction has no output ${inputData.index}`);
         }
-        const tx = Transaction.fromBuffer(input.nonWitnessUtxo);
-        cache.__NON_WITNESS_UTXO_TX_CACHE ?? (cache.__NON_WITNESS_UTXO_TX_CACHE = {});
-        cache.__NON_WITNESS_UTXO_TX_CACHE[inputIndex] = tx;
-        return tx;
+        psbt.addInput(inputData);
+        psbt.data.updateInput(inputIndex, { nonWitnessUtxo });
+    }
+    /**
+     * Set the final scripts of an input and drop its signing data, as
+     * `Psbt.finalizeInput` does, without letting bitcoinjs-lib parse the input's
+     * `nonWitnessUtxo` (see `previousOutput`).
+     */
+    function setFinalScripts(psbt, inputIndex, finalScripts) {
+        psbt.data.updateInput(inputIndex, finalScripts);
+        psbt.data.clearFinalizedInput(inputIndex);
     }
     function buildPSBT(options) {
         const { network, utxos, outputs, changeAddress, pubkey, masterFingerprint, derivationPath, feeRate = DEFAULT_FEE_RATE$1, } = options;
@@ -13294,12 +14125,7 @@ var NeuraiSignESP32Bundle = (function () {
             },
         ];
         for (const utxo of utxos) {
-            psbt.addInput({
-                hash: utxo.txid,
-                index: utxo.vout,
-                nonWitnessUtxo: bufferExports.Buffer.from(utxo.rawTxHex, "hex"),
-                bip32Derivation,
-            });
+            addInputWithPreviousTx(psbt, { hash: utxo.txid, index: utxo.vout, bip32Derivation }, utxo.rawTxHex);
         }
         for (const output of outputs) {
             psbt.addOutput(addressOutput(output.address, toRawAmount(output.value, "output.value"), network));
@@ -13315,6 +14141,9 @@ var NeuraiSignESP32Bundle = (function () {
     }
     function buildPSBTFromRawTransaction(options) {
         const network = getNetwork(options.network);
+        if (parseTransaction(options.rawUnsignedTransaction).version === 3) {
+            throw new Error("A version-3 transaction cannot be signed through a PSBT: its NIP-014 reference inputs have no PSBT field");
+        }
         const tx = Transaction.fromHex(options.rawUnsignedTransaction);
         const psbt = new Psbt({ network });
         psbt.setVersion(tx.version);
@@ -13329,7 +14158,6 @@ var NeuraiSignESP32Bundle = (function () {
                 hash: metadata.txid,
                 index: metadata.vout,
                 sequence: metadata.sequence ?? input.sequence,
-                nonWitnessUtxo: bufferExports.Buffer.from(metadata.rawTxHex, "hex"),
             };
             if (metadata.masterFingerprint && metadata.derivationPath && metadata.pubkey) {
                 inputData.bip32Derivation = [
@@ -13343,7 +14171,7 @@ var NeuraiSignESP32Bundle = (function () {
             if (metadata.sighashType !== undefined) {
                 inputData.sighashType = metadata.sighashType;
             }
-            psbt.addInput(inputData);
+            addInputWithPreviousTx(psbt, inputData, metadata.rawTxHex);
         }
         for (const output of tx.outs) {
             psbt.addOutput({
@@ -13511,15 +14339,18 @@ var NeuraiSignESP32Bundle = (function () {
                 }
                 continue;
             }
-            const prevTx = Transaction.fromBuffer(nonWitnessUtxo);
-            const prevOut = prevTx.outs[txInput.index];
+            const prevOut = previousOutput(nonWitnessUtxo, displayTxid(txInput.hash), txInput.index, index);
             if (!prevOut) {
                 if (requireAllInputs) {
                     throw new Error(`Missing prevout to finalize input #${index}`);
                 }
                 continue;
             }
-            const witnessVersion = authScriptWitnessVersionOfScript(bufferExports.Buffer.from(prevOut.script));
+            // The check Psbt.finalizeInput made before this module stopped using it.
+            if (input.sighashType !== undefined && getSignatureHashType(partialSig.signature) !== input.sighashType) {
+                throw new Error(`Input #${index}: the signature sighash does not match the input sighash type`);
+            }
+            const witnessVersion = authScriptWitnessVersionOfScript(prevOut.script);
             if (witnessVersion === 3) {
                 // Strict ECDSA witness v3: the consensus template is exactly
                 // [authType 0x02, sig||hashType, compressed pubkey, witnessScript OP_TRUE].
@@ -13527,15 +14358,14 @@ var NeuraiSignESP32Bundle = (function () {
                 if (pubkey.length !== 33) {
                     throw new Error(`Input #${index}: strict ECDSA inputs need a compressed public key`);
                 }
-                psbt.finalizeInput(index, () => ({
-                    finalScriptSig: undefined,
+                setFinalScripts(psbt, index, {
                     finalScriptWitness: witnessStackToScriptWitness([
                         bufferExports.Buffer.from([0x02]),
                         bufferExports.Buffer.from(partialSig.signature),
                         pubkey,
                         bufferExports.Buffer.from([0x51]),
                     ]),
-                }));
+                });
                 finalizedCount += 1;
                 continue;
             }
@@ -13543,13 +14373,12 @@ var NeuraiSignESP32Bundle = (function () {
                 throw new Error(`Input #${index} spends an AuthScript witness v${witnessVersion} output, which cannot be ` +
                     "signed through a PSBT (use sign_tx for witness v1)");
             }
-            psbt.finalizeInput(index, () => ({
-                finalScriptSig: compile([
+            setFinalScripts(psbt, index, {
+                finalScriptSig: bufferExports.Buffer.from(compile([
                     partialSig.signature,
                     partialSig.pubkey,
-                ]),
-                finalScriptWitness: undefined,
-            }));
+                ])),
+            });
             finalizedCount += 1;
         }
         if (requireAllInputs && finalizedCount !== psbt.inputCount) {
@@ -13583,9 +14412,7 @@ var NeuraiSignESP32Bundle = (function () {
                 return;
             }
             if (input.nonWitnessUtxo) {
-                const nwTx = nonWitnessUtxoTxFromCache(cache, input, idx);
-                const vout = tx.ins[idx].index;
-                const out = nwTx.outs[vout];
+                const out = previousOutput(input.nonWitnessUtxo, displayTxid(tx.ins[idx].hash), tx.ins[idx].index, idx);
                 if (!out) {
                     if (requireAllInputs) {
                         throw new Error(`Missing prevout amount for input #${idx}`);
@@ -19537,14 +20364,14 @@ var NeuraiSignESP32Bundle = (function () {
         // CompactSize must be canonical. Today's longest DePIN preimage is 233 bytes
         // (DEPIN-CLEAR with a 121-byte name) so a single byte suffices, but the
         // limit is not baked in: 253+ correctly switches to the 0xfd prefix.
-        return bufferExports.Buffer.concat([bufferExports.Buffer.from(encode$f(bytes.length).buffer), bytes]);
+        return bufferExports.Buffer.concat([bufferExports.Buffer.from(encode$e(bytes.length).buffer), bytes]);
     }
     /**
      * SHA256d(ser_string(magic) ‖ ser_string(message)) — the exact digest the
      * firmware must rebuild for DEPIN-REQ / DEPIN-GET / DEPIN-CLEAR.
      */
     function neuraiSignedMessageDigest(message) {
-        return bufferExports.Buffer.from(hash256$1(bufferExports.Buffer.concat([serializeVarString(NEURAI_MESSAGE_MAGIC), serializeVarString(message)])));
+        return bufferExports.Buffer.from(hash256$2(bufferExports.Buffer.concat([serializeVarString(NEURAI_MESSAGE_MAGIC), serializeVarString(message)])));
     }
     function derToCompactLowS(derHex) {
         if (typeof derHex !== "string" ||
@@ -19677,12 +20504,12 @@ var NeuraiSignESP32Bundle = (function () {
         const timestamp = bufferExports.Buffer.alloc(8);
         timestamp.writeBigInt64LE(BigInt(context.timestamp));
         const payload = bufferExports.Buffer.from(context.encryptedPayloadHex, "hex");
-        return bufferExports.Buffer.from(hash256$1(bufferExports.Buffer.concat([
+        return bufferExports.Buffer.from(hash256$2(bufferExports.Buffer.concat([
             serializeVarString(context.token),
             serializeVarString(context.senderAddress),
             timestamp,
             bufferExports.Buffer.from([context.messageType]),
-            bufferExports.Buffer.from(encode$f(payload.length).buffer),
+            bufferExports.Buffer.from(encode$e(payload.length).buffer),
             payload,
         ])));
     }
@@ -20152,7 +20979,7 @@ var NeuraiSignESP32Bundle = (function () {
     /** authType bound to each strict witness version (node interpreter.h). */
     const STRICT_AUTH_TYPE = { 2: PQ_AUTH_TYPE, 3: ECDSA_AUTH_TYPE };
     function hash256(data) {
-        return bufferExports.Buffer.from(hash256$1(data));
+        return bufferExports.Buffer.from(hash256$2(data));
     }
     function encodeVarint(n) {
         if (n < 0xfd)
