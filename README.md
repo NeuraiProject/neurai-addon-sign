@@ -126,6 +126,10 @@ The testnet was restarted from a new genesis block, `0000008b384aeffecdab182575d
 *   **Existing accounts.** Legacy accounts keep their addresses. A software testnet PQ account used the AuthScript v1 address of earlier releases (`tnq1p…`), which current nodes reject. On first load, the extension changes it to the witness v2 address of the same key (`tpq1z…`). The stored keys still sign, and no PIN is needed for this change. A hardware PQ account keeps the v1 family that the device signs, written as `tnc1p…`.
 *   **Recipients.** Send refuses an address in the old `nq1p…` / `tnq1p…` form and asks for the current address. The same destination is now written `nc1p…` / `tnc1p…`.
 
+### Partial-fill orders (0.15.1)
+
+Ships `@neuraiproject/neurai-scripts` 0.10.0 and `@neuraiproject/neurai-sign-transaction` 3.2.0. Order covenants now bind their fill branches to input 0, which stops a buyer from draining an order through a foreign input 0. The covenant-cancel approval only accepts orders with that binding; orders built with earlier libraries must be cancelled with 0.15.0. ECDSA witness sellers (`tnq1r…`) cancel with their account key, and the approval names the refund destination by the account's address when it is the account's own script, in every address family.
+
 ## Neurai Connect accounts
 
 In the onboarding, **Connect NeuraiWallet** adds the NeuraiWallet mobile app as an account. It works like WalletConnect:

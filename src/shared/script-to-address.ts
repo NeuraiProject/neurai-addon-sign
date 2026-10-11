@@ -1,15 +1,16 @@
 // Neurai Wallet — Minimal script-to-address decoder.
 //
 // Covers the address shapes the covenant-cancel approval popup needs to
-// render: P2PKH (legacy seller refund) and AuthScript witness v1 (PQ
-// seller refund — landing fully in v0.11.0). Anything else returns null so
-// the popup falls back to a script-hex summary.
+// render: any P2PKH, plus the active wallet's own script whatever its family
+// (P2PKH, AuthScript v1, PQ v2, ECDSA v3) — the refund of a cancelled order
+// normally comes back to it. Anything else returns null so the popup falls
+// back to a script-hex summary.
 //
 // Uses `globalThis.crypto.subtle` for SHA-256 (available both in DOM and
 // service-worker contexts).
 
 import type { WalletNetwork } from '../types/index.js';
-import { isTestnetNetwork } from './networks.js';
+import { isTestnetNetwork } from './networks.ts';
 
 const BASE58_ALPHABET =
   '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -93,4 +94,26 @@ export async function decodePrefixAddress(
     return encodeP2PKHAddress(spk.slice(3, 23), network);
   }
   return null;
+}
+
+/** The active wallet's address and its scriptPubKey (hex, no asset wrapper). */
+export interface OwnScript {
+  address: string;
+  scriptHex: string;
+}
+
+/**
+ * Address to show for a destination script: the wallet's own address when
+ * the script is the wallet's, so a seller can confirm a refund comes back to
+ * them in any address family; otherwise `decodePrefixAddress`.
+ */
+export async function describeDestination(
+  scriptHex: string,
+  network: WalletNetwork | string,
+  own: OwnScript | null
+): Promise<string | null> {
+  if (own && scriptHex.toLowerCase() === own.scriptHex.toLowerCase()) {
+    return own.address;
+  }
+  return decodePrefixAddress(scriptHex, network);
 }

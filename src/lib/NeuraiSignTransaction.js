@@ -13643,6 +13643,7 @@
     // confirmation block height; MTP is the previous block's median time past.
     const CHAINCONTEXT_HEIGHT = 0x01;
     const CHAINCONTEXT_MTP = 0x02;
+    const TXHASH_CURRENT_INDEX$1 = 0x80;
 
     /**
      * Minimal CScriptNum encoding (Bitcoin consensus rules).
@@ -14429,6 +14430,152 @@
     }
 
     /**
+     * Buyer fill branches shared by both Partial-Fill Sell Order variants
+     * (ECDSA cancel in `./script.ts`, ML-DSA-44 cancel in `./script-pq.ts`).
+     * The variants only differ in their cancel branch; everything after the
+     * outer `OP_ELSE` is emitted and parsed here.
+     *
+     * Input-0 binding. The fill branches read the order's asset amount with
+     * `<0> OP_INPUTASSETFIELD` and constrain outputs 0..2 by fixed index. Input
+     * indices are absolute and Script cannot ask for the index of the input
+     * being evaluated, so without a binding a buyer could:
+     *   - put a foreign asset UTXO at input 0 and the order at input 1: the
+     *     order then prices the fill by the foreign amount and the rest of the
+     *     order leaves through an unconstrained output;
+     *   - spend several identical orders together, every one of them satisfied
+     *     by the same payment output.
+     * The fill block therefore opens with
+     *
+     *   <0x80 0x00> OP_TXHASH <INPUT_ZERO_TXHASH> OP_EQUALVERIFY
+     *
+     * NIP-042 mask 0x0080 commits only to the index of the input being
+     * evaluated, so the digest equals the constant exactly when this covenant
+     * is spent as input 0. At most one order per transaction can take a fill
+     * branch; the seller's cancel branch is not bound.
+     *
+     * Layout (after the variant's `OP_IF <cancel> OP_ELSE`):
+     *
+     *   <0x80 0x00> OP_TXHASH <INPUT_ZERO_TXHASH> OP_EQUALVERIFY
+     *   OP_IF                                                  ← full fill, unlock <1> <0>
+     *     [expiration gate]
+     *     <0> <2> OP_INPUTASSETFIELD                           (N = order amount)
+     *     DUP <price> MUL <0> OUTPUTVALUE SWAP GE VERIFY       (payment value)
+     *     <0> OUTPUTSCRIPT <paymentSpk> EQUALVERIFY            (payment destination)
+     *     DUP <1> <2> OUTPUTASSETFIELD EQUALVERIFY             (buyer amount == N)
+     *     <1> <1> OUTPUTASSETFIELD <tokenId> EQUALVERIFY       (buyer asset name)
+     *     DROP <1>
+     *   OP_ELSE                                                ← partial fill, unlock <N> <0> <0>
+     *     [expiration gate]
+     *     payment value, payment destination, buyer amount, buyer name (as above)
+     *     <2> OUTPUTAUTHCOMMITMENT <2> TXFIELD EQUALVERIFY     (continuation, NIP-023)
+     *     <2> <1> OUTPUTASSETFIELD <tokenId> EQUALVERIFY       (continuation name)
+     *     <2> <2> OUTPUTASSETFIELD OVER <0> <2> INPUTASSETFIELD SWAP SUB EQUALVERIFY
+     *     DROP <1>
+     *   OP_ENDIF
+     */
+    /** NIP-042 mask (two bytes, little-endian) selecting only the current input index. */
+    const INPUT_INDEX_TXHASH_SELECTOR = Uint8Array.of(TXHASH_CURRENT_INDEX$1, 0x00);
+    /**
+     * `OP_TXHASH(0x0080)` evaluated at input 0:
+     * `SHA256(tag || tag || 80 00 || 00 00 00 00)` with `tag = SHA256("NeuraiTxHash")`.
+     */
+    const INPUT_ZERO_TXHASH = hexToBytes$1('419632cabaf8bb70b96a8c92c4601a9c2ba11e96841daebc9d98f4835eeb0e36');
+    function readPaymentAndBuyerChecks(c, label) {
+        expectByte(c, OP_DUP, `OP_DUP (price, ${label})`);
+        const unitPriceSats = readPushPositiveInt(c, `unitPriceSats (${label})`);
+        expectByte(c, OP_MUL, `OP_MUL (${label})`);
+        expectByte(c, OP_0, `OP_0 (payment idx, ${label})`);
+        expectByte(c, OP_OUTPUTVALUE, `OP_OUTPUTVALUE (${label})`);
+        expectByte(c, OP_SWAP, `OP_SWAP (${label})`);
+        expectByte(c, OP_GREATERTHANOREQUAL, `OP_GREATERTHANOREQUAL (${label})`);
+        expectByte(c, OP_VERIFY, `OP_VERIFY (payment, ${label})`);
+        expectByte(c, OP_0, `OP_0 (spk idx, ${label})`);
+        expectByte(c, OP_OUTPUTSCRIPT, `OP_OUTPUTSCRIPT (${label})`);
+        const paymentScriptPubKey = readPush(c, `paymentScriptPubKey (${label})`);
+        expectByte(c, OP_EQUALVERIFY, `OP_EQUALVERIFY (payment spk, ${label})`);
+        expectByte(c, OP_DUP, `OP_DUP (buyer amount, ${label})`);
+        expectByte(c, OP_1, `OP_1 (buyer idx, ${label})`);
+        expectByte(c, OP_2, `OP_2 (AMOUNT sel, ${label})`);
+        expectByte(c, OP_OUTPUTASSETFIELD, `OP_OUTPUTASSETFIELD (buyer amount, ${label})`);
+        expectByte(c, OP_EQUALVERIFY, `OP_EQUALVERIFY (buyer amount, ${label})`);
+        expectByte(c, OP_1, `OP_1 (buyer idx, ${label})`);
+        expectByte(c, OP_1, `OP_1 (NAME sel, ${label})`);
+        expectByte(c, OP_OUTPUTASSETFIELD, `OP_OUTPUTASSETFIELD (buyer name, ${label})`);
+        const tokenId = readPush(c, `tokenId (${label})`);
+        expectByte(c, OP_EQUALVERIFY, `OP_EQUALVERIFY (buyer name, ${label})`);
+        return { unitPriceSats, paymentScriptPubKey, tokenId };
+    }
+    /**
+     * Parse what `appendFillBranches` emits. Both branches must agree on price,
+     * payment destination, tokenId and expiration; any deviation throws.
+     */
+    function readFillBranches(c) {
+        const selector = readPush(c, 'input-0 binding selector');
+        if (!bytesEqual(selector, INPUT_INDEX_TXHASH_SELECTOR)) {
+            throw new Error('parse: fill branches must open with the input-0 binding <0x8000> OP_TXHASH (covenants without it ' +
+                'can be drained through a foreign input 0 and are not supported)');
+        }
+        expectByte(c, OP_TXHASH, 'OP_TXHASH (input-0 binding)');
+        const digest = readPush(c, 'input-0 binding digest');
+        if (!bytesEqual(digest, INPUT_ZERO_TXHASH)) {
+            throw new Error('parse: input-0 binding digest is not OP_TXHASH(0x0080) at input 0');
+        }
+        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (input-0 binding)');
+        // ═════ Full fill ═════
+        expectByte(c, OP_IF, 'OP_IF (full fill)');
+        const expirationFull = readOptionalExpirationGate(c, OP_0, 'full');
+        expectByte(c, OP_0, 'OP_0 (input idx, full)');
+        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
+        expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD (full)');
+        const full = readPaymentAndBuyerChecks(c, 'full');
+        expectByte(c, OP_DROP, 'OP_DROP (full)');
+        expectByte(c, OP_1, 'OP_1 (true, full)');
+        // ═════ Partial fill ═════
+        expectByte(c, OP_ELSE, 'OP_ELSE (partial fill)');
+        const expirationPartial = readOptionalExpirationGate(c, OP_DUP, 'partial');
+        const partial = readPaymentAndBuyerChecks(c, 'partial');
+        expectByte(c, OP_2, 'OP_2 (remainder idx)');
+        expectByte(c, OP_OUTPUTAUTHCOMMITMENT, 'OP_OUTPUTAUTHCOMMITMENT (remainder)');
+        expectByte(c, OP_2, 'OP_2 (TXFIELD sel: AUTHSCRIPT_COMMITMENT)');
+        expectByte(c, OP_TXFIELD, 'OP_TXFIELD');
+        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder auth)');
+        expectByte(c, OP_2, 'OP_2 (remainder idx)');
+        expectByte(c, OP_1, 'OP_1 (NAME sel)');
+        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder name)');
+        const remainderTokenId = readPush(c, 'tokenId (remainder)');
+        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder name)');
+        expectByte(c, OP_2, 'OP_2 (remainder idx)');
+        expectByte(c, OP_2, 'OP_2 (AMOUNT sel)');
+        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder amount)');
+        expectByte(c, OP_OVER, 'OP_OVER');
+        expectByte(c, OP_0, 'OP_0 (input idx)');
+        expectByte(c, OP_2, 'OP_2 (AMOUNT sel)');
+        expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD');
+        expectByte(c, OP_SWAP, 'OP_SWAP');
+        expectByte(c, OP_SUB, 'OP_SUB');
+        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder amount)');
+        expectByte(c, OP_DROP, 'OP_DROP (partial)');
+        expectByte(c, OP_1, 'OP_1 (true, partial)');
+        expectByte(c, OP_ENDIF, 'OP_ENDIF (fill branches)');
+        if (!bytesEqual(full.tokenId, partial.tokenId) || !bytesEqual(partial.tokenId, remainderTokenId)) {
+            throw new Error('parse: tokenId differs between the fill checks');
+        }
+        if (full.unitPriceSats !== partial.unitPriceSats) {
+            throw new Error('parse: unitPriceSats differs between full-fill and partial-fill branches');
+        }
+        if (!bytesEqual(full.paymentScriptPubKey, partial.paymentScriptPubKey)) {
+            throw new Error('parse: payment scriptPubKey differs between full-fill and partial-fill branches');
+        }
+        assertSameExpiration(expirationFull, expirationPartial, 'full-fill and partial-fill branches');
+        return {
+            paymentScriptPubKey: full.paymentScriptPubKey,
+            tokenId: new TextDecoder('utf-8', { fatal: true }).decode(full.tokenId),
+            unitPriceSats: full.unitPriceSats,
+            expiration: expirationFull
+        };
+    }
+
+    /**
      * Witness-stack builders for the Partial-Fill Sell Order covenant.
      *
      * When the covenant lives behind an AuthScript commitment (the only
@@ -14512,17 +14659,15 @@
     }
 
     /**
-     * Parser for the Partial-Fill Sell Order covenant (three-branch).
+     * Parser for the Partial-Fill Sell Order covenant (three-branch, ECDSA cancel).
      *
-     * Extracts `(sellerPubKeyHash, unitPriceSats, tokenId)` from a scriptPubKey
-     * that was produced by `buildPartialFillScript`. Walks the exact byte
-     * layout emitted by the builder and fails on any deviation — this is
-     * deliberate, so a downstream indexer can unambiguously classify a UTXO as
-     * "partial-fill order" or "unknown script" with no false positives.
-     *
-     * The full-fill and partial-fill branches share `(sellerScriptPubKey,
-     * unitPriceSats, tokenId)`. The parser reads both branches and verifies
-     * consistency; inconsistency throws.
+     * Extracts `(sellerPubKeyHash, paymentScriptPubKey, unitPriceSats, tokenId)`
+     * from a scriptPubKey that was produced by `buildPartialFillScript`. Walks
+     * the exact byte layout emitted by the builder and fails on any deviation —
+     * this is deliberate, so a downstream indexer can unambiguously classify a
+     * UTXO as "partial-fill order" or "unknown script" with no false positives.
+     * Covenants built before the input-0 binding (neurai-scripts < 0.10.0) are
+     * rejected: their fill branches can be drained through a foreign input 0.
      */
     /**
      * Parse a covenant scriptPubKey and extract its parameters. Throws with a
@@ -14542,129 +14687,17 @@
         expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (cancel)');
         expectByte(c, OP_CHECKSIG, 'OP_CHECKSIG (cancel)');
         expectByte(c, OP_ELSE, 'OP_ELSE (outer → fill)');
-        // ═════ Inner IF — Full-fill branch ═════
-        expectByte(c, OP_IF, 'OP_IF (inner full-fill)');
-        const expirationFull = readOptionalExpirationGate(c, OP_0, 'full');
-        // N = inputAmount
-        expectByte(c, OP_0, 'OP_0 (input idx, full)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
-        expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD (full)');
-        // payment value check
-        expectByte(c, OP_DUP, 'OP_DUP (price, full)');
-        const unitPriceSatsFull = readPushPositiveInt(c, 'unitPriceSats (full)');
-        expectByte(c, OP_MUL, 'OP_MUL (full)');
-        expectByte(c, OP_0, 'OP_0 (payment idx, full)');
-        expectByte(c, OP_OUTPUTVALUE, 'OP_OUTPUTVALUE (full)');
-        expectByte(c, OP_SWAP, 'OP_SWAP (full)');
-        expectByte(c, OP_GREATERTHANOREQUAL, 'OP_GREATERTHANOREQUAL (full)');
-        expectByte(c, OP_VERIFY, 'OP_VERIFY (payment full)');
-        // payment spk
-        expectByte(c, OP_0, 'OP_0 (spk idx, full)');
-        expectByte(c, OP_OUTPUTSCRIPT, 'OP_OUTPUTSCRIPT (payment full)');
-        const sellerSpkFull = readPush(c, 'sellerScriptPubKey (full)');
-        const expectedSpk = new Uint8Array([
-            OP_DUP, OP_HASH160, 0x14, ...sellerPubKeyHash, OP_EQUALVERIFY, OP_CHECKSIG
-        ]);
-        if (!bytesEqual(sellerSpkFull, expectedSpk)) {
-            throw new Error('parse: full-fill seller scriptPubKey does not match the cancel PKH');
-        }
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (payment spk full)');
-        // buyer amount == N (full)
-        expectByte(c, OP_DUP, 'OP_DUP (buyer amount, full)');
-        expectByte(c, OP_1, 'OP_1 (buyer idx, full)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer amount, full)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer amount, full)');
-        // buyer name == tokenId (full)
-        expectByte(c, OP_1, 'OP_1 (buyer idx, full)');
-        expectByte(c, OP_1, 'OP_1 (NAME sel, full)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer name, full)');
-        const tokenIdFull = readPush(c, 'tokenId (full)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer name, full)');
-        // tail (full)
-        expectByte(c, OP_DROP, 'OP_DROP (full)');
-        expectByte(c, OP_1, 'OP_1 (true, full)');
-        expectByte(c, OP_ELSE, 'OP_ELSE (inner → partial fill)');
-        // ═════ Inner ELSE — Partial-fill branch ═════
-        const expirationPartial = readOptionalExpirationGate(c, OP_DUP, 'partial');
-        // Payment value
-        expectByte(c, OP_DUP, 'OP_DUP (price, partial)');
-        const unitPriceSatsPartial = readPushPositiveInt(c, 'unitPriceSats (partial)');
-        expectByte(c, OP_MUL, 'OP_MUL (partial)');
-        expectByte(c, OP_0, 'OP_0 (pay idx, partial)');
-        expectByte(c, OP_OUTPUTVALUE, 'OP_OUTPUTVALUE (partial)');
-        expectByte(c, OP_SWAP, 'OP_SWAP (partial)');
-        expectByte(c, OP_GREATERTHANOREQUAL, 'OP_GREATERTHANOREQUAL (partial)');
-        expectByte(c, OP_VERIFY, 'OP_VERIFY (payment partial)');
-        // Payment spk
-        expectByte(c, OP_0, 'OP_0 (spk idx, partial)');
-        expectByte(c, OP_OUTPUTSCRIPT, 'OP_OUTPUTSCRIPT (payment partial)');
-        const sellerSpkPartial = readPush(c, 'sellerScriptPubKey (partial)');
-        if (!bytesEqual(sellerSpkPartial, expectedSpk)) {
-            throw new Error('parse: partial-fill seller scriptPubKey does not match the cancel PKH');
-        }
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (payment spk partial)');
-        // Buyer amount
-        expectByte(c, OP_DUP, 'OP_DUP (buyer amount, partial)');
-        expectByte(c, OP_1, 'OP_1 (buyer idx, partial)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, partial)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer amount, partial)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer amount, partial)');
-        // Buyer name
-        expectByte(c, OP_1, 'OP_1 (buyer idx, partial)');
-        expectByte(c, OP_1, 'OP_1 (NAME sel, partial)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer name, partial)');
-        const tokenIdPartial1 = readPush(c, 'tokenId partial #1');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer name, partial)');
-        // Continuation commitment
-        expectByte(c, OP_2, 'OP_2 (remainder idx)');
-        expectByte(c, OP_OUTPUTAUTHCOMMITMENT, 'OP_OUTPUTAUTHCOMMITMENT (remainder)');
-        expectByte(c, OP_2, 'OP_2 (TXFIELD sel: AUTHSCRIPT_COMMITMENT)');
-        expectByte(c, OP_TXFIELD, 'OP_TXFIELD');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder auth)');
-        // Continuation name
-        expectByte(c, OP_2, 'OP_2 (remainder idx)');
-        expectByte(c, OP_1, 'OP_1 (NAME sel)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder name)');
-        const tokenIdPartial2 = readPush(c, 'tokenId partial #2');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder name)');
-        // Continuation amount
-        expectByte(c, OP_2, 'OP_2 (remainder idx)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder amount)');
-        expectByte(c, OP_OVER, 'OP_OVER');
-        expectByte(c, OP_0, 'OP_0 (input idx)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel)');
-        expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD');
-        expectByte(c, OP_SWAP, 'OP_SWAP');
-        expectByte(c, OP_SUB, 'OP_SUB');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder amount)');
-        // Tail (partial)
-        expectByte(c, OP_DROP, 'OP_DROP (partial)');
-        expectByte(c, OP_1, 'OP_1 (true, partial)');
-        // Close the nested structure
-        expectByte(c, OP_ENDIF, 'OP_ENDIF (inner)');
+        // ═════ Outer ELSE — input-0 binding + fill branches ═════
+        const fill = readFillBranches(c);
         expectByte(c, OP_ENDIF, 'OP_ENDIF (outer)');
         assertTrailing(c);
-        // Cross-branch consistency: all three (full token, partial name #1,
-        // partial name #2) must agree, and the two unit prices must match.
-        if (!bytesEqual(tokenIdFull, tokenIdPartial1)) {
-            throw new Error('parse: tokenId differs between full-fill and partial-fill branches');
-        }
-        if (!bytesEqual(tokenIdPartial1, tokenIdPartial2)) {
-            throw new Error('parse: tokenId bytes differ between buyer and remainder partial checks');
-        }
-        if (unitPriceSatsFull !== unitPriceSatsPartial) {
-            throw new Error('parse: unitPriceSats differs between full-fill and partial-fill branches');
-        }
-        assertSameExpiration(expirationFull, expirationPartial, 'full-fill and partial-fill branches');
-        const tokenId = new TextDecoder('utf-8', { fatal: true }).decode(tokenIdFull);
         return {
             network,
             sellerPubKeyHash,
-            unitPriceSats: unitPriceSatsFull,
-            tokenId,
-            expiration: expirationFull,
+            paymentScriptPubKey: fill.paymentScriptPubKey,
+            unitPriceSats: fill.unitPriceSats,
+            tokenId: fill.tokenId,
+            expiration: fill.expiration,
             scriptHex: bytesToHex$1(bytes)
         };
     }
@@ -14696,110 +14729,18 @@
         expectByte(c, OP_SWAP, 'OP_SWAP');
         expectByte(c, OP_CHECKSIGFROMSTACK, 'OP_CHECKSIGFROMSTACK');
         expectByte(c, OP_ELSE, 'OP_ELSE (outer → fill)');
-        // ═════ Inner IF — Full-fill branch ═════
-        expectByte(c, OP_IF, 'OP_IF (inner full-fill)');
-        const expirationFull = readOptionalExpirationGate(c, OP_0, 'full');
-        expectByte(c, OP_0, 'OP_0 (input idx, full)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
-        expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD (full)');
-        expectByte(c, OP_DUP, 'OP_DUP (price, full)');
-        const unitPriceSatsFull = readPushPositiveInt(c, 'unitPriceSats (full)');
-        expectByte(c, OP_MUL, 'OP_MUL (full)');
-        expectByte(c, OP_0, 'OP_0 (payment idx, full)');
-        expectByte(c, OP_OUTPUTVALUE, 'OP_OUTPUTVALUE (full)');
-        expectByte(c, OP_SWAP, 'OP_SWAP (full)');
-        expectByte(c, OP_GREATERTHANOREQUAL, 'OP_GE (full)');
-        expectByte(c, OP_VERIFY, 'OP_VERIFY (full)');
-        expectByte(c, OP_0, 'OP_0 (payment spk idx, full)');
-        expectByte(c, OP_OUTPUTSCRIPT, 'OP_OUTPUTSCRIPT (payment full)');
-        const paymentScriptPubKeyFull = readPush(c, 'paymentScriptPubKey (full)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (payment full)');
-        expectByte(c, OP_DUP, 'OP_DUP (buyer amount, full)');
-        expectByte(c, OP_1, 'OP_1 (buyer idx, full)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, full)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer amount, full)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer amount, full)');
-        expectByte(c, OP_1, 'OP_1 (buyer idx, full)');
-        expectByte(c, OP_1, 'OP_1 (NAME sel, full)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer name, full)');
-        const tokenIdFull = readPush(c, 'tokenId (full)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer name, full)');
-        expectByte(c, OP_DROP, 'OP_DROP (full)');
-        expectByte(c, OP_1, 'OP_1 (true, full)');
-        expectByte(c, OP_ELSE, 'OP_ELSE (inner → partial fill)');
-        // ═════ Inner ELSE — Partial-fill branch ═════
-        const expirationPartial = readOptionalExpirationGate(c, OP_DUP, 'partial');
-        expectByte(c, OP_DUP, 'OP_DUP (price, partial)');
-        const unitPriceSatsPartial = readPushPositiveInt(c, 'unitPriceSats (partial)');
-        expectByte(c, OP_MUL, 'OP_MUL (partial)');
-        expectByte(c, OP_0, 'OP_0 (payment idx, partial)');
-        expectByte(c, OP_OUTPUTVALUE, 'OP_OUTPUTVALUE (partial)');
-        expectByte(c, OP_SWAP, 'OP_SWAP (partial)');
-        expectByte(c, OP_GREATERTHANOREQUAL, 'OP_GE (partial)');
-        expectByte(c, OP_VERIFY, 'OP_VERIFY (partial)');
-        expectByte(c, OP_0, 'OP_0 (payment spk idx, partial)');
-        expectByte(c, OP_OUTPUTSCRIPT, 'OP_OUTPUTSCRIPT (payment partial)');
-        const paymentScriptPubKeyPartial = readPush(c, 'paymentScriptPubKey (partial)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (payment partial)');
-        expectByte(c, OP_DUP, 'OP_DUP (buyer amount, partial)');
-        expectByte(c, OP_1, 'OP_1 (buyer idx, partial)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel, partial)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer amount, partial)');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer amount, partial)');
-        expectByte(c, OP_1, 'OP_1 (buyer idx, partial)');
-        expectByte(c, OP_1, 'OP_1 (NAME sel, partial)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (buyer name, partial)');
-        const tokenIdPartial1 = readPush(c, 'tokenId partial #1');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (buyer name, partial)');
-        // Continuation commitment
-        expectByte(c, OP_2, 'OP_2 (remainder idx)');
-        expectByte(c, OP_OUTPUTAUTHCOMMITMENT, 'OP_OUTPUTAUTHCOMMITMENT (remainder)');
-        expectByte(c, OP_2, 'OP_2 (TXFIELD sel: AUTHSCRIPT_COMMITMENT)');
-        expectByte(c, OP_TXFIELD, 'OP_TXFIELD');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder auth)');
-        expectByte(c, OP_2, 'OP_2 (remainder idx)');
-        expectByte(c, OP_1, 'OP_1 (NAME sel)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder name)');
-        const tokenIdPartial2 = readPush(c, 'tokenId partial #2');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder name)');
-        expectByte(c, OP_2, 'OP_2 (remainder idx)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel)');
-        expectByte(c, OP_OUTPUTASSETFIELD, 'OP_OUTPUTASSETFIELD (remainder amount)');
-        expectByte(c, OP_OVER, 'OP_OVER');
-        expectByte(c, OP_0, 'OP_0 (input idx)');
-        expectByte(c, OP_2, 'OP_2 (AMOUNT sel)');
-        expectByte(c, OP_INPUTASSETFIELD, 'OP_INPUTASSETFIELD');
-        expectByte(c, OP_SWAP, 'OP_SWAP');
-        expectByte(c, OP_SUB, 'OP_SUB');
-        expectByte(c, OP_EQUALVERIFY, 'OP_EQUALVERIFY (remainder amount)');
-        expectByte(c, OP_DROP, 'OP_DROP (partial)');
-        expectByte(c, OP_1, 'OP_1 (true, partial)');
-        expectByte(c, OP_ENDIF, 'OP_ENDIF (inner)');
+        // ═════ Outer ELSE — input-0 binding + fill branches ═════
+        const fill = readFillBranches(c);
         expectByte(c, OP_ENDIF, 'OP_ENDIF (outer)');
         assertTrailing(c);
-        // Cross-branch consistency.
-        if (!bytesEqual(paymentScriptPubKeyFull, paymentScriptPubKeyPartial)) {
-            throw new Error('parse-pq: paymentScriptPubKey differs between full-fill and partial-fill branches');
-        }
-        if (!bytesEqual(tokenIdFull, tokenIdPartial1)) {
-            throw new Error('parse-pq: tokenId differs between full-fill and partial-fill branches');
-        }
-        if (!bytesEqual(tokenIdPartial1, tokenIdPartial2)) {
-            throw new Error('parse-pq: tokenId differs between buyer and remainder partial checks');
-        }
-        if (unitPriceSatsFull !== unitPriceSatsPartial) {
-            throw new Error('parse-pq: unitPriceSats differs between full-fill and partial-fill branches');
-        }
-        assertSameExpiration(expirationFull, expirationPartial, 'full-fill and partial-fill branches');
-        const tokenId = new TextDecoder('utf-8', { fatal: true }).decode(tokenIdFull);
         return {
             network,
             pubKeyCommitment,
-            tokenId,
-            unitPriceSats: unitPriceSatsFull,
+            tokenId: fill.tokenId,
+            unitPriceSats: fill.unitPriceSats,
             txHashSelector,
-            expiration: expirationFull,
-            paymentScriptPubKey: paymentScriptPubKeyFull,
+            expiration: fill.expiration,
+            paymentScriptPubKey: fill.paymentScriptPubKey,
             scriptHex: bytesToHex$1(bytes)
         };
     }
@@ -16442,6 +16383,11 @@
                     throw new Error(`${hint.kind} commitment mismatch for ${txid}:${vout}: hint.covenantScriptHex does not hash to the UTXO's AuthScript commitment`);
                 }
                 if (hint.kind === "covenant-fill") {
+                    // The covenant's fill branches are bound to input 0 (neurai-scripts
+                    // 0.10.0); at any other index the node rejects the transaction.
+                    if (i !== 0) {
+                        throw new Error(`covenant-fill for ${txid}:${vout} is input ${i}: a partial-fill order can only be filled as input 0`);
+                    }
                     // A NOAUTH commitment match alone must not let an arbitrary
                     // witness script be spent "as a fill": the covenant has to parse
                     // as a partial-fill order (legacy or PQ).

@@ -16,6 +16,7 @@ declare global {
   interface NeuraiScriptsParsedPartialFillOrder {
     network: string;
     sellerPubKeyHash: Uint8Array;
+    paymentScriptPubKey: Uint8Array;
     unitPriceSats: bigint;
     tokenId: string;
     scriptHex: string;
@@ -30,8 +31,17 @@ declare global {
     scriptHex: string;
   }
 
+  interface NeuraiScriptsSellerScriptPubKey {
+    kind: 'p2pkh' | 'authscript' | 'pq' | 'ecdsa';
+    witnessVersion?: number;
+    bytes: Uint8Array;
+    hash: Uint8Array;
+  }
+
   interface NeuraiScriptsStatic {
     splitAssetWrappedScriptPubKey(spkHex: string): NeuraiScriptsSplitAssetWrappedResult;
+    encodeSellerScriptPubKey(address: string): NeuraiScriptsSellerScriptPubKey;
+    bytesToHex(bytes: Uint8Array): string;
     parsePartialFillScript(
       script: Uint8Array | string,
       network?: string

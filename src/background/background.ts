@@ -7,7 +7,7 @@ import { NEURAI_UTILS } from '../shared/utils.js';
 import { assertSighashSupported, UnsupportedSighashError, type WalletSigningKind } from '../shared/sighash.js';
 import { isTxComplete } from '../shared/completeness.js';
 import { parseRawTransactionOutputs } from '../shared/parse-raw-tx.js';
-import { decodePrefixAddress } from '../shared/script-to-address.js';
+import { describeDestination, type OwnScript } from '../shared/script-to-address.js';
 import { resolvePrivateKeysForSigning } from './signing-keys.js';
 import {
   isPQNetwork,
@@ -649,7 +649,7 @@ async function signRawTxForPage(
   let cancelData: CancelApprovalData | null = null;
   if (hintedUtxo) {
     try {
-      cancelData = await buildCancelApproval(hintedUtxo, txHex, network);
+      cancelData = await buildCancelApproval(hintedUtxo, txHex, network, walletData!.address);
     } catch (err) {
       return { error: (err as Error).message };
     }
@@ -786,7 +786,9 @@ async function signRawTxForPage(
  *   - prefix must be a 34-byte AuthScript v1 program → reject
  *   - parse `hint.covenantScriptHex` with the matching partial-fill parser → reject on failure
  *   - layout(output[0]) check → "labeled" if matches, "breakdown" if not
- *   - refund address decode → null on unknown shape (popup shows hex)
+ *   - refund address decode → the wallet's own address when the refund
+ *     script is the wallet's (any family), null on other unknown shapes
+ *     (popup shows hex)
  *
  * Commitment + key-match validation are intentionally delegated to the
  * signing library: it computes `taggedHash("NeuraiAuthScript", 0x01 ||
@@ -798,7 +800,8 @@ async function signRawTxForPage(
 async function buildCancelApproval(
   utxo: Utxo,
   txHex: string,
-  network: WalletNetwork | string
+  network: WalletNetwork | string,
+  walletAddress: string
 ): Promise<CancelApprovalData> {
   const hint = utxo.bareScriptHint;
   if (!hint) {
@@ -873,7 +876,8 @@ async function buildCancelApproval(
     parsedOutputs,
     tokenId,
     split.assetTransfer.amountRaw,
-    network
+    network,
+    walletOwnScript(walletAddress)
   );
 
   return {
@@ -891,11 +895,22 @@ async function buildCancelApproval(
   };
 }
 
+/** The wallet's scriptPubKey, for any address family; null if the address does not decode. */
+function walletOwnScript(address: string): OwnScript | null {
+  try {
+    const { bytes } = globalThis.NeuraiScripts.encodeSellerScriptPubKey(address);
+    return { address, scriptHex: globalThis.NeuraiScripts.bytesToHex(bytes) };
+  } catch {
+    return null;
+  }
+}
+
 async function classifyRefundLayout(
   outputs: Array<{ value: bigint; scriptHex: string }>,
   expectedTokenId: string,
   expectedAmountRaw: bigint,
-  network: WalletNetwork | string
+  network: WalletNetwork | string,
+  own: OwnScript | null
 ): Promise<CancelRefundSummary> {
   const scripts = globalThis.NeuraiScripts;
   if (outputs.length === 0) {
@@ -907,16 +922,17 @@ async function classifyRefundLayout(
   try {
     firstSplit = scripts.splitAssetWrappedScriptPubKey(first.scriptHex);
   } catch (err) {
-    return await renderBreakdown(outputs, network, `output[0] is malformed: ${(err as Error).message}`);
+    return await renderBreakdown(outputs, network, own, `output[0] is malformed: ${(err as Error).message}`);
   }
 
   if (!firstSplit.assetTransfer) {
-    return await renderBreakdown(outputs, network, 'output[0] is not asset-wrapped');
+    return await renderBreakdown(outputs, network, own, 'output[0] is not asset-wrapped');
   }
   if (firstSplit.assetTransfer.assetName !== expectedTokenId) {
     return await renderBreakdown(
       outputs,
       network,
+      own,
       `output[0] asset ${firstSplit.assetTransfer.assetName} does not match covenant tokenId ${expectedTokenId}`
     );
   }
@@ -924,11 +940,12 @@ async function classifyRefundLayout(
     return await renderBreakdown(
       outputs,
       network,
+      own,
       `output[0] amount ${firstSplit.assetTransfer.amountRaw} does not match remanente ${expectedAmountRaw}`
     );
   }
 
-  const refundAddress = await decodePrefixAddress(firstSplit.prefixHex, network);
+  const refundAddress = await describeDestination(firstSplit.prefixHex, network, own);
   return {
     mode: 'labeled',
     refundAddress,
@@ -941,6 +958,7 @@ async function classifyRefundLayout(
 async function renderBreakdown(
   outputs: Array<{ value: bigint; scriptHex: string }>,
   network: WalletNetwork | string,
+  own: OwnScript | null,
   reason: string
 ): Promise<CancelRefundSummary> {
   const scripts = globalThis.NeuraiScripts;
@@ -961,7 +979,7 @@ async function renderBreakdown(
     } catch {
       // Keep scriptHex as-is; no asset info.
     }
-    const addr = await decodePrefixAddress(prefixHex, network);
+    const addr = await describeDestination(prefixHex, network, own);
     summaries.push({
       index: i,
       valueSats: Number(out.value),
