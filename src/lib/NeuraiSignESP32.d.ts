@@ -140,6 +140,8 @@ declare global {
     masterFingerprint?: string | null;
     derivationPath?: string | null;
     sighashType?: number;
+    /** Script behind the AuthScript commitment of the prevout (a covenant), hex. Not for the device. */
+    witnessScript?: string;
   }
 
   interface NeuraiESP32BuildPsbtParams {
@@ -302,6 +304,8 @@ declare global {
       txId: string;
     };
     validatePSBT(psbtBase64: string, network: NeuraiSignESP32NetworkType): boolean;
+    /** Throws for what the device firmware cannot sign (v3 transactions or previous transactions, covenant inputs). */
+    assertDeviceCanSignPSBT(psbtBase64: string): void;
     buildAssetTransferDisplayMetadata(
       options: NeuraiESP32BuildAssetTransferDisplayMetadataOptions
     ): NeuraiESP32SignDisplay;

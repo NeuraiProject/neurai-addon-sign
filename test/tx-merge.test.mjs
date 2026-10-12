@@ -9,17 +9,22 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './load-bundles.mjs';
 import { keepForeignUnlockingData, signedInputIndexes, reserialize } from '../src/shared/tx-merge.ts';
 
 const varint = (n) => (n < 0xfd ? n.toString(16).padStart(2, '0') : 'fd' + n.toString(16).padStart(4, '0').match(/../g).reverse().join(''));
 const push = (hex) => varint(hex.length / 2) + hex;
 
-/** Independent serializer for the test vectors. */
-function tx({ version = '02000000', inputs, outputs, witnesses = null, locktime = '00000000' }) {
+/**
+ * Independent serializer for the test vectors. Version 3 serializes its
+ * NIP-014 reference inputs (`vrefin`, outpoints) after the outputs, even none.
+ */
+function tx({ version = '02000000', inputs, outputs, witnesses = null, locktime = '00000000', vrefin = [] }) {
   const segwit = !!witnesses && witnesses.some((w) => w.length > 0);
   let out = version + (segwit ? '0001' : '') + varint(inputs.length);
   for (const i of inputs) out += i.prevout + push(i.script || '') + (i.sequence || 'ffffffff');
   out += varint(outputs.length) + outputs.join('');
+  if (version === '03000000') out += varint(vrefin.length) + vrefin.join('');
   if (segwit) for (const w of witnesses) out += varint(w.length) + w.map(push).join('');
   return out + locktime;
 }
@@ -69,8 +74,32 @@ test('a different transaction is refused', () => {
   assert.throws(() => keepForeignUnlockingData(original, otherSequence, [1]), /not the one that was sent/);
 });
 
-test('version 3 with foreign signatures is refused rather than guessed', () => {
-  const original = tx({ version: '03000000', inputs: [{ prevout: P0, script: SELLER_SIG }, { prevout: P1 }], outputs: [OUT_A] });
-  const signed = tx({ version: '03000000', inputs: [{ prevout: P0 }, { prevout: P1, script: BUYER_SIG }], outputs: [OUT_A] });
-  assert.throws(() => keepForeignUnlockingData(original, signed, [1]), /version 3/);
+test('version 3: reference inputs are read and the foreign unlocking data comes back', () => {
+  const REF = '55'.repeat(32) + '02000000';
+  const covenantWitness = ['01', 'c0ffee'];
+  const original = tx({
+    version: '03000000', vrefin: [REF], witnesses: [covenantWitness, []],
+    inputs: [{ prevout: P0 }, { prevout: P1 }], outputs: [OUT_A]
+  });
+  assert.equal(reserialize(original), original);
+  assert.deepEqual(signedInputIndexes(original), [0]);
+  const fromPsbt = tx({ version: '03000000', vrefin: [REF], inputs: [{ prevout: P0 }, { prevout: P1, script: BUYER_SIG }], outputs: [OUT_A] });
+  assert.equal(
+    keepForeignUnlockingData(original, fromPsbt, [1]),
+    tx({ version: '03000000', vrefin: [REF], witnesses: [covenantWitness, []], inputs: [{ prevout: P0 }, { prevout: P1, script: BUYER_SIG }], outputs: [OUT_A] })
+  );
+  // An empty reference-input list is still serialized in version 3.
+  const empty = tx({ version: '03000000', inputs: [{ prevout: P0 }], outputs: [OUT_A] });
+  assert.equal(reserialize(empty), empty);
+});
+
+test('a different version, locktime or reference input is refused', () => {
+  const REF = '55'.repeat(32) + '02000000';
+  const original = tx({ version: '03000000', vrefin: [REF], inputs: [{ prevout: P0, script: SELLER_SIG }, { prevout: P1 }], outputs: [OUT_A] });
+  const signed = (changes) => tx({ version: '03000000', vrefin: [REF], inputs: [{ prevout: P0 }, { prevout: P1, script: BUYER_SIG }], outputs: [OUT_A], ...changes });
+  assert.doesNotThrow(() => keepForeignUnlockingData(original, signed({}), [1]));
+  assert.throws(() => keepForeignUnlockingData(original, signed({ vrefin: [] }), [1]), /not the one that was sent/);
+  assert.throws(() => keepForeignUnlockingData(original, signed({ vrefin: ['66'.repeat(32) + '02000000'] }), [1]), /not the one that was sent/);
+  assert.throws(() => keepForeignUnlockingData(original, signed({ locktime: '01000000' }), [1]), /not the one that was sent/);
+  assert.throws(() => keepForeignUnlockingData(original, signed({ version: '02000000' }), [1]), /not the one that was sent/);
 });

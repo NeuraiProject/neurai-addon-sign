@@ -9,6 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import './load-bundles.mjs';
 import {
   NEURAI_CHAIN_MAINNET,
   NEURAI_CHAIN_TESTNET,
@@ -97,6 +98,18 @@ test('a signed transaction is the same one when only unlocking data changed', ()
   assert.equal(sameTransaction(unsigned, signed), true);
   assert.equal(sameTransaction(unsigned, otherValue), false);
   assert.equal(sameTransaction(unsigned, 'zz'), false);
+});
+
+test('version, locktime and reference inputs are part of the transaction', () => {
+  const body = '01' + '11'.repeat(32) + '00000000' + '00' + 'ffffffff' + '01' + 'a086010000000000' + '19' + '76a914' + '33'.repeat(20) + '88ac';
+  const signedBody = body.replace('00000000' + '00' + 'ffffffff', '00000000' + '02' + 'abcd' + 'ffffffff');
+  const ref = (id) => '01' + id.repeat(32) + '00000000';
+  const v3 = (inputs, vrefin, locktime = '00000000') => '03000000' + inputs + vrefin + locktime;
+  assert.equal(sameTransaction(v3(body, ref('55')), v3(signedBody, ref('55'))), true);
+  assert.equal(sameTransaction(v3(body, ref('55')), v3(signedBody, ref('66'))), false);
+  assert.equal(sameTransaction(v3(body, ref('55')), v3(signedBody, '00')), false);
+  assert.equal(sameTransaction(v3(body, ref('55')), v3(signedBody, ref('55'), '01000000')), false);
+  assert.equal(sameTransaction('02000000' + body + '00000000', '01000000' + signedBody + '00000000'), false);
 });
 
 test('each address family gets its account label', () => {

@@ -134,6 +134,14 @@ Ships `@neuraiproject/neurai-scripts` 0.10.0 and `@neuraiproject/neurai-sign-tra
 
 Ships `@neuraiproject/neurai-sign-esp32` 0.7.2. Privacy pools and state threads create Neurai version-3 transactions (NIP-014 reference inputs). A PSBT carries every previous transaction, and the earlier library could not read version 3, so signing over Neurai Connect (or with NeuraiHW) a transaction that spent one of their outputs failed with "Transaction has unexpected data". The PSBT is now built and finalized with the Neurai transaction codec. NeuraiWallet must read version-3 previous transactions too before it can sign such a request.
 
+### Neurai PSBT and order cancellation over Neurai Connect (0.16.0)
+
+Ships `@neuraiproject/neurai-create-transaction` 0.9.3, `@neuraiproject/neurai-sign-transaction` 3.3.1 and `@neuraiproject/neurai-sign-esp32` 0.8.1, which read and write PSBTs in the Neurai profile (BIP-174 version 0 whose transactions use the Neurai serialization) instead of the Bitcoin `Psbt` of bitcoinjs-lib.
+
+*   **Cancel an order from NeuraiWallet.** A Neurai Connect account (Legacy or ECDSA witness) can cancel its partial-fill sell orders: the PSBT carries the order's covenant as `witnessScript`, NeuraiWallet signs the covenant's cancel branch with the account key, and the signing window shows what the order holds and where each output goes, read from the PSBT. NeuraiWallet 1.1.8 or later is needed. Orders cancelled with a post-quantum key are refused with a clear message.
+*   **Version 3 everywhere.** Raw transactions are read with the codec of `neurai-create-transaction` (`src/shared/codec.ts`), so a version-3 transaction (NIP-014 reference inputs) is read, merged and compared like any other. The check that the signed transaction is the one that was sent now covers its version, locktime and reference inputs too.
+*   **Hardware wallets.** Same flows. A transaction the device firmware cannot sign (version 3, a version-3 previous transaction, a covenant input) is refused with a message before anything is sent to the device. A signature whose sighash type differs from the one requested is an error; it is no longer adjusted.
+
 ## Neurai Connect accounts
 
 In the onboarding, **Connect NeuraiWallet** adds the NeuraiWallet mobile app as an account. It works like WalletConnect:
@@ -160,10 +168,10 @@ The session proposal lists `getAccountAddresses` and `signMessage` as required m
 
 To sign a transaction, the signing window:
 
-1.  Reads every prevout with `getrawtransaction` from the account's RPC, after checking the genesis block, and builds a PSBT that carries each prevout as `nonWitnessUtxo`.
-2.  Sends `signPsbt` with `signInputs` listing only the inputs of this account. Each entry names the address that owns the prevout and uses `sighashTypes: [1]`; `broadcast` is `false`.
-3.  Finalizes the partial signatures that come back. A Legacy input gets a P2PKH scriptSig. An ECDSA witness v3 input gets the witness `[0x02, signature, compressed public key, 0x51]`.
-4.  Restores any input that another signer had already signed, such as the seller's input in a swap. It then checks that the transaction spends the same outpoints, with the same sequences, into the same outputs. The background checks this again before it answers the site.
+1.  Reads every prevout with `getrawtransaction` from the account's RPC, after checking the genesis block, and builds a PSBT (Neurai profile) that carries each prevout as `nonWitnessUtxo`. The input of an order this account cancels also carries the order's covenant as `witnessScript` (`src/shared/connect-psbt.ts`).
+2.  Sends `signPsbt` with `signInputs` listing only the inputs of this account. Each entry names the address whose key signs it (the address that owns the prevout, or the account's address for an order it cancels) and uses `sighashTypes: [1]`; `broadcast` is `false`.
+3.  Combines the answer with the PSBT it sent (a field they disagree on is an error) and finalizes only this account's inputs. A Legacy input gets a P2PKH scriptSig. An ECDSA witness v3 input gets the witness `[0x02, signature, compressed public key, 0x51]`. A covenant input keeps the cancel witness NeuraiWallet built.
+4.  Extracts the transaction with the other inputs left open, then restores the ones another signer had already unlocked, such as the seller's input in a swap. It then checks that the transaction has the same version, outpoints, sequences, outputs, reference inputs and locktime. The background checks this again before it answers the site.
 
 Before it signs, NeuraiWallet shows every output with its address and asset, what comes back to the wallet, what leaves it and the fee. It signs only its own inputs with SIGHASH_ALL and never broadcasts. A wallet that settles `signPsbt` but answers it with error 4200 has the method removed from the account, and transactions are turned off until a new session settles it.
 

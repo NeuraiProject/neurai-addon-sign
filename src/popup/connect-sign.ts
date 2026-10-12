@@ -5,11 +5,12 @@
 // the user to approve (the service worker could be stopped meanwhile), checks
 // what comes back and hands it to the background, which checks it again.
 //
-// Transactions travel as a PSBT (`signPsbt`): the page builds it from the raw
-// transaction and the prevouts it reads from the node, asks the wallet to sign
-// the account's inputs with SIGHASH_ALL, finalizes the returned partial
-// signatures (P2PKH, or the ECDSA witness v3 template) and puts back any input
-// another signer had already signed.
+// Transactions travel as a PSBT (`signPsbt`, Neurai profile, connect-psbt.ts):
+// the page builds it from the raw transaction and the prevouts it reads from
+// the node (with the covenant of an order this account cancels), asks the
+// wallet to sign the account's inputs with SIGHASH_ALL, finalizes what comes
+// back (partial signatures, or the covenant's cancel witness) and puts back
+// any input another signer had already unlocked.
 //
 // Sessions last 7 days. When the account's session is gone, the page shows a
 // new pairing QR code; once NeuraiWallet approves a session that exposes the
@@ -32,7 +33,13 @@ import {
 } from '../shared/neurai-connect.js';
 import { assertRpcChain, jsonRpc } from '../shared/chain-identity.js';
 import { parseRawTransaction } from '../shared/parse-raw-tx.js';
-import { keepForeignUnlockingData } from '../shared/tx-merge.js';
+import {
+  buildConnectPsbt,
+  connectSignInputs,
+  describeConnectCancellation,
+  finalizeConnectPsbt
+} from '../shared/connect-psbt.js';
+import type { OwnScript } from '../shared/script-to-address.js';
 import { renderQr } from '../shared/qr.js';
 import type { AccountsRecord, ConnectSignPayload, WalletData, WalletSettings } from '../types/index.js';
 
@@ -261,18 +268,25 @@ import type { AccountsRecord, ConnectSignPayload, WalletData, WalletSettings } f
     return out;
   }
 
+  /** The account's own scriptPubKey, so the window can mark what comes back to it. */
+  function ownScript(address: string): OwnScript | null {
+    try {
+      return { address, scriptHex: NeuraiScripts.bytesToHex(NeuraiScripts.encodeSellerScriptPubKey(address).bytes) };
+    } catch (_) {
+      return null;
+    }
+  }
+
   /** Build the PSBT, have the wallet sign it, finalize and hand back the transaction. */
   async function signTransaction(client: NeuraiConnectClient, session: NeuraiConnectSession, signal: AbortSignal) {
     const req = request!;
     const txHex = req.txHex || '';
     const parsed = parseRawTransaction(txHex);
-    // The inputs this account signs, each with the address that owns its
-    // prevout: the session address, or another address of the account when
-    // the wallet shared its key (connect-account.ts).
-    const ownInputs = parsed.inputs.flatMap((input, index) => {
-      const utxo = (req.utxos || []).find((u) => String(u.txid).toLowerCase() === input.txid && Number(u.vout) === input.vout);
-      return utxo ? [{ index, address: utxo.address || req.address }] : [];
-    });
+    // The inputs this account signs, each with the address whose key signs it:
+    // the session address, another address of the account when the wallet
+    // shared its key (connect-account.ts), or, for an order this account
+    // cancels, the account's address with the covenant (connect-psbt.ts).
+    const ownInputs = connectSignInputs(txHex, req.utxos || [], req.address);
     const ownIndexes = ownInputs.map((input) => input.index);
     if (ownIndexes.length === 0) throw new Error('None of the inputs of this transaction is signed by this account.');
 
@@ -280,16 +294,11 @@ import type { AccountsRecord, ConnectSignPayload, WalletData, WalletSettings } f
     const prevTxs = await fetchPrevTransactions(parsed.inputs.map((input) => input.txid));
     // Only the chain matters to the PSBT helpers; their legacy labels cover it.
     const psbtNetwork = isTestnetNetwork(req.network) ? 'xna-test' : 'xna';
-    const psbt = NeuraiSignESP32.buildPSBTFromRawTransaction({
-      network: psbtNetwork,
-      rawUnsignedTransaction: txHex,
-      inputs: parsed.inputs.map((input) => ({
-        txid: input.txid,
-        vout: input.vout,
-        sequence: input.sequence,
-        rawTxHex: prevTxs[input.txid]
-      }))
-    });
+    const psbt = buildConnectPsbt(psbtNetwork, txHex, prevTxs, ownInputs);
+    if (ownInputs.some((input) => input.witnessScript)) {
+      elements.messageCardTitle!.textContent = 'Order cancellation to sign';
+      elements.messageValue!.textContent = await describeConnectCancellation(psbt, req.network, ownScript(req.address));
+    }
 
     setStatus('confirm', `Approve the transaction in ${session.peerMetadata?.name || 'NeuraiWallet'} on your phone…`);
     const result = await client.request<{ psbt?: string }>(
@@ -301,16 +310,9 @@ import type { AccountsRecord, ConnectSignPayload, WalletData, WalletSettings } f
     );
     if (!result?.psbt) throw new Error('NeuraiWallet returned no PSBT.');
 
-    const finalized = NeuraiSignESP32.finalizeSignedPSBT(psbt, result.psbt, psbtNetwork).txHex;
-    const signedTxHex = keepForeignUnlockingData(txHex, finalized, ownIndexes);
+    const signedTxHex = finalizeConnectPsbt(txHex, psbt, result.psbt, ownIndexes);
     if (!sameTransaction(txHex, signedTxHex)) {
       throw new Error('NeuraiWallet returned a different transaction from the one sent for signing.');
-    }
-    const signed = parseRawTransaction(signedTxHex);
-    const unsignedOwn = ownIndexes.filter((index) =>
-      signed.inputs[index].scriptSigLen === 0 && signed.inputs[index].witnessItemCount === 0);
-    if (unsignedOwn.length > 0) {
-      throw new Error(`NeuraiWallet did not sign input${unsignedOwn.length > 1 ? 's' : ''} ${unsignedOwn.join(', ')}.`);
     }
 
     setStatus('success', 'Signed in NeuraiWallet.');

@@ -16,11 +16,12 @@
 // builds its own transactions.
 //
 // The pure helpers here are loaded by `node --test`, so this file only imports
-// other import-free modules. The client and the storage adapter use the
+// modules that load as they are (the transaction codec is a global read at
+// call time, codec.ts). The client and the storage adapter use the
 // NeuraiConnectSDK and chrome globals at call time only.
 
 import { addressKind, walletFamily, type WalletNetworkLabel } from './networks.ts';
-import { parseRawTransaction } from './parse-raw-tx.ts';
+import { sameTransactionShape } from './tx-merge.ts';
 
 /** Methods the extension needs from the wallet. */
 export const CONNECT_METHODS: readonly string[] = ['getAccountAddresses', 'signMessage'];
@@ -169,23 +170,12 @@ export function signPsbtParams(chainId: string, address: string, psbt: string, i
 }
 
 /**
- * True when `signedHex` spends the same outpoints, with the same sequences,
- * into the same outputs as `unsignedHex`: what a signature may add is the
- * unlocking data, nothing else.
+ * True when `signedHex` is `unsignedHex` with unlocking data added: same
+ * version, outpoints, sequences, outputs, NIP-014 reference inputs and
+ * locktime. What a signature may add is the unlocking data, nothing else.
  */
 export function sameTransaction(unsignedHex: string, signedHex: string): boolean {
-  try {
-    const a = parseRawTransaction(unsignedHex);
-    const b = parseRawTransaction(signedHex);
-    if (a.inputs.length !== b.inputs.length || a.outputs.length !== b.outputs.length) return false;
-    const inputsMatch = a.inputs.every((input, i) =>
-      input.txid === b.inputs[i].txid && input.vout === b.inputs[i].vout && input.sequence === b.inputs[i].sequence);
-    const outputsMatch = a.outputs.every((output, i) =>
-      output.value === b.outputs[i].value && output.scriptHex === b.outputs[i].scriptHex);
-    return inputsMatch && outputsMatch;
-  } catch {
-    return false;
-  }
+  return sameTransactionShape(unsignedHex, signedHex);
 }
 
 /** Params of a `signMessage` session request, as NeuraiWallet reads them. */

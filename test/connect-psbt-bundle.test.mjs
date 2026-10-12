@@ -58,5 +58,48 @@ test('a previous transaction that is not the one the input spends is refused', (
     network: 'xna-test',
     rawUnsignedTransaction: raw,
     inputs: [{ txid: otherTxid, vout: 1, sequence: 0xffffffff, rawTxHex: V3_TX }],
-  }), /is not/);
+  }), /the previous transaction is 33c25766\w+, but the input spends 1{64}:1/);
+});
+
+// Hardware wallet (popup.ts / expanded.ts): the same builder, with the device's
+// key path on the inputs it signs. The firmware cannot read version-3
+// transactions nor sign covenant inputs: those are refused before the device.
+test('the device refuses, before signing, a previous transaction of version 3', () => {
+  const raw = NeuraiCreateTransaction.createUnsignedTransaction({
+    inputs: [{ txid: V3_TXID, vout: 1 }],
+    outputs: [NeuraiCreateTransaction.createXnaOutput('tNq5bpLot8TngXfd5iP28csboQwuw1Z3vh', 1000n)],
+  });
+  const psbt = NeuraiSignESP32.buildPSBTFromRawTransaction({
+    network: 'xna-test',
+    rawUnsignedTransaction: raw,
+    inputs: [{
+      txid: V3_TXID, vout: 1, sequence: 0xffffffff, rawTxHex: V3_TX,
+      masterFingerprint: 'deadbeef', derivationPath: "m/44'/1'/0'/0/0",
+      pubkey: '02' + '11'.repeat(32), sighashType: 1,
+    }],
+  });
+  assert.equal(NeuraiCreateTransaction.decodePsbt(psbt).inputs[0].bip32Derivation[0].path, "m/44'/1'/0'/0/0");
+  assert.throws(() => NeuraiSignESP32.assertDeviceCanSignPSBT(psbt), /previous transaction of input #0 is version 3/);
+});
+
+test('the device refuses, before signing, a covenant input', () => {
+  const prev = NeuraiCreateTransaction.serializeTransaction({
+    version: 2,
+    inputs: [{ txid: '22'.repeat(32), vout: 0, scriptSigHex: '', sequence: 0xffffffff }],
+    outputs: [NeuraiCreateTransaction.createXnaOutput('tNq5bpLot8TngXfd5iP28csboQwuw1Z3vh', 5000n)],
+    vrefin: [],
+    locktime: 0,
+  });
+  const prevTxid = NeuraiCreateTransaction.computeTxid(prev);
+  const raw = NeuraiCreateTransaction.createUnsignedTransaction({
+    inputs: [{ txid: prevTxid, vout: 0 }],
+    outputs: [NeuraiCreateTransaction.createXnaOutput('tNq5bpLot8TngXfd5iP28csboQwuw1Z3vh', 1000n)],
+  });
+  const build = (witnessScript) => NeuraiSignESP32.buildPSBTFromRawTransaction({
+    network: 'xna-test',
+    rawUnsignedTransaction: raw,
+    inputs: [{ txid: prevTxid, vout: 0, sequence: 0xffffffff, rawTxHex: prev, ...(witnessScript ? { witnessScript } : {}) }],
+  });
+  assert.doesNotThrow(() => NeuraiSignESP32.assertDeviceCanSignPSBT(build()));
+  assert.throws(() => NeuraiSignESP32.assertDeviceCanSignPSBT(build('c0ffee')), /carries a witnessScript/);
 });

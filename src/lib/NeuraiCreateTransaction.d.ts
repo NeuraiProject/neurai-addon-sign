@@ -55,7 +55,67 @@ declare global {
     assetMarker?: NeuraiCreateTransactionAssetMarker;
   }
 
+  /** A transaction as the codec reads it (any version; `vrefin` is NIP-014, version 3). */
+  interface NeuraiCreateTransactionDecodedTransaction {
+    version: number;
+    inputs: Array<{
+      txid: string;
+      vout: number;
+      scriptSigHex: string;
+      sequence: number;
+      /** Witness stack, one hex string per element. Absent/empty = no witness. */
+      witness?: string[];
+    }>;
+    outputs: Array<{ valueSats: bigint; scriptPubKeyHex: string }>;
+    vrefin: Array<{ txid: string; vout: number }>;
+    locktime: number;
+  }
+
+  interface NeuraiCreateTransactionPsbtPartialSig {
+    pubkeyHex: string;
+    signatureHex: string;
+  }
+
+  interface NeuraiCreateTransactionDecodedPsbtInput {
+    previousTx?: string;
+    witnessUtxo?: { scriptPubKeyHex: string; valueSats: bigint };
+    partialSig: NeuraiCreateTransactionPsbtPartialSig[];
+    sighashType?: number;
+    redeemScript?: string;
+    witnessScript?: string;
+    bip32Derivation: Array<{ masterFingerprintHex: string; pubkeyHex: string; path: string }>;
+    finalScriptSig?: string;
+    finalScriptWitness?: string[];
+    unknown: Array<{ keyHex: string; valueHex: string }>;
+  }
+
+  /** Neurai PSBT profile (BIP-174 version 0, Neurai transaction serialization). */
+  interface NeuraiCreateTransactionDecodedPsbt {
+    unsignedTx: NeuraiCreateTransactionDecodedTransaction;
+    txid: string;
+    inputs: NeuraiCreateTransactionDecodedPsbtInput[];
+    outputs: Array<{ redeemScript?: string; witnessScript?: string; unknown: Array<{ keyHex: string; valueHex: string }> }>;
+    unknown: Array<{ keyHex: string; valueHex: string }>;
+  }
+
   interface NeuraiCreateTransactionStatic {
+    parseTransaction(hex: string): NeuraiCreateTransactionDecodedTransaction;
+    serializeTransaction(tx: NeuraiCreateTransactionDecodedTransaction, options?: { includeWitness?: boolean }): string;
+    computeTxid(txOrHex: NeuraiCreateTransactionDecodedTransaction | string): string;
+
+    /** Every PSBT function takes base64, hex or bytes and returns base64. */
+    decodePsbt(psbt: string | Uint8Array): NeuraiCreateTransactionDecodedPsbt;
+    combinePsbts(base: string | Uint8Array, ...others: Array<string | Uint8Array>): string;
+    finalizePsbt(psbt: string | Uint8Array, options?: { inputs?: 'all' | number[] }): string;
+    extractPsbtTransaction(
+      psbt: string | Uint8Array,
+      options?: { allowIncomplete?: boolean }
+    ): { hex: string; txid: string; incomplete: number[] };
+    getPsbtPreviousOutput(
+      decoded: NeuraiCreateTransactionDecodedPsbt,
+      index: number
+    ): { scriptPubKeyHex: string; valueSats: bigint };
+
     /** Exact: throws on more than 8 decimals, float artifacts, empty or negative input. */
     xnaToSatoshis(amount: number | string): bigint;
     assetUnitsToRaw(amount: number | string): bigint;
